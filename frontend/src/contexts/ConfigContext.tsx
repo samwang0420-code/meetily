@@ -140,9 +140,14 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const [selectedLanguage, setSelectedLanguage] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('primaryLanguage');
-      return saved || 'auto';
+      // 离线会记: 强制 zh 模式,清掉旧的 auto/auto-translate
+      if (saved === 'auto' || saved === 'auto-translate' || saved === 'en') {
+        localStorage.removeItem('primaryLanguage');
+        return 'zh';
+      }
+      return saved || 'zh';
     }
-    return 'auto';
+    return 'zh';
   });
 
   // UI preferences state
