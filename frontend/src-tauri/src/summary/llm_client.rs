@@ -78,15 +78,15 @@ pub enum LLMProvider {
 impl LLMProvider {
     /// Parse provider from string (case-insensitive)
     pub fn from_str(s: &str) -> Result<Self, String> {
+        // 离线会记: 只接受 Ollama (本地) 与 BuiltInAI (本地内置)。
+        // OpenAI/Claude/Groq/OpenRouter/CustomOpenAI 全部禁用,云端 API 不允许调用。
         match s.to_lowercase().as_str() {
-            "openai" => Ok(Self::OpenAI),
-            "claude" => Ok(Self::Claude),
-            "groq" => Ok(Self::Groq),
             "ollama" => Ok(Self::Ollama),
-            "openrouter" => Ok(Self::OpenRouter),
             "builtin-ai" | "local-llama" | "localllama" => Ok(Self::BuiltInAI),
-            "custom-openai" => Ok(Self::CustomOpenAI),
-            _ => Err(format!("Unsupported LLM provider: {}", s)),
+            _ => Err(format!(
+                "离线会记仅支持本地 LLM (Ollama / BuiltInAI),云端 provider '{}' 已禁用",
+                s
+            )),
         }
     }
 }
@@ -130,6 +130,11 @@ pub async fn generate_summary(
         if token.is_cancelled() {
             return Err("Summary generation was cancelled".to_string());
         }
+    }
+
+    // 离线会记硬守卫: 只允许 Ollama / BuiltInAI 调用 LLM
+    if !matches!(provider, LLMProvider::Ollama | LLMProvider::BuiltInAI) {
+        return Err("离线会记仅支持本地 LLM (Ollama / BuiltInAI),云端 provider 不可用".to_string());
     }
 
     // Handle BuiltInAI provider separately (uses local sidecar, no HTTP API)
