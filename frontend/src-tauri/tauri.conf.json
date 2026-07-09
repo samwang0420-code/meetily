@@ -4,10 +4,7 @@
     "version": "0.1.0",
     "identifier": "cn.lixianhuiji.app",
     "build": {
-        "frontendDist": "../out",
-        "devUrl": "http://localhost:3118",
-        "beforeDevCommand": "pnpm dev",
-        "beforeBuildCommand": "pnpm build"
+        "frontendDist": "../out"
     },
     "app": {
         "windows": [
