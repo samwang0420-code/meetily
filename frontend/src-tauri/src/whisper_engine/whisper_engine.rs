@@ -244,7 +244,6 @@ impl WhisperEngine {
                 status,
                 description: description.to_string(),
             };
-            
             models.push(model_info);
         }
         
@@ -810,20 +809,33 @@ impl WhisperEngine {
     /// Validate if a model file is a valid GGML file by checking its header
     async fn validate_model_file(&self, model_path: &PathBuf) -> Result<()> {
         use tokio::io::AsyncReadExt;
+        let path_str = model_path.display().to_string();
 
-        let mut file = fs::File::open(model_path).await
-            .map_err(|e| anyhow!("Failed to open model file: {}", e))?;
+        let mut file = match fs::File::open(model_path).await {
+            Ok(f) => f,
+            Err(e) => {
+                log::error!("[validate] open fail {}: {}", path_str, e);
+                return Err(anyhow!("Failed to open model file: {}", e));
+            }
+        };
 
         // Read the first 8 bytes to check for GGML magic number
         let mut buffer = [0u8; 8];
-        file.read_exact(&mut buffer).await
-            .map_err(|e| anyhow!("Failed to read model file header: {}", e))?;
+        if let Err(e) = file.read_exact(&mut buffer).await {
+            log::error!("[validate] read fail {}: {}", path_str, e);
+            return Err(anyhow!("Failed to read model file header: {}", e));
+        }
 
         // Check for GGML magic number (various versions and endianness)
         if buffer.starts_with(b"ggml") || buffer.starts_with(b"GGUF") || buffer.starts_with(b"ggmf") ||
            buffer.starts_with(b"lmgg") || buffer.starts_with(b"FUGU") || buffer.starts_with(b"fmgg") {
             Ok(())
         } else {
+            log::error!(
+                "[validate] magic mismatch {} first4={:?}",
+                path_str,
+                String::from_utf8_lossy(&buffer[..4])
+            );
             Err(anyhow!("Invalid model file: missing GGML/GGUF magic number. Found: {:?}",
                        String::from_utf8_lossy(&buffer[..4])))
         }

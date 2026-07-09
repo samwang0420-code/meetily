@@ -53,16 +53,29 @@ pub async fn whisper_init() -> Result<(), String> {
 
 #[command]
 pub async fn whisper_get_available_models() -> Result<Vec<ModelInfo>, String> {
+    log::info!("[diag] whisper_get_available_models called");
     let engine = {
         let guard = WHISPER_ENGINE.lock().unwrap();
         guard.as_ref().cloned()
     };
 
     if let Some(engine) = engine {
-        engine
+        match engine
             .discover_models()
             .await
-            .map_err(|e| format!("Failed to discover models: {}", e))
+        {
+            Ok(models) => {
+                log::info!("[diag] discover returned {} models: {:?}",
+                    models.len(),
+                    models.iter().map(|m| (m.name.clone(), format!("{:?}", m.status))).collect::<Vec<_>>()
+                );
+                Ok(models)
+            }
+            Err(e) => {
+                log::error!("[diag] discover failed: {}", e);
+                Err(format!("Failed to discover models: {}", e))
+            }
+        }
     } else {
         // Fallback: scan models directory directly without initialized engine
         log::info!("Whisper engine not initialized, scanning models directory directly");
