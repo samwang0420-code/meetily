@@ -1,6 +1,8 @@
 use reqwest::{header, Client};
+use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio_util::sync::CancellationToken;
 use tracing::info;
@@ -25,6 +27,26 @@ pub struct ChatRequest {
     pub temperature: Option<f32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stream: Option<bool>,
+}
+
+pub type StreamSink = Arc<dyn Fn(&str) + Send + Sync>;
+
+#[derive(Deserialize, Debug)]
+struct StreamChatResponse {
+    choices: Vec<StreamChoice>,
+}
+
+#[derive(Deserialize, Debug)]
+struct StreamChoice {
+    delta: StreamDelta,
+}
+
+#[derive(Deserialize, Debug)]
+struct StreamDelta {
+    #[serde(default)]
+    content: String,
 }
 
 // Generic structure for OpenAI-compatible API chat responses
@@ -125,6 +147,42 @@ pub async fn generate_summary(
     app_data_dir: Option<&PathBuf>,
     cancellation_token: Option<&CancellationToken>,
 ) -> Result<String, String> {
+    generate_summary_with_stream(
+        client,
+        provider,
+        model_name,
+        api_key,
+        system_prompt,
+        user_prompt,
+        ollama_endpoint,
+        custom_openai_endpoint,
+        max_tokens,
+        temperature,
+        top_p,
+        app_data_dir,
+        cancellation_token,
+        None,
+    )
+    .await
+}
+
+#[allow(clippy::too_many_arguments)]
+pub async fn generate_summary_with_stream(
+    client: &Client,
+    provider: &LLMProvider,
+    model_name: &str,
+    api_key: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+    ollama_endpoint: Option<&str>,
+    custom_openai_endpoint: Option<&str>,
+    max_tokens: Option<u32>,
+    temperature: Option<f32>,
+    top_p: Option<f32>,
+    app_data_dir: Option<&PathBuf>,
+    cancellation_token: Option<&CancellationToken>,
+    stream_sink: Option<StreamSink>,
+) -> Result<String, String> {
     // Check if cancelled before starting
     if let Some(token) = cancellation_token {
         if token.is_cancelled() {
@@ -142,7 +200,7 @@ pub async fn generate_summary(
         let app_data_dir = app_data_dir
             .ok_or_else(|| "app_data_dir is required for BuiltInAI provider".to_string())?;
 
-        return crate::summary::summary_engine::generate_with_builtin(
+        let result = crate::summary::summary_engine::generate_with_builtin(
             app_data_dir,
             model_name,
             system_prompt,
@@ -150,7 +208,13 @@ pub async fn generate_summary(
             cancellation_token,
         )
         .await
-        .map_err(|e| e.to_string());
+        .map_err(|e| e.to_string())?;
+        if let Some(sink) = stream_sink {
+            for chunk in chunk_for_stream(&result, 48) {
+                sink(chunk);
+            }
+        }
+        return Ok(result);
     }
 
     let (api_url, mut headers) = match provider {
@@ -245,6 +309,7 @@ pub async fn generate_summary(
             max_tokens: max_tokens_val,
             temperature: temperature_val,
             top_p: top_p_val,
+            stream: Some(stream_sink.is_some()),
         })
     } else {
         serde_json::json!(ClaudeRequest {
@@ -303,7 +368,35 @@ pub async fn generate_summary(
     }
 
     // Parse response based on provider
-    if provider == &LLMProvider::Claude {
+    if provider == &LLMProvider::Ollama && stream_sink.is_some() {
+        let sink = stream_sink.expect("stream sink checked above");
+        let mut bytes_stream = response.bytes_stream();
+        let mut pending = String::new();
+        let mut output = String::new();
+
+        while let Some(next) = bytes_stream.next().await {
+            if cancellation_token.is_some_and(CancellationToken::is_cancelled) {
+                return Err("Summary generation was cancelled".to_string());
+            }
+            let bytes = next.map_err(|e| format!("Failed to read streaming response: {}", e))?;
+            pending.push_str(&String::from_utf8_lossy(&bytes));
+            while let Some(newline) = pending.find('\n') {
+                let line = pending[..newline].trim().to_string();
+                pending.drain(..=newline);
+                if let Some(content) = parse_stream_line(&line)? {
+                    output.push_str(&content);
+                    sink(&content);
+                }
+            }
+        }
+        if !pending.trim().is_empty() {
+            if let Some(content) = parse_stream_line(pending.trim())? {
+                output.push_str(&content);
+                sink(&content);
+            }
+        }
+        Ok(output.trim().to_string())
+    } else if provider == &LLMProvider::Claude {
         let chat_response = response
             .json::<ClaudeChatResponse>()
             .await
@@ -334,6 +427,57 @@ pub async fn generate_summary(
             .content
             .trim();
         Ok(content.to_string())
+    }
+}
+
+fn parse_stream_line(line: &str) -> Result<Option<String>, String> {
+    let payload = line.strip_prefix("data:").map(str::trim).unwrap_or(line);
+    if payload.is_empty() || payload == "[DONE]" {
+        return Ok(None);
+    }
+    let response: StreamChatResponse = serde_json::from_str(payload)
+        .map_err(|e| format!("Failed to parse streaming response: {}", e))?;
+    Ok(response.choices.first().map(|choice| choice.delta.content.clone()).filter(|value| !value.is_empty()))
+}
+
+fn chunk_for_stream(text: &str, target_chars: usize) -> Vec<&str> {
+    if text.is_empty() {
+        return Vec::new();
+    }
+    let mut chunks = Vec::new();
+    let mut start = 0;
+    let mut chars = 0;
+    for (index, character) in text.char_indices() {
+        chars += 1;
+        if chars >= target_chars && (character.is_whitespace() || character == '。' || character == '，') {
+            let end = index + character.len_utf8();
+            chunks.push(&text[start..end]);
+            start = end;
+            chars = 0;
+        }
+    }
+    if start < text.len() {
+        chunks.push(&text[start..]);
+    }
+    chunks
+}
+
+#[cfg(test)]
+mod streaming_tests {
+    use super::*;
+
+    #[test]
+    fn parses_openai_compatible_stream_line() {
+        let value = parse_stream_line(r#"data: {"choices":[{"delta":{"content":"你好"}}]}"#).unwrap();
+        assert_eq!(value.as_deref(), Some("你好"));
+        assert_eq!(parse_stream_line("data: [DONE]").unwrap(), None);
+    }
+
+    #[test]
+    fn chunks_utf8_without_breaking_characters() {
+        let chunks = chunk_for_stream("第一段文字，第二段文字。第三段", 5);
+        assert_eq!(chunks.concat(), "第一段文字，第二段文字。第三段");
+        assert!(chunks.len() >= 2);
     }
 }
 

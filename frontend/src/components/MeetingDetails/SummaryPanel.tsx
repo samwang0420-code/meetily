@@ -10,6 +10,7 @@ import { SummaryGeneratorButtonGroup } from './SummaryGeneratorButtonGroup';
 import { SummaryUpdaterButtonGroup } from './SummaryUpdaterButtonGroup';
 import Analytics from '@/lib/analytics';
 import { useEffect, useRef, useState, RefObject } from 'react';
+import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
 import { safeToast } from '@/lib/safeToast';
 import { Languages, ChevronDown } from 'lucide-react';
@@ -107,10 +108,29 @@ export function SummaryPanel({
   const [summaryLang, setSummaryLang] = useState<string | null>(null);
   const [summaryLangStorage, setSummaryLangStorage] = useState<SummaryLanguageStorage>('metadata');
   const [langPickerOpen, setLangPickerOpen] = useState(false);
+  const [streamedMarkdown, setStreamedMarkdown] = useState('');
   const languageLoadVersionRef = useRef(0);
   const activeMeetingIdRef = useRef(meeting.id);
   const languageSaveVersionRef = useRef(0);
   const languageSaveLoopRunningRef = useRef(false);
+
+  useEffect(() => {
+    setStreamedMarkdown('');
+    let unlisten: (() => void) | undefined;
+    void listen<{ meeting_id: string; delta: string }>('summary-stream', (event) => {
+      if (event.payload.meeting_id !== meeting.id) return;
+      setStreamedMarkdown((current) => current + event.payload.delta);
+    }).then((dispose) => {
+      unlisten = dispose;
+    });
+    return () => unlisten?.();
+  }, [meeting.id]);
+
+  useEffect(() => {
+    if (summaryStatus === 'processing' || summaryStatus === 'regenerating') {
+      setStreamedMarkdown('');
+    }
+  }, [summaryStatus]);
   const latestLanguageSaveRequestRef = useRef<{
     version: number;
     meetingId: string;
@@ -338,12 +358,23 @@ export function SummaryPanel({
               onOpenModelSettings={onOpenModelSettings}
             />
           </div>
-          {/* Loading spinner */}
-          <div className="flex items-center justify-center flex-1">
+          <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
+            {streamedMarkdown ? (
+              <div className="mx-auto max-w-4xl rounded-xl border border-blue-100 bg-blue-50/40 p-5">
+                <div className="mb-3 flex items-center gap-2 text-xs font-medium text-blue-700">
+                  <span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />
+                  {locale === 'zh' ? '本地模型正在生成' : 'Local model is generating'}
+                </div>
+                <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-gray-800">{streamedMarkdown}</pre>
+              </div>
+            ) : (
+            <div className="flex h-full items-center justify-center">
             <div className="text-center">
               <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
               <p className="text-gray-600">{t('summary.generating')}</p>
             </div>
+            </div>
+            )}
           </div>
         </div>
       ) : !aiSummary ? (

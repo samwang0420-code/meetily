@@ -17,10 +17,16 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::{AppHandle, Manager};
+use tauri::{AppHandle, Emitter, Manager};
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info, warn};
 use once_cell::sync::Lazy;
+
+#[derive(Debug, Clone, Serialize)]
+struct SummaryStreamEvent {
+    meeting_id: String,
+    delta: String,
+}
 
 // Global cache for model metadata (5 minute TTL)
 static METADATA_CACHE: Lazy<ModelMetadataCache> = Lazy::new(|| {
@@ -312,7 +318,7 @@ impl SummaryService {
     /// * `custom_prompt` - Optional user-provided context
     /// * `template_id` - Template identifier (e.g., "daily_standup", "standard_meeting")
     pub async fn process_transcript_background<R: tauri::Runtime>(
-        _app: AppHandle<R>,
+        app: AppHandle<R>,
         pool: SqlitePool,
         meeting_id: String,
         text: String,
@@ -458,7 +464,7 @@ impl SummaryService {
         };
 
         // Get app data directory for BuiltInAI provider
-        let app_data_dir = _app.path().app_data_dir().ok();
+        let app_data_dir = app.path().app_data_dir().ok();
 
         if let Some(code) = &summary_language {
             info!("📝 Summary language preference: {}", code);
@@ -536,6 +542,18 @@ impl SummaryService {
             }).collect::<Vec<_>>().join("\n")
         };
 
+        let stream_app = app.clone();
+        let stream_meeting_id = meeting_id.clone();
+        let stream_sink = Arc::new(move |delta: &str| {
+            let _ = stream_app.emit(
+                "summary-stream",
+                SummaryStreamEvent {
+                    meeting_id: stream_meeting_id.clone(),
+                    delta: delta.to_string(),
+                },
+            );
+        });
+
         let result = generate_meeting_summary(
             &client,
             &provider,
@@ -556,6 +574,7 @@ impl SummaryService {
             summary_language.as_deref(),
             detected_summary_language.as_deref(),
             cached_english.as_deref(),
+            Some(stream_sink),
         )
         .await;
 

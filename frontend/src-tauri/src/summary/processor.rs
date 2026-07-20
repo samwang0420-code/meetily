@@ -1,4 +1,4 @@
-use crate::summary::llm_client::{generate_summary, LLMProvider};
+use crate::summary::llm_client::{generate_summary, generate_summary_with_stream, LLMProvider, StreamSink};
 use crate::summary::templates::Template;
 use once_cell::sync::Lazy;
 use regex::Regex;
@@ -378,6 +378,7 @@ pub async fn generate_meeting_summary(
     summary_language: Option<&str>,
     detected_transcript_language: Option<&str>,
     cached_english: Option<&str>,
+    stream_sink: Option<StreamSink>,
 ) -> Result<(String, String, i64), String> {
     if let Some(token) = cancellation_token {
         if token.is_cancelled() {
@@ -549,7 +550,7 @@ pub async fn generate_meeting_summary(
             }
         }
 
-        let raw_markdown = generate_summary(
+        let raw_markdown = generate_summary_with_stream(
             client,
             provider,
             model_name,
@@ -563,6 +564,7 @@ pub async fn generate_meeting_summary(
             top_p,
             app_data_dir,
             cancellation_token,
+            stream_sink,
         )
         .await?;
 
