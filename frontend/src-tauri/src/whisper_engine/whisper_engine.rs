@@ -53,6 +53,10 @@ impl WhisperEngine {
     /// Detect available GPU acceleration capabilities
     fn detect_gpu_acceleration() -> bool {
         match WhisperCompiledBackend::current() {
+            WhisperCompiledBackend::CoreMlMetal => {
+                log::info!("Apple Silicon detected - enabling CoreML encoder with Metal GPU fallback");
+                true
+            }
             WhisperCompiledBackend::Metal => {
                 log::info!("macOS detected - attempting to enable Metal GPU acceleration");
                 true

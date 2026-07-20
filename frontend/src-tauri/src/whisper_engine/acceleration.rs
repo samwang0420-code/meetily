@@ -2,6 +2,7 @@ use crate::audio::{GpuType, PerformanceTier};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WhisperCompiledBackend {
+    CoreMlMetal,
     Metal,
     Cuda,
     Vulkan,
@@ -17,6 +18,8 @@ impl WhisperCompiledBackend {
             Self::Vulkan
         } else if cfg!(feature = "hipblas") {
             Self::HipBlas
+        } else if cfg!(target_os = "macos") && cfg!(target_arch = "aarch64") {
+            Self::CoreMlMetal
         } else if cfg!(target_os = "macos") || cfg!(feature = "metal") {
             Self::Metal
         } else {
@@ -26,6 +29,7 @@ impl WhisperCompiledBackend {
 
     pub fn as_str(self) -> &'static str {
         match self {
+            Self::CoreMlMetal => "CoreML+Metal",
             Self::Metal => "Metal",
             Self::Cuda => "Cuda",
             Self::Vulkan => "Vulkan",
@@ -47,6 +51,8 @@ pub struct WhisperContextAcceleration {
 impl WhisperContextAcceleration {
     pub fn status_label(self) -> &'static str {
         match (self.compiled_backend, self.flash_attn) {
+            (WhisperCompiledBackend::CoreMlMetal, true) => "CoreML encoder + Metal GPU with Flash Attention",
+            (WhisperCompiledBackend::CoreMlMetal, false) => "CoreML encoder + Metal GPU acceleration",
             (WhisperCompiledBackend::Metal, true) => "Metal GPU with Flash Attention (Ultra-Fast)",
             (WhisperCompiledBackend::Metal, false) => "Metal GPU acceleration",
             (WhisperCompiledBackend::Cuda, true) => "CUDA GPU with Flash Attention (Ultra-Fast)",
@@ -66,7 +72,7 @@ pub fn whisper_context_acceleration_for(
     let use_gpu = !matches!(compiled_backend, WhisperCompiledBackend::Cpu);
     let fast_tier = matches!(performance_tier, PerformanceTier::High | PerformanceTier::Ultra);
     let flash_attn = match compiled_backend {
-        WhisperCompiledBackend::Metal | WhisperCompiledBackend::Cuda => fast_tier,
+        WhisperCompiledBackend::CoreMlMetal | WhisperCompiledBackend::Metal | WhisperCompiledBackend::Cuda => fast_tier,
         WhisperCompiledBackend::Vulkan | WhisperCompiledBackend::HipBlas | WhisperCompiledBackend::Cpu => false,
     };
 
@@ -140,5 +146,19 @@ mod tests {
             assert!(!params.use_gpu);
             assert!(!params.flash_attn);
         }
+    }
+
+    #[test]
+    fn coreml_metal_route_uses_gpu_and_reports_backend() {
+        let params = whisper_context_acceleration_for(
+            WhisperCompiledBackend::CoreMlMetal,
+            GpuType::Metal,
+            PerformanceTier::Ultra,
+        );
+
+        assert_eq!(params.compiled_backend.as_str(), "CoreML+Metal");
+        assert!(params.use_gpu);
+        assert!(params.flash_attn);
+        assert!(params.status_label().contains("CoreML encoder"));
     }
 }
