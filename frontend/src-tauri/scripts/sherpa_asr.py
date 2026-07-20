@@ -31,6 +31,43 @@ from sherpa_hotwords import get_hotwords
 from itn_post import apply_itn  # v0.6.13+ ITN 后处理
 from diar import count_speakers, is_available as diar_is_available  # v0.6.14+ Speaker Diarization
 
+# v0.7.1+ 长会议 diar 结果落盘 helper
+# 后台线程算完后调用: 把 {num_speakers, segments, warning} 写 /tmp/lixianhuiji_diar/<rid>.json
+# 上层 worker 通过 _diar_pickup(rid) 轮询拿结果 (消费侧下一轮 PR 加 DB 落库)
+def _persist_diar_result(rid, state):
+    if not rid:
+        return
+    try:
+        import json as _json
+        import os as _os
+        out_dir = "/tmp/lixianhuiji_diar"
+        _os.makedirs(out_dir, exist_ok=True)
+        payload = state.get("result") or {}
+        if state.get("err"):
+            payload = {"error": str(state["err"])}
+        payload["rid"] = rid
+        payload["finished_at"] = time.time()
+        with open(_os.path.join(out_dir, f"{rid}.json"), "w", encoding="utf-8") as _f:
+            _json.dump(payload, _f, ensure_ascii=False)
+    except Exception as _e:
+        sys.stderr.write(f"[sherpa_asr] diar persist failed for {rid}: {_e}\n")
+
+
+def _diar_pickup(rid):
+    if not rid:
+        return None
+    try:
+        import json as _json
+        import os as _os
+        path = _os.path.join("/tmp/lixianhuiji_diar", f"{rid}.json")
+        if not _os.path.exists(path):
+            return None
+        with open(path, "r", encoding="utf-8") as _f:
+            return _json.load(_f)
+    except Exception:
+        return None
+
+
 MODELS_ROOT = os.path.expanduser(
     "~/Library/Application Support/cn.lixianhuiji.app/models/sherpa"
 )
@@ -939,40 +976,54 @@ def transcribe(req):
     }
 
     # v0.6.14+ Speaker Diarization (optional, if model files exist)
-    # Only run for >= 10s audio to avoid false positives on very short clips.
-    # Async'd behind a thread to not block transcription response.
     # v0.7.0+: 也返回 segments 数组 (speaker + start + end + text), 供前端按人分段展示.
+    #
+    # 长会议 dispatch 策略 (v0.7.1+):
+    #   - 短音频 (<60s): 同步等 thread.join(timeout=12), 拿 num_speakers/segments
+    #   - 长音频 (>=60s): 后台线程, daemon=True, 12s 不再 join, 立刻返回 num_speakers=None
+    #     后台算完后写 /tmp/lixianhuiji_diar/<rid>.json 让上层 worker 轮询 pickup
+    #     之前 12s 超时在 30+ 分钟音频下必丢 segments / 卡住 stdin worker
     if diar_is_available() and len(arr) / sr >= 10.0:
         try:
             import threading as _threading
             from diar import process_diarization
+            audio_seconds = len(arr) / sr
+            is_long = audio_seconds >= 60.0
             _diar_state = {"result": None, "err": None}
             def _run_diar():
                 try:
-                    # v0.7.0+ 新 API: 返回完整 result (含 segments), fallback 旧 API
                     _diar_state["result"] = process_diarization(arr, sr)
                 except (AttributeError, ImportError):
-                    # 旧 diar.py: 只返 num_speakers
                     n = count_speakers(arr, sr)
                     _diar_state["result"] = {"num_speakers": n, "segments": []}
                 except Exception as e:
                     _diar_state["err"] = e
-            _t = _threading.Thread(target=_run_diar, daemon=True)
+                finally:
+                    _persist_diar_result(rid, _diar_state)
+            _t = _threading.Thread(target=_run_diar, daemon=True, name=f"diar-{rid}")
             _t.start()
-            _t.join(timeout=12.0)  # max 12s, diar 实际 ~1-3s
-            if _diar_state["result"]:
-                r = _diar_state["result"]
-                if r.get("num_speakers") and r.get("num_speakers") > 0:
-                    resp["num_speakers"] = int(r["num_speakers"])
-                if r.get("num_speakers") and r.get("segments"):
-                    # segments 已经是 [{start, end, speaker, duration, text}]
-                    resp["segments"] = r["segments"]
-                    sys.stderr.write(
-                        f"[sherpa_asr] diar: {resp.get('num_speakers', '?')} speakers, "
-                        f"{len(r['segments'])} segments\n"
-                    )
-            elif _diar_state["err"]:
-                sys.stderr.write(f"[sherpa_asr] diar error: {_diar_state['err']}\n")
+            if is_long:
+                sys.stderr.write(
+                    f"[sherpa_asr] diar dispatch async: {audio_seconds:.1f}s audio "
+                    f"(>=60s), background; pickup via /tmp/lixianhuiji_diar/{rid}.json\n"
+                )
+                resp["num_speakers"] = None
+                resp["segments"] = []
+                resp["diar_pending"] = True
+            else:
+                _t.join(timeout=12.0)
+                if _diar_state["result"]:
+                    r = _diar_state["result"]
+                    if r.get("num_speakers") and r.get("num_speakers") > 0:
+                        resp["num_speakers"] = int(r["num_speakers"])
+                    if r.get("num_speakers") and r.get("segments"):
+                        resp["segments"] = r["segments"]
+                        sys.stderr.write(
+                            f"[sherpa_asr] diar: {resp.get('num_speakers', '?')} speakers, "
+                            f"{len(r['segments'])} segments\n"
+                        )
+                elif _diar_state["err"]:
+                    sys.stderr.write(f"[sherpa_asr] diar error: {_diar_state['err']}\n")
         except Exception as e:
             sys.stderr.write(f"[sherpa_asr] diar dispatch failed: {e}\n")
 
