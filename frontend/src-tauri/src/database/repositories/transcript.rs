@@ -15,17 +15,23 @@ impl TranscriptsRepository {
         meeting_title: &str,
         transcripts: &[TranscriptSegment],
         folder_path: Option<String>,
+        // v0.7.1+: 长会议 diar pickup — 前端录音停止时复用 start_recording 生成的 id,
+        // 让 sherpa_asr 后台线程 UPDATE 的 transcripts.speaker 行能命中.
+        // None 时回落到自动生成 (兼容旧调用).
+        meeting_id_in: Option<&str>,
     ) -> Result<String, SqlxError> {
-        let meeting_id = format!("meeting-{}", Uuid::new_v4());
+        let meeting_id = meeting_id_in
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("meeting-{}", Uuid::new_v4()));
 
         let mut conn = pool.acquire().await?;
         let mut transaction = conn.begin().await?;
 
         let now = Utc::now();
 
-        // 1. Create the new meeting
+        // 1. Create the new meeting (INSERT OR IGNORE 兼容 start_recording 时已 placeholder)
         let result = sqlx::query(
-            "INSERT INTO meetings (id, title, created_at, updated_at, folder_path) VALUES (?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO meetings (id, title, created_at, updated_at, folder_path) VALUES (?, ?, ?, ?, ?)",
         )
         .bind(&meeting_id)
         .bind(meeting_title)

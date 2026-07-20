@@ -934,6 +934,8 @@ pub async fn api_save_transcript<R: Runtime>(
     transcripts: Vec<serde_json::Value>,
     folder_path: Option<String>,
     auth_token: Option<String>,
+    // v0.7.1+: 长会议 diar pickup — 前端录音停止时从 recording-started 事件拿的 meeting_id
+    meeting_id: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
         "api_save_transcript called for meeting: {}, transcripts: {}, folder_path: {:?}, auth_token: {}",
@@ -978,6 +980,7 @@ pub async fn api_save_transcript<R: Runtime>(
         &meeting_title,
         &transcripts_to_save,
         folder_path,
+        meeting_id.as_deref(),
     )
     .await
     {

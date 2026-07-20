@@ -103,11 +103,12 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
         // Initialize IndexedDB
         await indexedDBService.init();
 
-        // Listen for recording-started event
-        unlistenRecordingStarted = await recordingService.onRecordingStarted(async () => {
+        // Listen for recording-started event (v0.7.1+: payload 含后端生成的 meeting_id)
+        unlistenRecordingStarted = await recordingService.onRecordingStarted(async (payload) => {
           try {
-            // Generate unique meeting ID
-            const meetingId = `meeting-${Date.now()}`;
+            // v0.7.1+: 优先用后端生成的真 meeting_id (与 sherpa_asr diar pickup 链路对齐)
+            const backendMeetingId = payload?.meeting_id as string | undefined;
+            const meetingId = backendMeetingId || `meeting-${Date.now()}`;
             setCurrentMeetingId(meetingId);
 
             // Store in sessionStorage as fallback for markMeetingAsSaved

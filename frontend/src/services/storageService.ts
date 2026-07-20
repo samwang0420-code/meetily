@@ -39,12 +39,15 @@ export class StorageService {
   async saveMeeting(
     meetingTitle: string,
     transcripts: Transcript[],
-    folderPath: string | null
+    folderPath: string | null,
+    // v0.7.1+: 复用 start_recording 生成的 meeting_id, 让 diar pickup 链路命中
+    meetingId?: string
   ): Promise<SaveMeetingResponse> {
     return invoke<SaveMeetingResponse>('api_save_transcript', {
       meetingTitle,
       transcripts,
       folderPath,
+      meetingId,
     });
   }
 

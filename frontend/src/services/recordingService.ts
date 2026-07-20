@@ -112,8 +112,11 @@ export class RecordingService {
    * @param callback - Function to call when recording starts
    * @returns Promise that resolves to unlisten function
    */
-  async onRecordingStarted(callback: () => void): Promise<UnlistenFn> {
-    return listen('recording-started', callback);
+  async onRecordingStarted(callback: (payload: { meeting_id?: string; [k: string]: unknown }) => void): Promise<UnlistenFn> {
+    // v0.7.1+: 后端生成的 meeting_id 透传给前端, 替换前端自生成的 meeting-${Date.now()}
+    return listen<{ meeting_id?: string; [k: string]: unknown }>('recording-started', (event) => {
+      callback(event.payload);
+    });
   }
 
   /**

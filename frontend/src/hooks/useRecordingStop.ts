@@ -53,13 +53,11 @@ export function useRecordingStop(
     isSaving: isSavingTranscript
   } = recordingState;
 
-  const {
-    transcriptsRef,
+  const { transcriptsRef,
     flushBuffer,
     clearTranscripts,
     meetingTitle,
-    markMeetingAsSaved,
-  } = useTranscripts();
+    markMeetingAsSaved, currentMeetingId } = useTranscripts();
 
   const {
     refetchMeetings,
@@ -258,7 +256,8 @@ export function useRecordingStop(
           const responseData = await storageService.saveMeeting(
             savedMeetingName || meetingTitle || 'New Meeting',  // PREFER savedMeetingName (backend source)
             freshTranscripts,
-            folderPath
+            folderPath,
+            currentMeetingId || undefined  // v0.7.1+: 复用后端 meeting_id
           );
 
           const meetingId = responseData.meeting_id;

@@ -226,6 +226,33 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     });
     manager.set_meeting_name(Some(effective_meeting_name));
 
+    // v0.7.1+: 长会议 diar pickup 需要 meeting_id, 立即生成并 set,
+    // 并向 SQLite INSERT placeholder meetings 行 (status='recording') 让 worker 期间
+    // sherpa_asr 后台线程能 UPDATE transcripts.speaker (api_save_transcript 时 INSERT OR IGNORE
+    // 兼容 placeholder + 真实 title).
+    let meeting_id = format!("meeting-{}", uuid::Uuid::new_v4());
+    manager.set_meeting_id(Some(meeting_id.clone()));
+
+    // 拿 AppState.db_manager pool, INSERT placeholder meeting row
+    let state = app.state::<crate::state::AppState>();
+    let pool = state.db_manager.pool();
+    let placeholder_title = format!("Recording in progress ({})", meeting_name.as_deref().unwrap_or("Untitled"));
+    match sqlx::query(
+        "INSERT OR IGNORE INTO meetings (id, title, created_at, updated_at, folder_path) VALUES (?, ?, ?, ?, ?)"
+    )
+    .bind(&meeting_id)
+    .bind(&placeholder_title)
+    .bind(chrono::Utc::now())
+    .bind(chrono::Utc::now())
+    .bind::<Option<String>>(None)
+    .execute(pool)
+    .await
+    {
+        Ok(_) => info!("🆔 Inserted placeholder meeting row for diar pickup: {}", meeting_id),
+        Err(e) => warn!("Failed to insert placeholder meeting row ({}), diar pickup may be deferred: {}", meeting_id, e),
+    }
+    info!("🆔 Generated meeting_id for diar pickup: {}", meeting_id);
+
     // Set up error callback
     let app_for_error = app.clone();
     manager.set_error_callback(move |error| {
@@ -257,11 +284,12 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
         *global_task = Some(task_handle);
     }
 
-    // Emit success event
+    // Emit success event (v0.7.1+: meeting_id 透传给前端, stop_recording 时回写)
     app.emit("recording-started", serde_json::json!({
         "message": "Recording started successfully with parallel processing",
         "devices": ["Default Microphone", "Default System Audio"],
-        "workers": 3
+        "workers": 3,
+        "meeting_id": meeting_id,
     })).map_err(|e| e.to_string())?;
 
     // Update tray menu to reflect recording state
@@ -363,6 +391,33 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
         )
     });
     manager.set_meeting_name(Some(effective_meeting_name));
+
+    // v0.7.1+: 长会议 diar pickup 需要 meeting_id, 立即生成并 set,
+    // 并向 SQLite INSERT placeholder meetings 行 (status='recording') 让 worker 期间
+    // sherpa_asr 后台线程能 UPDATE transcripts.speaker (api_save_transcript 时 INSERT OR IGNORE
+    // 兼容 placeholder + 真实 title).
+    let meeting_id = format!("meeting-{}", uuid::Uuid::new_v4());
+    manager.set_meeting_id(Some(meeting_id.clone()));
+
+    // 拿 AppState.db_manager pool, INSERT placeholder meeting row
+    let state = app.state::<crate::state::AppState>();
+    let pool = state.db_manager.pool();
+    let placeholder_title = format!("Recording in progress ({})", meeting_name.as_deref().unwrap_or("Untitled"));
+    match sqlx::query(
+        "INSERT OR IGNORE INTO meetings (id, title, created_at, updated_at, folder_path) VALUES (?, ?, ?, ?, ?)"
+    )
+    .bind(&meeting_id)
+    .bind(&placeholder_title)
+    .bind(chrono::Utc::now())
+    .bind(chrono::Utc::now())
+    .bind::<Option<String>>(None)
+    .execute(pool)
+    .await
+    {
+        Ok(_) => info!("🆔 Inserted placeholder meeting row for diar pickup: {}", meeting_id),
+        Err(e) => warn!("Failed to insert placeholder meeting row ({}), diar pickup may be deferred: {}", meeting_id, e),
+    }
+    info!("🆔 Generated meeting_id for diar pickup: {}", meeting_id);
 
     // Set up error callback
     let app_for_error = app.clone();
