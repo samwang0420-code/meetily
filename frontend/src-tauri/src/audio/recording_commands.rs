@@ -39,7 +39,7 @@ pub use super::transcription::TranscriptUpdate;
 static IS_RECORDING: AtomicBool = AtomicBool::new(false);
 
 // Global recording manager and transcription task to keep them alive during recording
-static RECORDING_MANAGER: Mutex<Option<RecordingManager>> = Mutex::new(None);
+pub static RECORDING_MANAGER: Mutex<Option<RecordingManager>> = Mutex::new(None);
 static TRANSCRIPTION_TASK: Mutex<Option<JoinHandle<()>>> = Mutex::new(None);
 
 // Listener ID for proper cleanup - prevents microphone from staying active after recording stops

@@ -434,6 +434,16 @@ impl RecordingManager {
         self.recording_saver.set_meeting_name(name);
     }
 
+    /// v0.7.1+: Set current meeting_id for long-meeting diar pickup pipeline
+    pub fn set_meeting_id(&mut self, id: Option<String>) {
+        self.recording_saver.set_meeting_id(id);
+    }
+
+    /// v0.7.1+: Get current meeting_id (used by transcription worker for diar pickup)
+    pub fn current_meeting_id(&self) -> Option<String> {
+        self.recording_saver.current_meeting_id()
+    }
+
     /// Add a structured transcript segment to be saved later
     pub fn add_transcript_segment(&self, segment: super::recording_saver::TranscriptSegment) {
         self.recording_saver.add_transcript_segment(segment);

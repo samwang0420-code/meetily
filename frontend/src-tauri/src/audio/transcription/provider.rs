@@ -60,6 +60,9 @@ pub trait TranscriptionProvider: Send + Sync {
         &self,
         audio: Vec<f32>,
         language: Option<String>,
+        // v0.7.1+: 长会议 diar pickup 需要 meeting_id + chunk 时间偏移, None 时跳过 pickup
+        meeting_id: Option<&str>,
+        audio_start_offset_seconds: Option<f64>,
     ) -> std::result::Result<TranscriptResult, TranscriptionError>;
 
     /// Check if a model is currently loaded

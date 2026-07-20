@@ -100,6 +100,12 @@ struct SherpaRequest<'a> {
     /// Level 3: 请求字级 timestamps 返回 (默认 false)
     #[serde(default)]
     timestamps: bool,
+    /// v0.7.1+: 当前 chunk 归属的 meeting_id (用于长会议 diar pickup 写库)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    meeting_id: Option<&'a str>,
+    /// v0.7.1+: chunk 在整段录音中的开始偏移秒数 (用于 diar segment 时间映射)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    audio_start_offset_seconds: Option<f64>,
 }
 
 /// Single global daemon, lazily started on first call, kept alive until process exit.
@@ -217,6 +223,10 @@ impl SherpaDaemon {
         timestamps: bool,
         hotwords_pack: &str,
         hotwords_custom: &str,
+        // v0.7.1+: 当前 chunk 归属的 meeting_id, None 表示无 (短会议/录制外)
+        meeting_id: Option<&str>,
+        // v0.7.1+: chunk 在整段录音中的开始偏移秒数, 用于长会议 diar pickup 写库
+        audio_start_offset_seconds: Option<f64>,
     ) -> Result<SherpaResponse> {
         let t0 = std::time::Instant::now();
         info!("[sherpa] transcribe_blocking ENTER model={} timestamps={} b64_len={}", model, timestamps, audio_b64.len());
@@ -235,6 +245,8 @@ impl SherpaDaemon {
             timestamps,
             hotwords_pack,
             hotwords_custom,
+            meeting_id,
+            audio_start_offset_seconds,
         };
         let line = serde_json::to_string(&req)?;
         let t2 = std::time::Instant::now();

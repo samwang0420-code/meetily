@@ -665,8 +665,25 @@ async fn transcribe_chunk_with_provider<R: Runtime>(
             .flatten()
             .map(|c| c.model)
             .unwrap_or_else(crate::config::pick_default_sherpa_model);
+            // v0.7.1+: 长会议 diar pickup — 从 RECORDING_MANAGER 拿 meeting_id, 用 chunk_timestamp 作为 chunk 时间偏移
+            let _diar_meeting_id: Option<String> = if let Ok(manager_guard) =
+                crate::audio::recording_commands::RECORDING_MANAGER.lock()
+            {
+                manager_guard.as_ref().and_then(|m| m.current_meeting_id())
+            } else {
+                None
+            };
+            let _diar_audio_offset = chunk_timestamp; // audio_start_time 相对录音开头
             let provider = crate::audio::transcription::SherpaProvider::new(model_name);
-            match provider.transcribe(speech_samples, language.clone()).await {
+            match provider
+                .transcribe(
+                    speech_samples,
+                    language.clone(),
+                    _diar_meeting_id.as_deref(),
+                    Some(_diar_audio_offset),
+                )
+                .await
+            {
                 Ok(result) => {
                     let cleaned_text = result.text.trim().to_string();
                     if cleaned_text.is_empty() {
@@ -776,7 +793,17 @@ async fn transcribe_chunk_with_provider<R: Runtime>(
             // NEW: Trait-based provider (clean, unified interface)
             let language = crate::get_language_preference_internal();
 
-            match provider.transcribe(speech_samples, language).await {
+            // v0.7.1+: 长会议 diar pickup — 拿 meeting_id (chunk_timestamp 已经在闭包外)
+            let _diar_meeting_id: Option<String> = if let Ok(manager_guard) =
+                crate::audio::recording_commands::RECORDING_MANAGER.lock()
+            {
+                manager_guard.as_ref().and_then(|m| m.current_meeting_id())
+            } else {
+                None
+            };
+            match provider
+                .transcribe(speech_samples, language, _diar_meeting_id.as_deref(), Some(chunk_timestamp))
+                .await {
                 Ok(result) => {
                     let cleaned_text = result.text.trim().to_string();
                     if cleaned_text.is_empty() {

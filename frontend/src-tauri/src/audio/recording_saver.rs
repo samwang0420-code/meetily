@@ -51,6 +51,10 @@ pub struct RecordingSaver {
     incremental_saver: Option<Arc<AsyncMutex<IncrementalAudioSaver>>>,
     meeting_folder: Option<PathBuf>,
     meeting_name: Option<String>,
+    // v0.7.1+: 当前录制对应的 meeting_id, 由 lib.rs 的 start_recording 命令写入,
+    // worker.rs 转写时通过 RecordingSaver::current_meeting_id() 拿到传给 sherpa_asr,
+    // 长会议 diar pickup 时用于 sqlite3 UPDATE transcripts.speaker.
+    meeting_id: Option<String>,
     metadata: Option<MeetingMetadata>,
     transcript_segments: Arc<Mutex<Vec<TranscriptSegment>>>,
     chunk_receiver: Option<mpsc::UnboundedReceiver<AudioChunk>>,
@@ -63,11 +67,22 @@ impl RecordingSaver {
             incremental_saver: None,
             meeting_folder: None,
             meeting_name: None,
+            meeting_id: None,
             metadata: None,
             transcript_segments: Arc::new(Mutex::new(Vec::new())),
             chunk_receiver: None,
             is_saving: Arc::new(Mutex::new(false)),
         }
+    }
+
+    /// v0.7.1+: 设置当前录制 meeting_id, 用于长会议 diar pickup 写库
+    pub fn set_meeting_id(&mut self, id: Option<String>) {
+        self.meeting_id = id;
+    }
+
+    /// v0.7.1+: 拿到当前录制 meeting_id (worker.rs 转写时调, 透传给 sherpa_asr)
+    pub fn current_meeting_id(&self) -> Option<String> {
+        self.meeting_id.clone()
     }
 
     /// Set the meeting name for this recording session

@@ -36,6 +36,9 @@ impl TranscriptionProvider for SherpaProvider {
         &self,
         audio: Vec<f32>,
         language: Option<String>,
+        // v0.7.1+: 长会议 diar pickup 需要 meeting_id + chunk 时间偏移, None 时跳过 pickup
+        meeting_id: Option<&str>,
+        audio_start_offset_seconds: Option<f64>,
     ) -> std::result::Result<TranscriptResult, TranscriptionError> {
         if audio.len() < 1600 {
             return Err(TranscriptionError::AudioTooShort {
@@ -65,6 +68,10 @@ impl TranscriptionProvider for SherpaProvider {
         let hotwords_pack = crate::audio::hotwords_globals::current_pack().to_string();
         let hotwords_custom = crate::audio::hotwords_globals::current_custom_with_product_terms();
         let requested_model = model.clone();
+        // v0.7.1+: meeting_id/audio_start_offset_seconds 跨 spawn_blocking move,
+        // 提前 clone 进 String 以脱离原引用生命周期
+        let _diar_meeting_id = meeting_id.map(|s| s.to_string());
+        let _diar_audio_offset = audio_start_offset_seconds;
         let result = tokio::task::spawn_blocking(move || {
             let primary = daemon.transcribe_blocking(
                 &model,
@@ -73,6 +80,8 @@ impl TranscriptionProvider for SherpaProvider {
                 false,
                 &hotwords_pack,
                 &hotwords_custom,
+                _diar_meeting_id.as_deref(),
+                _diar_audio_offset,
             );
             match primary {
                 Ok(response) if !response.text.trim().is_empty() => Ok((response, model, false)),
@@ -85,6 +94,8 @@ impl TranscriptionProvider for SherpaProvider {
                         false,
                         &hotwords_pack,
                         &hotwords_custom,
+                        _diar_meeting_id.as_deref(),
+                        _diar_audio_offset,
                     ).map(|response| (response, "sense-voice-zh-int8".to_string(), true))
                 }
                 Ok(response) => Ok((response, model, false)),
