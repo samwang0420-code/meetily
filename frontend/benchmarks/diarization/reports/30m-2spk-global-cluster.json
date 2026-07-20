@@ -1,0 +1,16 @@
+{
+  "case": "30m-2spk",
+  "source_fixture": "two-speaker-legal",
+  "synthetic_looped": true,
+  "audio_seconds": 1800.0,
+  "audio_pcm_sha256": "1d20a60a8481fddecbde21ecd24fb088727365617298f10d50c3dfca73d1defe",
+  "expected_speakers": 2,
+  "actual_speakers": 2,
+  "segments": 384,
+  "windows": 12,
+  "global_clustering": true,
+  "wall_seconds": 327.44,
+  "realtime_factor": 0.1819,
+  "maximum_resident_bytes": 432275456,
+  "passed": true
+}

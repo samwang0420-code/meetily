@@ -27,7 +27,17 @@ import sys
 # v0.6.10+: 长会议保护阈值 — 超过这个秒数主动跳过 cam++ (4 人 1 小时会变成 5 人误识)
 # 评测数据: benchmarks/diarization/reports/long-audio-decision.json
 #   audio_seconds=3619, expected=4, actual=5, wall_seconds=446.87, peak_rss=360MB
-MAX_DIAR_AUDIO_SECONDS = 300  # 5 分钟为上限
+MAX_DIAR_AUDIO_SECONDS = 5400  # 商业会议上限 90 分钟；更长内容明确降级
+WINDOW_SECONDS = 180.0
+WINDOW_OVERLAP_SECONDS = 20.0
+GLOBAL_CLUSTER_THRESHOLD = 0.76
+
+
+def _diar_threads():
+    try:
+        return max(1, min(8, int(os.environ.get("LIXIANHUIJI_DIAR_THREADS", "2"))))
+    except ValueError:
+        return 2
 
 # 模型路径 (按优先级查找)
 _MODELS_CANDIDATES = [
@@ -125,10 +135,10 @@ def _build_diar(seg_path, emb_path):
     import sherpa_onnx
     pyannote_cfg = sherpa_onnx.OfflineSpeakerSegmentationPyannoteModelConfig(model=seg_path)
     seg_model_cfg = sherpa_onnx.OfflineSpeakerSegmentationModelConfig(
-        pyannote=pyannote_cfg, num_threads=2, debug=False, provider='cpu'
+        pyannote=pyannote_cfg, num_threads=_diar_threads(), debug=False, provider='cpu'
     )
     emb_cfg = sherpa_onnx.SpeakerEmbeddingExtractorConfig(
-        model=emb_path, num_threads=2, provider='cpu',
+        model=emb_path, num_threads=_diar_threads(), provider='cpu',
     )
     cluster_cfg = sherpa_onnx.FastClusteringConfig(num_clusters=-1, threshold=0.4)
     diar_cfg = sherpa_onnx.OfflineSpeakerDiarizationConfig(
@@ -169,21 +179,13 @@ def count_speakers(audio_np, sample_rate: int = 16000):
 
     audio_np: float32 numpy array, range [-1, 1]
 
-    v0.6.10+: 长会议 (>MAX_DIAR_AUDIO_SECONDS) 主动跳过, 避免:
-      - 4 人音频被识别成 5 人 (评测显示)
-      - 1 小时音频耗时 ~7 分钟, 内存峰值 360MB
-      - 8G 内存机型 OOM 风险
-    上层调用方应检查返回值 None 并正确降级 (不显示分发言人, 但仍用 SenseVoice 转写)
+    长会议走 process_diarization 的窗口化全局聚类；超过 90 分钟才降级。
     """
     if not is_available():
         return None
     duration = audio_np.shape[-1] / float(sample_rate) if hasattr(audio_np, 'shape') else 0
-    if duration > MAX_DIAR_AUDIO_SECONDS:
-        sys.stderr.write(
-            f"[diar] 跳过 cam++: {duration:.1f}s 超过 {MAX_DIAR_AUDIO_SECONDS}s 阈值 "
-            f"(评测: 4 人 1 小时识别为 5 人)\n"
-        )
-        return None
+    if duration > 300:
+        return process_diarization(audio_np, sample_rate).get("num_speakers")
     diar = _get_diar()
     if diar is None:
         return None
@@ -214,7 +216,7 @@ def _segments_from_result(diar, audio, sample_rate: int):
 def _embedding_extractor():
     import sherpa_onnx
     _, _, emb = _paths()
-    config = sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=emb, num_threads=2, provider="cpu")
+    config = sherpa_onnx.SpeakerEmbeddingExtractorConfig(model=emb, num_threads=_diar_threads(), provider="cpu")
     return sherpa_onnx.SpeakerEmbeddingExtractor(config)
 
 
@@ -266,6 +268,56 @@ def _map_window_speakers(extractor, audio, sample_rate, segments, centroids, cou
     return mapping
 
 
+def _window_speaker_vectors(extractor, audio, sample_rate, segments, max_clips=3):
+    import numpy as np
+    vectors = {}
+    for speaker in sorted({item["speaker"] for item in segments}):
+        candidates = sorted(
+            (item for item in segments if item["speaker"] == speaker),
+            key=lambda item: item["duration"],
+            reverse=True,
+        )
+        samples = []
+        for candidate in candidates:
+            vector = _speaker_embedding(extractor, audio, sample_rate, candidate)
+            if vector is not None:
+                samples.append(vector)
+            if len(samples) >= max_clips:
+                break
+        if samples:
+            centroid = np.mean(samples, axis=0)
+            norm = float(np.linalg.norm(centroid))
+            if norm > 0:
+                vectors[speaker] = centroid / norm
+    return vectors
+
+
+def _cluster_local_speakers(records, threshold=GLOBAL_CLUSTER_THRESHOLD):
+    import numpy as np
+    clusters = [{"members": [index], "centroid": record["vector"].copy()} for index, record in enumerate(records)]
+    while len(clusters) > 1:
+        best = None
+        for left in range(len(clusters)):
+            for right in range(left + 1, len(clusters)):
+                score = _cosine(clusters[left]["centroid"], clusters[right]["centroid"])
+                if score >= threshold and (best is None or score > best[0]):
+                    best = (score, left, right)
+        if best is None:
+            break
+        _, left, right = best
+        members = clusters[left]["members"] + clusters[right]["members"]
+        centroid = np.mean([records[index]["vector"] for index in members], axis=0)
+        centroid /= max(float(np.linalg.norm(centroid)), 1e-6)
+        clusters[left] = {"members": members, "centroid": centroid}
+        clusters.pop(right)
+
+    mapping = {}
+    for global_id, cluster in enumerate(sorted(clusters, key=lambda item: min(item["members"]))):
+        for index in cluster["members"]:
+            mapping[(records[index]["window"], records[index]["speaker"])] = global_id
+    return mapping
+
+
 def process_diarization(audio_np, sample_rate: int = 16000):
     """返回跨窗口一致的 speaker segments；长音频按 4 分钟窗口处理。"""
     if not is_available():
@@ -278,14 +330,13 @@ def process_diarization(audio_np, sample_rate: int = 16000):
         if audio.ndim > 1:
             audio = audio.mean(axis=1)
         duration_seconds = len(audio) / max(sample_rate, 1)
-        if duration_seconds > 300.0:
+        if duration_seconds > MAX_DIAR_AUDIO_SECONDS:
             sys.stderr.write(
-                f"[diar] skipped: {duration_seconds:.1f}s exceeds 300s production limit; "
-                "windowed benchmark is not accurate enough for release\n"
+                f"[diar] skipped: {duration_seconds:.1f}s exceeds {MAX_DIAR_AUDIO_SECONDS}s commercial limit\n"
             )
             return {"num_speakers": None, "segments": [], "warning": "audio_too_long"}
-        window_seconds = 240.0
-        overlap_seconds = 20.0
+        window_seconds = WINDOW_SECONDS
+        overlap_seconds = WINDOW_OVERLAP_SECONDS
         if duration_seconds <= 300.0:
             n_speakers, segments = _segments_from_result(diar, audio, sample_rate)
             if n_speakers <= 0 or not segments:
@@ -294,7 +345,7 @@ def process_diarization(audio_np, sample_rate: int = 16000):
             return {"num_speakers": n_speakers, "segments": segments}
 
         extractor = _embedding_extractor()
-        centroids, counts, merged = [], [], []
+        local_records, pending_segments = [], []
         step = window_seconds - overlap_seconds
         window_start = 0.0
         window_index = 0
@@ -302,19 +353,29 @@ def process_diarization(audio_np, sample_rate: int = 16000):
             window_end = min(window_start + window_seconds, duration_seconds)
             chunk = audio[int(window_start * sample_rate):int(window_end * sample_rate)]
             _, local_segments = _segments_from_result(diar, chunk, sample_rate)
-            mapping = _map_window_speakers(extractor, chunk, sample_rate, local_segments, centroids, counts)
+            vectors = _window_speaker_vectors(extractor, chunk, sample_rate, local_segments)
+            for speaker, vector in vectors.items():
+                local_records.append({"window": window_index, "speaker": speaker, "vector": vector})
             keep_from = 0.0 if window_index == 0 else overlap_seconds / 2
             keep_until = (window_end - window_start) if window_end >= duration_seconds else (window_end - window_start) - overlap_seconds / 2
             for item in local_segments:
                 midpoint = (item["start"] + item["end"]) / 2
-                if midpoint < keep_from or midpoint >= keep_until or item["speaker"] not in mapping:
+                if midpoint < keep_from or midpoint >= keep_until or item["speaker"] not in vectors:
                     continue
-                merged.append({**item, "start": item["start"] + window_start, "end": item["end"] + window_start, "speaker": mapping[item["speaker"]]})
+                pending_segments.append({**item, "start": item["start"] + window_start, "end": item["end"] + window_start, "window": window_index})
             window_start += step
             window_index += 1
+        mapping = _cluster_local_speakers(local_records)
+        merged = []
+        for item in pending_segments:
+            global_id = mapping.get((item["window"], item["speaker"]))
+            if global_id is None:
+                continue
+            merged.append({key: value for key, value in {**item, "speaker": global_id}.items() if key != "window"})
         merged.sort(key=lambda item: (item["start"], item["end"]))
-        sys.stderr.write(f"[diar] windowed result: {len(centroids)} speakers, {len(merged)} segments, windows={window_index}\n")
-        return {"num_speakers": len(centroids) or None, "segments": merged, "windowed": True, "windows": window_index}
+        num_speakers = len(set(mapping.values()))
+        sys.stderr.write(f"[diar] global-cluster result: {num_speakers} speakers, {len(merged)} segments, windows={window_index}\n")
+        return {"num_speakers": num_speakers or None, "segments": merged, "windowed": True, "windows": window_index, "global_clustering": True}
     except Exception as error:
         sys.stderr.write(f"[diar] process_diarization failed: {error}\n")
         return {"num_speakers": None, "segments": []}

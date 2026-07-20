@@ -1,0 +1,16 @@
+{
+  "case": "90m-4spk",
+  "source_fixture": "four-speaker-medical",
+  "synthetic_looped": true,
+  "audio_seconds": 5390.0,
+  "audio_pcm_sha256": "a662375443aac556a19b6f0118109f5b0673005dd91a12e6499bc70d0bf43a95",
+  "expected_speakers": 4,
+  "actual_speakers": 4,
+  "segments": 1242,
+  "windows": 34,
+  "global_clustering": true,
+  "wall_seconds": 980.13,
+  "realtime_factor": 0.1818,
+  "maximum_resident_bytes": 636239872,
+  "passed": true
+}
