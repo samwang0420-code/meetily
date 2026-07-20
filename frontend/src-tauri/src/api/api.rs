@@ -989,6 +989,12 @@ pub async fn api_save_transcript<R: Runtime>(
                 "Successfully saved transcript and created meeting with id: {}",
                 meeting_id
             );
+            // v0.7.1+: 长会议 diar pickup 自动回填 — sherpa_asr 后台线程可能
+            // 在 transcripts INSERT 之前/之后完成, 任何一种情况都需要扫一次 pickup dir
+            // 把这个 meeting 的 segments 标到新插入的 transcripts.speaker 行.
+            if let Err(e) = apply_diar_pickup_to_meeting(&meeting_id).await {
+                log_warn!("diar pickup apply failed (non-fatal) for {}: {}", meeting_id, e);
+            }
             Ok(serde_json::json!({
                 "status": "success",
                 "message": "Transcript saved successfully",
@@ -1383,4 +1389,78 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
             }
         }
     }
+}
+
+
+/// v0.7.1+: 长会议 diar pickup 自动回填. 调 Python stdlib 扫 /tmp/lixianhuiji_diar/<meeting_id>*.json
+/// 然后 UPDATE transcripts.speaker. 失败不抛 (non-fatal, 不阻塞 save_transcript 主流程).
+async fn apply_diar_pickup_to_meeting(meeting_id: &str) -> Result<(), String> {
+    use std::path::Path;
+    let pickup_dir = "/tmp/lixianhuiji_diar";
+    if !Path::new(pickup_dir).exists() {
+        return Ok(());
+    }
+    // 用 Python 一次性脚本: 扫 dir, 找到 payload 含 meeting_id 的 json,
+    // 用 sqlite3 UPDATE transcripts.speaker overlap 算法
+    let script = r#"
+import os, sqlite3, json, sys, glob
+meeting_id = sys.argv[1]
+db_path = os.environ.get("LIXIANHUIJI_DIAR_DB_PATH") or os.path.expanduser(
+    "~/Library/Application Support/cn.lixianhuiji.app/meeting_minutes.sqlite"
+)
+if not os.path.exists(db_path):
+    sys.exit(0)
+conn = sqlite3.connect(db_path, timeout=5.0)
+try:
+    cur = conn.cursor()
+    files = glob.glob(f"/tmp/lixianhuiji_diar/*.json")
+    updated_total = 0
+    for path in files:
+        try:
+            with open(path) as f: payload = json.load(f)
+        except Exception: continue
+        if payload.get("meeting_id") != meeting_id: continue
+        offset = payload.get("audio_start_offset_seconds")
+        segments = payload.get("segments") or []
+        if offset is None or not segments: continue
+        offset_f = float(offset)
+        glob_segs = [
+            (float(s.get("start", 0.0)) + offset_f, float(s.get("end", 0.0)) + offset_f, int(s.get("speaker", 0)))
+            for s in segments
+        ]
+        cur.execute(
+            "SELECT id, audio_start_time, audio_end_time FROM transcripts "
+            "WHERE meeting_id = ? AND speaker IS NULL ORDER BY audio_start_time",
+            (meeting_id,),
+        )
+        rows = cur.fetchall()
+        for row_id, t_start, t_end in rows:
+            if t_start is None or t_end is None: continue
+            best_ov, best_sp = 0.0, None
+            for s_start, s_end, s_idx in glob_segs:
+                ov = max(0.0, min(t_end, s_end) - max(t_start, s_start))
+                if ov > best_ov:
+                    best_ov, best_sp = ov, s_idx
+            if best_sp is None or best_ov <= 0.0: continue
+            label = f"speaker_{best_sp:02d}"
+            cur.execute("UPDATE transcripts SET speaker = ? WHERE id = ? AND speaker IS NULL",
+                        (label, row_id))
+            updated_total += cur.rowcount
+    conn.commit()
+    if updated_total > 0:
+        sys.stderr.write(f"[diar_pickup_apply] meeting={meeting_id} updated={updated_total}\n")
+finally:
+    conn.close()
+"#;
+    let output = std::process::Command::new("python3")
+        .arg("-c")
+        .arg(script)
+        .arg(meeting_id)
+        .output()
+        .map_err(|e| format!("python3 spawn failed: {}", e))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        return Err(format!("python helper exited with {:?}: {}", output.status.code(), stderr));
+    }
+    Ok(())
 }
