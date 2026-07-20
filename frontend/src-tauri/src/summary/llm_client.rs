@@ -200,21 +200,16 @@ pub async fn generate_summary_with_stream(
         let app_data_dir = app_data_dir
             .ok_or_else(|| "app_data_dir is required for BuiltInAI provider".to_string())?;
 
-        let result = crate::summary::summary_engine::generate_with_builtin(
+        return crate::summary::summary_engine::client::generate_with_builtin_stream(
             app_data_dir,
             model_name,
             system_prompt,
             user_prompt,
             cancellation_token,
+            stream_sink,
         )
         .await
-        .map_err(|e| e.to_string())?;
-        if let Some(sink) = stream_sink {
-            for chunk in chunk_for_stream(&result, 48) {
-                sink(chunk);
-            }
-        }
-        return Ok(result);
+        .map_err(|e| e.to_string());
     }
 
     let (api_url, mut headers) = match provider {
@@ -440,28 +435,6 @@ fn parse_stream_line(line: &str) -> Result<Option<String>, String> {
     Ok(response.choices.first().map(|choice| choice.delta.content.clone()).filter(|value| !value.is_empty()))
 }
 
-fn chunk_for_stream(text: &str, target_chars: usize) -> Vec<&str> {
-    if text.is_empty() {
-        return Vec::new();
-    }
-    let mut chunks = Vec::new();
-    let mut start = 0;
-    let mut chars = 0;
-    for (index, character) in text.char_indices() {
-        chars += 1;
-        if chars >= target_chars && (character.is_whitespace() || character == '。' || character == '，') {
-            let end = index + character.len_utf8();
-            chunks.push(&text[start..end]);
-            start = end;
-            chars = 0;
-        }
-    }
-    if start < text.len() {
-        chunks.push(&text[start..]);
-    }
-    chunks
-}
-
 #[cfg(test)]
 mod streaming_tests {
     use super::*;
@@ -471,13 +444,6 @@ mod streaming_tests {
         let value = parse_stream_line(r#"data: {"choices":[{"delta":{"content":"你好"}}]}"#).unwrap();
         assert_eq!(value.as_deref(), Some("你好"));
         assert_eq!(parse_stream_line("data: [DONE]").unwrap(), None);
-    }
-
-    #[test]
-    fn chunks_utf8_without_breaking_characters() {
-        let chunks = chunk_for_stream("第一段文字，第二段文字。第三段", 5);
-        assert_eq!(chunks.concat(), "第一段文字，第二段文字。第三段");
-        assert!(chunks.len() >= 2);
     }
 }
 

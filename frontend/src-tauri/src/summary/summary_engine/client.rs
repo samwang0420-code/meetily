@@ -44,6 +44,7 @@ enum Request {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Response {
     Response { text: String, error: Option<String> },
+    Done { text: String },
     Error { message: String },
 }
 
@@ -137,6 +138,25 @@ pub async fn generate_with_builtin(
     user_prompt: &str,
     cancellation_token: Option<&CancellationToken>,
 ) -> Result<String> {
+    generate_with_builtin_stream(
+        app_data_dir,
+        model_name,
+        system_prompt,
+        user_prompt,
+        cancellation_token,
+        None,
+    )
+    .await
+}
+
+pub async fn generate_with_builtin_stream(
+    app_data_dir: &PathBuf,
+    model_name: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+    cancellation_token: Option<&CancellationToken>,
+    stream_sink: Option<crate::summary::llm_client::StreamSink>,
+) -> Result<String> {
     // Check cancellation at start
     if let Some(token) = cancellation_token {
         if token.is_cancelled() {
@@ -205,7 +225,11 @@ pub async fn generate_with_builtin(
     // Race between send_request and cancellation token
     let response_json = if let Some(token) = cancellation_token {
         tokio::select! {
-            result = manager.send_request(request_json, timeout) => {
+            result = manager.send_streaming_request(request_json, timeout, |delta| {
+                if let Some(sink) = stream_sink.as_ref() {
+                    sink(delta);
+                }
+            }) => {
                 result?
             }
             _ = token.cancelled() => {
@@ -218,7 +242,11 @@ pub async fn generate_with_builtin(
             }
         }
     } else {
-        manager.send_request(request_json, timeout).await?
+        manager.send_streaming_request(request_json, timeout, |delta| {
+            if let Some(sink) = stream_sink.as_ref() {
+                sink(delta);
+            }
+        }).await?
     };
 
     // Check cancellation before parsing response
@@ -240,6 +268,10 @@ pub async fn generate_with_builtin(
                 log::info!("Generation completed: {} chars", text.len());
                 Ok(text)
             }
+        }
+        Response::Done { text } => {
+            log::info!("Streaming generation completed: {} chars", text.len());
+            Ok(text)
         }
         Response::Error { message } => Err(anyhow!("Sidecar error: {}", message)),
     }

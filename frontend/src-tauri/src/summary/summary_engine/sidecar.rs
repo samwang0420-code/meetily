@@ -389,6 +389,55 @@ impl SidecarManager {
         }
     }
 
+    pub async fn send_streaming_request<F>(
+        &self,
+        request_json: String,
+        timeout: Duration,
+        mut on_delta: F,
+    ) -> Result<String>
+    where
+        F: FnMut(&str) + Send,
+    {
+        let _guard = RequestGuard::new(self.active_request_count.clone());
+        {
+            let mut stdin_lock = self.stdin_writer.lock().await;
+            let stdin = stdin_lock.as_mut().ok_or_else(|| anyhow!("Sidecar not running"))?;
+            stdin.write_all(request_json.as_bytes()).await.context("Failed to write request to stdin")?;
+            stdin.write_all(b"\n").await.context("Failed to write newline")?;
+            stdin.flush().await.context("Failed to flush stdin")?;
+        }
+
+        let read_stream = async {
+            loop {
+                let line = self.read_response().await?;
+                let value: serde_json::Value = serde_json::from_str(&line)
+                    .with_context(|| format!("Invalid streaming sidecar response: {}", line))?;
+                match value.get("type").and_then(|item| item.as_str()) {
+                    Some("delta") => {
+                        if let Some(text) = value.get("text").and_then(|item| item.as_str()) {
+                            on_delta(text);
+                        }
+                    }
+                    Some("done") | Some("response") | Some("error") => return Ok(line),
+                    Some(other) => return Err(anyhow!("Unexpected streaming response type: {}", other)),
+                    None => return Err(anyhow!("Streaming response missing type")),
+                }
+            }
+        };
+
+        match tokio::time::timeout(timeout, read_stream).await {
+            Ok(Ok(response)) => {
+                self.update_activity().await;
+                Ok(response)
+            }
+            Ok(Err(error)) => Err(error),
+            Err(_) => {
+                let _ = self.shutdown().await;
+                Err(anyhow!("Request timed out after {:?}", timeout))
+            }
+        }
+    }
+
     /// Read a single line response from stdout
     async fn read_response(&self) -> Result<String> {
         let mut stdout_lock = self.stdout_reader.lock().await;

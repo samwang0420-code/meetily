@@ -45,6 +45,8 @@ enum Request {
 #[serde(tag = "type", rename_all = "snake_case")]
 enum Response {
     Response { text: String, error: Option<String> },
+    Delta { text: String },
+    Done { text: String },
     Pong,
     Goodbye,
     Error { message: String },
@@ -351,6 +353,7 @@ impl ModelState {
         max_tokens: i32,
         sampling: SamplingConfig,
         stop_tokens: Vec<String>,
+        mut on_delta: impl FnMut(&str) -> Result<()>,
     ) -> Result<String> {
         let start_time = Instant::now();
         let model = self.model.as_ref().context("Model not loaded")?;
@@ -481,6 +484,9 @@ impl ModelState {
             let mut token_text = String::with_capacity(32);
             let _ = decoder.decode_to_string(&output_bytes, &mut token_text, false);
             output.push_str(&token_text);
+            if !token_text.is_empty() {
+                on_delta(&token_text)?;
+            }
 
             // Check for model-specific stop tokens
             let mut should_stop = false;
@@ -633,9 +639,10 @@ fn main() -> Result<()> {
                             max_tokens,
                             sampling,
                             stop_tokens,
+                            |delta| send_response(&Response::Delta { text: delta.to_string() }),
                         ) {
                             Ok(text) => {
-                                send_response(&Response::Response { text, error: None })?;
+                                send_response(&Response::Done { text })?;
                             }
                             Err(e) => {
                                 send_response(&Response::Response {
@@ -709,6 +716,14 @@ mod tests {
         assert_eq!(sampling.repeat_penalty, 1.0);
         assert_eq!(sampling.penalty_last_n, 0);
         assert!(!sampling.uses_penalties());
+    }
+
+    #[test]
+    fn streaming_response_serializes_delta_and_done() {
+        let delta = serde_json::to_string(&Response::Delta { text: "你".to_string() }).unwrap();
+        let done = serde_json::to_string(&Response::Done { text: "你好".to_string() }).unwrap();
+        assert_eq!(delta, r#"{"type":"delta","text":"你"}"#);
+        assert_eq!(done, r#"{"type":"done","text":"你好"}"#);
     }
 
     #[test]
