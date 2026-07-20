@@ -34,7 +34,95 @@ from diar import count_speakers, is_available as diar_is_available  # v0.6.14+ S
 # v0.7.1+ 长会议 diar 结果落盘 helper
 # 后台线程算完后调用: 把 {num_speakers, segments, warning} 写 /tmp/lixianhuiji_diar/<rid>.json
 # 上层 worker 通过 _diar_pickup(rid) 轮询拿结果 (消费侧下一轮 PR 加 DB 落库)
-def _persist_diar_result(rid, state):
+
+def _diar_db_path():
+    return os.environ.get("LIXIANHUIJI_DIAR_DB_PATH") or os.path.expanduser(
+        "~/Library/Application Support/cn.lixianhuiji.app/meeting_minutes.sqlite"
+    )
+
+
+def _diar_apply_to_db(payload):
+    """v0.7.1+: 长会议 diar 落盘后, 同步 UPDATE transcripts.speaker
+
+    payload 含:
+      - meeting_id: 当前 chunk 归属的 meeting
+      - audio_start_offset_seconds: chunk 相对录音开头的偏移秒数
+      - num_speakers: 总人数
+      - segments: [{start, end, speaker, duration, text}, ...] (speaker 是 local index)
+
+    算法: 对该 meeting 所有 transcripts 行 (按 audio_start_time 排序),
+          对每行找"第一个 segment whose [start+offset, end+offset] overlap [trans.start, trans.end]",
+          用 overlap 时长最长的那个 segment, 把 speaker 标上去.
+          这样 transcripts 行有合理 speaker 标签 (整段一个 speaker).
+    """
+    meeting_id = payload.get("meeting_id")
+    offset = payload.get("audio_start_offset_seconds")
+    segments = payload.get("segments") or []
+    if not meeting_id or offset is None or not segments:
+        return {"updated": 0, "reason": "missing context"}
+    db_path = _diar_db_path()
+    if not os.path.exists(db_path):
+        return {"updated": 0, "reason": "db_missing", "db_path": db_path}
+    try:
+        import sqlite3
+        offset_f = float(offset)
+        # 提前把 segments 转成 global 时间
+        glob_segs = [
+            (
+                float(seg.get("start", 0.0)) + offset_f,
+                float(seg.get("end", 0.0)) + offset_f,
+                int(seg.get("speaker", 0)),
+            )
+            for seg in segments
+        ]
+        if not glob_segs:
+            return {"updated": 0, "reason": "no_segments"}
+        conn = sqlite3.connect(db_path, timeout=5.0)
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                "SELECT id, audio_start_time, audio_end_time FROM transcripts "
+                "WHERE meeting_id = ? AND speaker IS NULL ORDER BY audio_start_time",
+                (meeting_id,),
+            )
+            rows = cur.fetchall()
+            updated = 0
+            for row_id, t_start, t_end in rows:
+                if t_start is None or t_end is None:
+                    continue
+                # 找 overlap 时长最大的 segment
+                best_overlap = 0.0
+                best_speaker = None
+                for s_start, s_end, s_idx in glob_segs:
+                    ov_start = max(t_start, s_start)
+                    ov_end = min(t_end, s_end)
+                    ov = max(0.0, ov_end - ov_start)
+                    if ov > best_overlap:
+                        best_overlap = ov
+                        best_speaker = s_idx
+                if best_speaker is None or best_overlap <= 0.0:
+                    continue
+                speaker_label = f"speaker_{best_speaker:02d}"
+                cur.execute(
+                    "UPDATE transcripts SET speaker = ? WHERE id = ? AND speaker IS NULL",
+                    (speaker_label, row_id),
+                )
+                updated += cur.rowcount
+            conn.commit()
+            return {"updated": updated, "meeting_id": meeting_id, "scanned": len(rows), "segments": len(segments)}
+        finally:
+            conn.close()
+    except Exception as e:
+        sys.stderr.write(f"[sherpa_asr] diar db apply failed: {e}\n")
+        return {"updated": 0, "reason": "error", "error": str(e)}
+
+
+def _persist_diar_result(rid, state, meeting_id=None, audio_start_offset_seconds=None):
+    """v0.7.1+: 落盘 /tmp/lixianhuiji_diar/<rid>.json, 同步尝试 sqlite3 UPDATE transcripts.speaker
+
+    meeting_id + audio_start_offset_seconds 由 transcribe 调用方 (Rust) 通过 req dict 传入,
+    _diar_apply_to_db 直接拿这些字段 + segments 写库, 失败也不抛 (会写 stderr).
+    """
     if not rid:
         return
     try:
@@ -47,8 +135,19 @@ def _persist_diar_result(rid, state):
             payload = {"error": str(state["err"])}
         payload["rid"] = rid
         payload["finished_at"] = time.time()
+        if meeting_id is not None:
+            payload["meeting_id"] = meeting_id
+        if audio_start_offset_seconds is not None:
+            payload["audio_start_offset_seconds"] = audio_start_offset_seconds
         with open(_os.path.join(out_dir, f"{rid}.json"), "w", encoding="utf-8") as _f:
             _json.dump(payload, _f, ensure_ascii=False)
+        # 同步尝试写库 (有 meeting_id + segments 时)
+        if meeting_id is not None and audio_start_offset_seconds is not None:
+            db_result = _diar_apply_to_db(payload)
+            sys.stderr.write(
+                f"[sherpa_asr] diar db apply rid={rid} meeting={meeting_id} "
+                f"updated={db_result.get('updated', 0)} reason={db_result.get('reason', 'ok')}\n"
+            )
     except Exception as _e:
         sys.stderr.write(f"[sherpa_asr] diar persist failed for {rid}: {_e}\n")
 
@@ -990,6 +1089,12 @@ def transcribe(req):
             audio_seconds = len(arr) / sr
             is_long = audio_seconds >= 60.0
             _diar_state = {"result": None, "err": None}
+            _meeting_id = req.get("meeting_id") or None
+            _audio_start_offset = req.get("audio_start_offset_seconds")
+            try:
+                _audio_start_offset = float(_audio_start_offset) if _audio_start_offset is not None else None
+            except (TypeError, ValueError):
+                _audio_start_offset = None
             def _run_diar():
                 try:
                     _diar_state["result"] = process_diarization(arr, sr)
@@ -999,7 +1104,7 @@ def transcribe(req):
                 except Exception as e:
                     _diar_state["err"] = e
                 finally:
-                    _persist_diar_result(rid, _diar_state)
+                    _persist_diar_result(rid, _diar_state, _meeting_id, _audio_start_offset)
             _t = _threading.Thread(target=_run_diar, daemon=True, name=f"diar-{rid}")
             _t.start()
             if is_long:

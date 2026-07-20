@@ -138,5 +138,79 @@ class DiarLongAudioDispatchTests(unittest.TestCase):
             except OSError:
                 pass
 
+
+    def test_diar_apply_to_db_with_real_meeting(self):
+        """v0.7.1+: 真实 DB 上 diar_apply_to_db 命中真实 transcripts 行"""
+        import sqlite3
+        import tempfile
+        # 创建临时 DB, schema 复制真生产
+        with tempfile.NamedTemporaryFile(suffix=".sqlite", delete=False) as tf:
+            db_path = tf.name
+        try:
+            conn = sqlite3.connect(db_path)
+            try:
+                conn.executescript("""
+                    CREATE TABLE meetings (id TEXT PRIMARY KEY, title TEXT, created_at TEXT);
+                    CREATE TABLE transcripts (
+                        id TEXT PRIMARY KEY,
+                        meeting_id TEXT,
+                        transcript TEXT,
+                        timestamp TEXT,
+                        audio_start_time REAL, audio_end_time REAL,
+                        duration REAL,
+                        speaker TEXT
+                    );
+                """)
+                # 插入 meeting + 3 条 transcript (10s/20s/30s)
+                conn.execute("INSERT INTO meetings VALUES ('meeting-test', 'T', '2026-07-20')")
+                for i, start in enumerate([10.0, 20.0, 30.0]):
+                    conn.execute(
+                        "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration, speaker) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, NULL)",
+                        (f"tr-{i}", "meeting-test", f"text-{i}", "ts", start, start+5, 5.0),
+                    )
+                conn.commit()
+            finally:
+                conn.close()
+
+            # 把 db_path 通过 env 注入
+            old_env = os.environ.get("LIXIANHUIJI_DIAR_DB_PATH")
+            os.environ["LIXIANHUIJI_DIAR_DB_PATH"] = db_path
+            try:
+                # 长会议 chunk 偏移 8s, segments 覆盖 12-16s (命中第一条) + 22-26s (命中第二条)
+                payload = {
+                    "meeting_id": "meeting-test",
+                    "audio_start_offset_seconds": 8.0,
+                    "segments": [
+                        {"start": 4.0, "end": 8.0, "speaker": 0},   # 12-16s -> 第一条
+                        {"start": 14.0, "end": 18.0, "speaker": 1}, # 22-26s -> 第二条
+                    ],
+                }
+                result = module._diar_apply_to_db(payload)
+                self.assertEqual(result.get("updated"), 2)
+                self.assertEqual(result.get("meeting_id"), "meeting-test")
+                # 验证 DB
+                conn = sqlite3.connect(db_path)
+                try:
+                    speakers = [r[0] for r in conn.execute(
+                        "SELECT speaker FROM transcripts WHERE meeting_id='meeting-test' ORDER BY audio_start_time"
+                    )]
+                    self.assertEqual(speakers, ["speaker_00", "speaker_01", None])  # 第 3 条未命中, 保持 NULL
+                finally:
+                    conn.close()
+            finally:
+                if old_env is not None:
+                    os.environ["LIXIANHUIJI_DIAR_DB_PATH"] = old_env
+                elif "LIXIANHUIJI_DIAR_DB_PATH" in os.environ:
+                    del os.environ["LIXIANHUIJI_DIAR_DB_PATH"]
+        finally:
+            os.unlink(db_path)
+
+    def test_diar_apply_to_db_missing_meeting_id(self):
+        """无 meeting_id 时 skip, 不报错"""
+        payload = {"audio_start_offset_seconds": 0.0, "segments": [{"start": 0, "end": 1, "speaker": 0}]}
+        result = module._diar_apply_to_db(payload)
+        self.assertEqual(result.get("updated"), 0)
+        self.assertEqual(result.get("reason"), "missing context")
 if __name__ == "__main__":
     unittest.main()
