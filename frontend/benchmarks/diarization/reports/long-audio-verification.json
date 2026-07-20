@@ -1,0 +1,25 @@
+{
+  "passed": true,
+  "checks": {
+    "full_hour_audio": true,
+    "expected_speakers_recorded": true,
+    "actual_speaker_mismatch_recorded": true,
+    "raw_segments_complete": true,
+    "measured_runtime_recorded": true,
+    "measured_memory_recorded": true,
+    "release_decision_disables_long_audio": true,
+    "runtime_limit_matches_decision": true,
+    "runtime_returns_long_audio_warning": true
+  },
+  "evidence": {
+    "audio_seconds": 3619.23,
+    "expected_speakers": 4,
+    "actual_speakers": 5,
+    "segments": 848,
+    "windows": 17,
+    "wall_seconds": 446.87,
+    "maximum_resident_mb": 343,
+    "realtime_factor": 0.123,
+    "decision": "disable_over_300_seconds"
+  }
+}
