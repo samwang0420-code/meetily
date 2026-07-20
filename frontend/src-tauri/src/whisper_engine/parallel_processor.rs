@@ -1,3 +1,4 @@
+use base64::Engine;
 use std::sync::Arc;
 use tokio::sync::{RwLock, mpsc, Semaphore};
 use tokio::task::JoinHandle;
@@ -326,31 +327,53 @@ impl ParallelProcessor {
     }
 
     async fn process_chunk_safely(
-        engine_ref: &Arc<RwLock<Option<WhisperEngine>>>,
+        _engine_ref: &Arc<RwLock<Option<WhisperEngine>>>,  // W2.5: 已弃用, 保留参数兼容
         chunk: AudioChunk,
         model_name: &str,
         worker_id: u32,
     ) -> Result<TranscriptionResult> {
         let start_time = std::time::Instant::now();
 
-        debug!("Worker {} processing chunk {} ({:.1}s audio)",
+        debug!("Worker {} processing chunk {} ({:.1}s audio) via SenseVoice-zh",
                worker_id, chunk.id, chunk.duration_ms / 1000.0);
 
-        let engine_guard = engine_ref.read().await;
-        let engine = engine_guard.as_ref()
-            .ok_or_else(|| anyhow!("WhisperEngine not loaded for worker {}", worker_id))?;
+        // 离线会记 W2.5: recording 实时转录改用 sherpa-onnx daemon (SenseVoice-zh)
+        // Whisper 体验差 (幻觉 / 中文漏字), 完全被国产 SenseVoice 替代
+        // daemon.transcribe_blocking 是同步阻塞 (SherpaHandle !Send), 用 block_in_place 包
+        let pcm_bytes: Vec<u8> = chunk.data.iter().flat_map(|s| s.to_le_bytes()).collect();
+        let pcm_b64 = base64::engine::general_purpose::STANDARD.encode(&pcm_bytes);
+        let sample_rate = chunk.sample_rate;
+        let hotwords_pack = crate::audio::hotwords_globals::current_pack().to_string();
+        let hotwords_custom = crate::audio::hotwords_globals::current_custom_with_product_terms();
 
-        // Get language preference
-        let language = crate::get_language_preference_internal();
-
-        // Transcribe with timeout to prevent hanging
-        let transcription_future = engine.transcribe_audio(chunk.data.clone(), language);
+        let transcription_future = tokio::task::spawn_blocking(move || {
+            tokio::task::block_in_place(|| {
+                let daemon = crate::audio::sherpa_daemon::global();
+                daemon.transcribe_blocking("sensevoice-zh", &pcm_b64, sample_rate, false, &hotwords_pack, &hotwords_custom)
+            })
+        });
         let timeout_duration = tokio::time::Duration::from_secs(120); // 2 minute timeout per chunk
 
-        let text = tokio::time::timeout(timeout_duration, transcription_future)
+        let resp = tokio::time::timeout(timeout_duration, transcription_future)
             .await
-            .map_err(|_| anyhow!("Transcription timeout for chunk {}", chunk.id))?
-            .map_err(|e| anyhow!("Transcription failed for chunk {}: {}", chunk.id, e))?;
+            .map_err(|_| anyhow!("Sherpa transcription timeout for chunk {}", chunk.id))?
+            .map_err(|e| anyhow!("Sherpa daemon join error for chunk {}: {}", chunk.id, e))?;
+
+        let text = match resp {
+            Ok(r) => {
+                // SenseVoice 输出可能带 "<|zh|><|HAPPY|>" 前缀
+                let mut t = r.text.trim().to_string();
+                if t.starts_with("[") && t.contains("]") && t.len() < 50 {
+                    if let Some(idx) = t.find(']') {
+                        t = t[idx+1..].trim().to_string();
+                    }
+                }
+                t
+            }
+            Err(e) => {
+                return Err(anyhow!("Sherpa transcription failed for chunk {}: {}", chunk.id, e));
+            }
+        };
 
         let processing_time = start_time.elapsed().as_millis() as u64;
 

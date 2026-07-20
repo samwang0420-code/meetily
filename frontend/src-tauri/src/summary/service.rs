@@ -7,6 +7,8 @@ use crate::summary::metadata::read_detected_summary_language_from_metadata;
 use crate::summary::processor::{
     extract_meeting_name_from_markdown, generate_meeting_summary, language_name_from_code,
 };
+use crate::summary::fact_guard::{conservative_fallback, validate_summary, FactGuardReport};
+use crate::summary::commands::StructuredTranscriptEvidence;
 use crate::summary::templates::{self, Template};
 use crate::ollama::metadata::ModelMetadataCache;
 use serde::{Deserialize, Serialize};
@@ -140,14 +142,32 @@ fn build_summary_result_json(
     source: SummaryCacheSource,
     output_language: Option<&str>,
 ) -> serde_json::Value {
-    serde_json::json!({
+    build_summary_result_json_with_facts(final_markdown, english_markdown, source, output_language, None)
+}
+
+fn build_summary_result_json_with_facts(
+    final_markdown: &str,
+    english_markdown: &str,
+    source: SummaryCacheSource,
+    output_language: Option<&str>,
+    fact_report: Option<&FactGuardReport>,
+) -> serde_json::Value {
+    let mut payload = serde_json::json!({
         "markdown": strip_title_if_present(final_markdown),
         ENGLISH_CACHE_FIELD: EnglishSummaryCache {
             markdown: english_markdown.to_string(),
             source,
             output_language: normalise_summary_language_for_cache(output_language),
         },
-    })
+    });
+    if let Some(report) = fact_report {
+        if let serde_json::Value::Object(map) = &mut payload {
+            map.insert("fact_guard".into(), serde_json::to_value(report).unwrap_or(serde_json::Value::Null));
+            map.insert("needs_review".into(), serde_json::Value::Bool(report.needs_review()));
+            map.insert("fact_guard_severe".into(), serde_json::Value::Bool(report.is_severe()));
+        }
+    }
+    payload
 }
 
 /// Parses a `summary_processes.result` JSON blob and extracts a cached English
@@ -301,6 +321,7 @@ impl SummaryService {
         custom_prompt: String,
         template_id: String,
         summary_language: Option<String>,
+        structured_evidence: Vec<StructuredTranscriptEvidence>,
     ) {
         let start_time = Instant::now();
         info!(
@@ -505,12 +526,22 @@ impl SummaryService {
         };
 
         let client = reqwest::Client::new();
+        let evidence_text = if structured_evidence.is_empty() {
+            text.clone()
+        } else {
+            structured_evidence.iter().enumerate().map(|(i, item)| {
+                let start = item.start_seconds.map(|v| format!("{v:.2}s")).unwrap_or_else(|| "unknown".to_string());
+                let end = item.end_seconds.map(|v| format!("{v:.2}s")).unwrap_or_else(|| "unknown".to_string());
+                format!("[evidence:{i} start={start} end={end}] {}", item.text.trim())
+            }).collect::<Vec<_>>().join("\n")
+        };
+
         let result = generate_meeting_summary(
             &client,
             &provider,
             &model_name,
             &final_api_key,
-            &text,
+            &evidence_text,
             &custom_prompt,
             &template_id,
             &template,
@@ -535,6 +566,31 @@ impl SummaryService {
 
         match result {
             Ok((final_markdown, english_markdown, num_chunks)) => {
+                let fact_report = validate_summary(&evidence_text, &final_markdown);
+                if fact_report.is_severe() {
+                    warn!(
+                        "Summary fact guard flagged meeting_id={}: unexpected_numbers={:?}, unexpected_dates={:?}, overclaimed_decision={}",
+                        meeting_id, fact_report.unexpected_numbers, fact_report.unexpected_dates, fact_report.overclaimed_decision
+                    );
+                    let fallback = conservative_fallback(&evidence_text, &fact_report);
+                    let fallback_json = build_summary_result_json_with_facts(
+                        &fallback,
+                        &fallback,
+                        cache_source,
+                        summary_language.as_deref(),
+                        Some(&fact_report),
+                    );
+                    if let Err(error) = SummaryProcessesRepository::update_process_completed(
+                        &pool,
+                        &meeting_id,
+                        fallback_json,
+                        num_chunks,
+                        duration,
+                    ).await {
+                        Self::update_process_failed(&pool, &meeting_id, &format!("Fact guard fallback failed: {error}")).await;
+                    }
+                    return;
+                }
                 info!(
                     "✓ Successfully processed {} chunks for meeting_id: {}. Duration: {:.2}s",
                     num_chunks, meeting_id, duration
@@ -554,11 +610,12 @@ impl SummaryService {
                     }
                 }
 
-                let result_json = build_summary_result_json(
+                let result_json = build_summary_result_json_with_facts(
                     &final_markdown,
                     &english_markdown,
                     cache_source,
                     summary_language.as_deref(),
+                    Some(&fact_report),
                 );
 
                 // Update database with completed status
@@ -731,6 +788,7 @@ mod tests {
                 item_format: None,
                 example_item_format: None,
             }],
+            required_tier: crate::summary::templates::TemplateTier::Free,
         }
     }
 

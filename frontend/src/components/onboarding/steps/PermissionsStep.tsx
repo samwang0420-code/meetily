@@ -32,7 +32,7 @@ export function PermissionsStep() {
       try {
         await invoke('open_system_settings');
       } catch {
-        alert('Please enable microphone access in System Preferences > Security & Privacy > Microphone');
+        alert('Please enable microphone access in System 偏好设置 > Security & Privacy > Microphone');
       }
       return;
     }
@@ -113,7 +113,7 @@ export function PermissionsStep() {
 
   return (
     <OnboardingContainer
-      title="Grant Permissions"
+      title="授权权限"
       description="Meetily needs access to your microphone and system audio to record meetings"
       step={4}
       hideProgress={true}
@@ -126,7 +126,7 @@ export function PermissionsStep() {
           {/* Microphone */}
           <PermissionRow
             icon={<Mic className="w-5 h-5" />}
-            title="Microphone"
+            title="麦克风"
             description="Required to capture your voice during meetings"
             status={permissions.microphone}
             isPending={isPending}
@@ -136,7 +136,7 @@ export function PermissionsStep() {
           {/* System Audio */}
           <PermissionRow
             icon={<Volume2 className="w-5 h-5" />}
-            title="System Audio"
+            title="系统音频"
             description="Click Enable to grant Audio Capture permission"
             status={permissions.systemAudio}
             isPending={isPending}

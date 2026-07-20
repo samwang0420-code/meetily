@@ -61,7 +61,7 @@ Team sync discussion about Q1 2024 goals and current project status.
       `
     },
     'product-review': {
-      title: 'Product Review',
+      title: '产品评审',
       date: '2024-12-26',
       time: '2:00 PM - 3:00 PM',
       attendees: ['Sarah Wilson', 'Tom Brown', 'Alex Chen'],
@@ -84,7 +84,7 @@ Quarterly product review session with stakeholders.
       `
     },
     'project-ideas': {
-      title: 'Project Ideas',
+      title: '项目想法',
       date: '2024-12-26',
       tags: ['Ideas', 'Planning'],
       content: `
@@ -102,7 +102,7 @@ Quarterly product review session with stakeholders.
       `
     },
     'action-items': {
-      title: 'Action Items',
+      title: '行动项',
       date: '2024-12-26',
       tags: ['Tasks', 'Todo', 'Planning'],
       content: `
@@ -129,7 +129,7 @@ Quarterly product review session with stakeholders.
   const note = sampleData[params.id as keyof typeof sampleData];
 
   if (!note) {
-    return <div className="p-8">Note not found</div>;
+    return <div className="p-8">未找到笔记</div>;
   }
 
   return (

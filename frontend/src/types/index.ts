@@ -76,9 +76,19 @@ export interface BlockNoteBlock {
   children?: BlockNoteBlock[];
 }
 
+export interface FactGuardReport {
+  unexpected_numbers?: string[];
+  unexpected_dates?: string[];
+  overclaimed_decision?: boolean;
+}
+
 export interface SummaryDataResponse {
   markdown?: string;
   summary_json?: BlockNoteBlock[];
+  // Backend fact-guard signals (populated by Rust summary service).
+  fact_guard?: FactGuardReport;
+  needs_review?: boolean;
+  fact_guard_severe?: boolean;
   // Legacy format fields
   MeetingName?: string;
   _section_order?: string[];

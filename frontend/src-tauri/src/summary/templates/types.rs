@@ -21,6 +21,21 @@ pub struct TemplateSection {
     pub example_item_format: Option<String>,
 }
 
+/// v0.7.0+: 模板所需最低 tier.
+/// - "free" (默认): 所有用户都能用
+/// - "member": 仅 Pro 用户能用
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum TemplateTier {
+    Free,
+    #[serde(rename = "member")]
+    Member,
+}
+
+impl Default for TemplateTier {
+    fn default() -> Self { TemplateTier::Free }
+}
+
 /// Represents a complete meeting template
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Template {
@@ -32,10 +47,22 @@ pub struct Template {
 
     /// List of sections in the template
     pub sections: Vec<TemplateSection>,
+
+    /// v0.7.0+: 所需 tier (默认 free). "member" 模板对 free 用户灰显 + 后端拒绝.
+    #[serde(default)]
+    pub required_tier: TemplateTier,
 }
 
 impl Template {
     /// Validates the template structure
+    /// v0.7.0+: 检查当前用户 tier 是否有权使用此模板
+    pub fn is_available_for(&self, user_tier: &str) -> bool {
+        match self.required_tier {
+            TemplateTier::Free => true,
+            TemplateTier::Member => user_tier == "member",
+        }
+    }
+
     pub fn validate(&self) -> Result<(), String> {
         if self.name.is_empty() {
             return Err("Template name cannot be empty".to_string());
@@ -127,6 +154,7 @@ mod tests {
                     example_item_format: None,
                 },
             ],
+            required_tier: TemplateTier::Free,
         };
 
         assert!(template.validate().is_ok());
@@ -138,6 +166,7 @@ mod tests {
             name: "".to_string(),
             description: "A test template".to_string(),
             sections: vec![],
+            required_tier: TemplateTier::Free,
         };
 
         assert!(template.validate().is_err());
@@ -157,6 +186,7 @@ mod tests {
                     example_item_format: None,
                 },
             ],
+            required_tier: TemplateTier::Free,
         };
 
         assert!(template.validate().is_err());

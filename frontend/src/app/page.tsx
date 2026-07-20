@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { RecordingControls } from '@/components/RecordingControls';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
+import { useAuth } from '@/contexts/AuthContext';
 import { usePermissionCheck } from '@/hooks/usePermissionCheck';
 import { useRecordingState, RecordingStatus } from '@/contexts/RecordingStateContext';
 import { useTranscripts } from '@/contexts/TranscriptContext';
@@ -12,14 +13,19 @@ import { StatusOverlays } from '@/app/_components/StatusOverlays';
 import Analytics from '@/lib/analytics';
 import { SettingsModals } from './_components/SettingsModal';
 import { TranscriptPanel } from './_components/TranscriptPanel';
+import { HomeDashboard } from './_components/HomeDashboard';
 import { useModalState } from '@/hooks/useModalState';
 import { useRecordingStateSync } from '@/hooks/useRecordingStateSync';
 import { useRecordingStart } from '@/hooks/useRecordingStart';
 import { useRecordingStop } from '@/hooks/useRecordingStop';
 import { useTranscriptRecovery } from '@/hooks/useTranscriptRecovery';
+import { useQuota } from '@/hooks/useQuota';
+import { QuotaPaywallModal } from './_components/QuotaPaywallModal';
 import { TranscriptRecovery } from '@/components/TranscriptRecovery';
 import { indexedDBService } from '@/services/indexedDBService';
 import { toast } from 'sonner';
+import { safeToast } from '@/lib/safeToast';
+import { invoke } from '@tauri-apps/api/core';
 import { useRouter } from 'next/navigation';
 
 export default function Home() {
@@ -38,10 +44,46 @@ export default function Home() {
 
   // Hooks
   const { hasMicrophone } = usePermissionCheck();
+  // v0.6.10+: 拿 session 用于 quota 检查
+  const { session } = useAuth();
   const { setIsMeetingActive, isCollapsed: sidebarCollapsed, refetchMeetings } = useSidebar();
   const { modals, messages, showModal, hideModal } = useModalState(transcriptModelConfig);
   const { isRecordingDisabled, setIsRecordingDisabled } = useRecordingStateSync(isRecording, setIsRecordingState, setIsMeetingActive);
   const { handleRecordingStart } = useRecordingStart(isRecording, setIsRecordingState, showModal);
+
+  // v0.6.10+: 商业化配额 (C1+C2)
+  // - 未登录: 试用 1 次, 用完弹"请注册"
+  // - free 注册: 每月 5 次录音
+  // - member: 无上限
+  const { quota, refresh: refreshQuota, recordAfterSave } = useQuota(session ?? null);
+
+  const [paywall, setPaywall] = useState<{ open: boolean; reason: 'anonymous_trial_exhausted' | 'free_monthly_limit_reached' | null }>({ open: false, reason: null });
+
+  const startRecordingWithQuota = async () => {
+    if (!quota.can_record) {
+      const isAnon = quota.tier === 'anonymous';
+      setPaywall({ open: true, reason: isAnon ? 'anonymous_trial_exhausted' : 'free_monthly_limit_reached' });
+      return;
+    }
+    await handleRecordingStart();
+  };
+
+  const closePaywall = () => setPaywall({ open: false, reason: null });
+
+  const recordLead = async () => {
+    try {
+      const userEmail = (typeof window !== 'undefined') ? (window.localStorage.getItem('lixianhuiji.last_email') || '') : '';
+      if (!userEmail) {
+        alert('请先在 Account 页输入您的邮箱');
+        return;
+      }
+      await invoke('lead_record_upgrade', { email: userEmail, contact: userEmail, note: 'In-app paywall click' });
+      safeToast.success('已记录您的升级意向, 客服会通过邮件联系您。');
+    } catch (e) {
+      console.warn(e);
+      safeToast.error('记录失败,请稍后重试');
+    }
+  };
 
   // Get handleRecordingStop function and setIsStopping (state comes from global context)
   const { handleRecordingStop, setIsStopping } = useRecordingStop(
@@ -63,8 +105,10 @@ export default function Home() {
   const router = useRouter();
 
   useEffect(() => {
+    console.log('[v0.6-debug] page.tsx mounted, hand status');
     // Track page view
-    Analytics.trackPageView('home');
+    Analytics.trackPageView('Home');
+    console.log('[v0.6-debug] trackPageView OK');
   }, []);
 
   // Startup recovery check
@@ -124,12 +168,12 @@ export default function Home() {
       const result = await recoverMeeting(meetingId);
 
       if (result.success) {
-        toast.success('Meeting recovered successfully!', {
+        safeToast.success('会议恢复成功！', {
           description: result.audioRecoveryStatus?.status === 'success'
-            ? 'Transcripts and audio recovered'
-            : 'Transcripts recovered (no audio available)',
+            ? '转录和音频已恢复'
+            : '转录已恢复 (无可用音频)',
           action: result.meetingId ? {
-            label: 'View Meeting',
+            label: '查看会议',
             onClick: () => {
               router.push(`/meeting-details?id=${result.meetingId}`);
             }
@@ -153,7 +197,7 @@ export default function Home() {
         }
       }
     } catch (error) {
-      toast.error('Failed to recover meeting', {
+      safeToast.error('恢复会议失败', {
         description: error instanceof Error ? error.message : 'Unknown error occurred',
       });
       throw error;
@@ -213,45 +257,57 @@ export default function Home() {
         onLoadPreview={loadMeetingTranscripts}
       />
       <div className="flex flex-1 overflow-hidden">
-        <TranscriptPanel
-          isProcessingStop={isProcessingStop}
-          isStopping={isStopping}
-          showModal={showModal}
-        />
+        {recordingState.isRecording ? (
+          <TranscriptPanel
+            isProcessingStop={isProcessingStop}
+            isStopping={isStopping}
+            showModal={showModal}
+          />
+        ) : (
+          <HomeDashboard
+            onRecordingStart={startRecordingWithQuota}
+            onTranscriptReceived={() => {}}
+            onTranscriptionError={(message: string) => showModal('errorAlert', message)}
+            isRecordingDisabled={isRecordingDisabled}
+            isParentProcessing={isProcessingStop}
+            barHeights={barHeights}
+            showModal={(type: string, message?: string) => showModal(type as any, message)}
+            meetingTitle={meetingTitle}
+            selectedDevices={selectedDevices}
+          />
+        )}
 
-        {/* Recording controls - only show when permissions are granted or already recording and not showing status messages */}
-        {(hasMicrophone || isRecording) &&
-          status !== RecordingStatus.PROCESSING_TRANSCRIPTS &&
-          status !== RecordingStatus.SAVING && (
-            <div className="fixed bottom-12 left-0 right-0 z-10">
-              <div
-                className="flex justify-center pl-8 transition-[margin] duration-300"
-                style={{
-                  marginLeft: sidebarCollapsed ? '4rem' : '16rem'
-                }}
-              >
-                <div className="w-2/3 max-w-[750px] flex justify-center">
-                  <div className="bg-white rounded-full shadow-lg flex items-center">
-                    <RecordingControls
-                      isRecording={recordingState.isRecording}
-                      onRecordingStop={(callApi = true) => handleRecordingStop(callApi)}
-                      onRecordingStart={handleRecordingStart}
-                      onTranscriptReceived={() => { }} // Not actually used by RecordingControls
-                      onStopInitiated={() => setIsStopping(true)}
-                      barHeights={barHeights}
-                      onTranscriptionError={(message) => {
-                        showModal('errorAlert', message);
-                      }}
-                      isRecordingDisabled={isRecordingDisabled}
-                      isParentProcessing={isProcessingStop}
-                      selectedDevices={selectedDevices}
-                      meetingName={meetingTitle}
-                    />
-                  </div>
+        {/* Recording controls - 录音中底部药丸 (原有设计) */}
+        {recordingState.isRecording && (
+          <div className="fixed bottom-12 left-0 right-0 z-10">
+            <div
+              className="flex justify-center pl-8 transition-[margin] duration-300"
+              style={{
+                marginLeft: sidebarCollapsed ? '4rem' : '16rem'
+              }}
+            >
+              <div className="w-2/3 max-w-[750px] flex justify-center">
+                <div className="bg-white rounded-full shadow-lg flex items-center">
+                  <RecordingControls
+                    isRecording={recordingState.isRecording}
+                    onRecordingStop={(callApi = true) => handleRecordingStop(callApi)}
+                    onRecordingStart={startRecordingWithQuota}
+                    onTranscriptReceived={() => { }}
+                    onStopInitiated={() => setIsStopping(true)}
+                    barHeights={barHeights}
+                    onTranscriptionError={(message) => {
+                      showModal('errorAlert', message);
+                    }}
+                    isRecordingDisabled={isRecordingDisabled}
+                    isParentProcessing={isProcessingStop}
+                    selectedDevices={selectedDevices}
+                    meetingName={meetingTitle}
+                  />
                 </div>
               </div>
             </div>
-          )}
+          </div>
+        )}
 
         {/* Status Overlays - Processing and Saving */}
         <StatusOverlays
@@ -260,6 +316,14 @@ export default function Home() {
           sidebarCollapsed={sidebarCollapsed}
         />
       </div>
+
+      {/* v0.6.10+: 商业化付费墙弹窗 (C1+C2) */}
+      <QuotaPaywallModal
+        open={paywall.open}
+        reason={paywall.reason}
+        onClose={closePaywall}
+        onUpgradeInterest={recordLead}
+      />
     </motion.div>
   );
 }

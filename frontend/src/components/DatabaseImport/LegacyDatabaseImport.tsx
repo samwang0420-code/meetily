@@ -1,8 +1,10 @@
+import { useTranslation } from '@/i18n';
 'use client';
 
 import { useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
+import { safeToast } from '@/lib/safeToast';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog';
 import { Loader2, FolderOpen, Database, CheckCircle2, XCircle } from 'lucide-react';
 import { HomebrewDatabaseDetector } from './HomebrewDatabaseDetector';
@@ -15,6 +17,7 @@ interface LegacyDatabaseImportProps {
 type ImportState = 'idle' | 'selecting' | 'detecting' | 'importing' | 'success' | 'error';
 
 export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImportProps) {
+  const { t } = useTranslation();
   const [importState, setImportState] = useState<ImportState>('idle');
   const [detectedPath, setDetectedPath] = useState<string | null>(null);
   const [errorMessage, setErrorMessage] = useState<string>('');
@@ -66,7 +69,7 @@ export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImpor
       });
 
       setImportState('success');
-      toast.success('Database imported successfully! Reloading...');
+      safeToast.success('Database imported successfully! Reloading...');
 
       // Wait 1 second for user to see success, then reload window to refresh all data
       setTimeout(() => {
@@ -76,7 +79,7 @@ export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImpor
       console.error('Error importing database:', error);
       setErrorMessage(String(error));
       setImportState('error');
-      toast.error(`Import failed: ${error}`);
+      safeToast.error(`导入 failed: ${error}`);
       setTimeout(() => setImportState('idle'), 3000);
     }
   };
@@ -88,7 +91,7 @@ export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImpor
       await invoke('initialize_fresh_database');
 
       setImportState('success');
-      toast.success('Database initialized successfully! Starting app...');
+      safeToast.success('Database initialized successfully! Starting app...');
 
       // Wait 1 second for user to see success, then reload window to start fresh
       setTimeout(() => {
@@ -98,7 +101,7 @@ export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImpor
       console.error('Error initializing database:', error);
       setErrorMessage(String(error));
       setImportState('error');
-      toast.error(`Initialization failed: ${error}`);
+      safeToast.error(`Initialization failed: ${error}`);
       setTimeout(() => setImportState('idle'), 3000);
     }
   };
@@ -112,7 +115,7 @@ export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImpor
   };
 
   const handleHomebrewDecline = () => {
-    // User declined homebrew import, they can continue with manual browse
+    // User declined Homebrew import, they can continue with manual browse
   };
 
   return (
@@ -151,7 +154,7 @@ export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImpor
               ) : (
                 <>
                   <FolderOpen className="h-5 w-5" />
-                  <span>Browse for Database</span>
+                  <span>{t('common.browse')}</span>
                 </>
               )}
             </button>
@@ -192,7 +195,7 @@ export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImpor
               {importState === 'importing' ? (
                 <>
                   <Loader2 className="h-5 w-5 animate-spin" />
-                  <span>Importing...</span>
+                  <span>{t('common.importing')}</span>
                 </>
               ) : importState === 'success' ? (
                 <>
@@ -202,7 +205,7 @@ export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImpor
               ) : (
                 <>
                   <Database className="h-5 w-5" />
-                  <span>Import Database</span>
+                  <span>{t('common.import_db')}</span>
                 </>
               )}
             </button>

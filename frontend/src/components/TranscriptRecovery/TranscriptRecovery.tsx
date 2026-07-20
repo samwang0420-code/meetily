@@ -6,6 +6,7 @@
  */
 
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from '@/i18n';
 import { formatDistanceToNow } from 'date-fns';
 import { AlertCircle, CheckCircle2, Clock, FileText, Trash2, XCircle } from 'lucide-react';
 import {
@@ -39,6 +40,7 @@ export function TranscriptRecovery({
   onDelete,
   onLoadPreview,
 }: TranscriptRecoveryProps) {
+  const { t } = useTranslation();
   const [selectedMeetingId, setSelectedMeetingId] = useState<string | null>(null);
   const [previewTranscripts, setPreviewTranscripts] = useState<StoredTranscript[]>([]);
   const [isLoadingPreview, setIsLoadingPreview] = useState(false);
@@ -66,8 +68,24 @@ export function TranscriptRecovery({
 
     try {
       const transcripts = await onLoadPreview(meetingId);
-      // Limit to first 10 for preview
-      setPreviewTranscripts(transcripts.slice(0, 10));
+      // Limit to first 10 for preview + sanitize: 防御 null/undefined text (老数据 / 迁移残留)
+      // 不防御的话 <span>{transcript.text}</span> 在 commit 时抛 React #321
+      const safeTranscripts: StoredTranscript[] = (transcripts || [])
+        .filter((t: any) => !!t && typeof t.meetingId === 'string')
+        .map((t: any): StoredTranscript => ({
+          meetingId: t.meetingId,
+          text: typeof t.text === 'string' ? t.text : '',
+          timestamp: typeof t.timestamp === 'string' ? t.timestamp : '',
+          sequenceId: typeof t.sequenceId === 'number' ? t.sequenceId : 0,
+          audio_start_time: typeof t.audio_start_time === 'number' ? t.audio_start_time : undefined,
+          audio_end_time: typeof t.audio_end_time === 'number' ? t.audio_end_time : undefined,
+          duration: typeof t.duration === 'number' ? t.duration : undefined,
+          confidence: typeof t.confidence === 'number' ? t.confidence : undefined,
+          storedAt: typeof t.storedAt === 'number' ? t.storedAt : Date.now(),
+          id: typeof t.id === 'number' ? t.id : undefined,
+        }))
+        .slice(0, 10);
+      setPreviewTranscripts(safeTranscripts);
     } catch (error) {
       console.error('Failed to load preview:', error);
       setPreviewTranscripts([]);
@@ -106,7 +124,7 @@ export function TranscriptRecovery({
       setPreviewTranscripts([]);
     } catch (error) {
       console.error('Delete failed:', error);
-      alert('Failed to delete meeting. Please try again.');
+      alert('删除会议失败. Please try again.');
     } finally {
       setIsDeleting(false);
     }
@@ -118,7 +136,7 @@ export function TranscriptRecovery({
     <Dialog open={isOpen} onOpenChange={onClose}>
       <DialogContent className="max-w-4xl h-[80vh] flex flex-col p-0">
         <DialogHeader className="px-6 pt-6">
-          <DialogTitle className="text-2xl">Recover Interrupted Meetings</DialogTitle>
+          <DialogTitle className="text-2xl">{t('recovery.title')}</DialogTitle>
           <DialogDescription>
             We found {recoverableMeetings.length} meeting{recoverableMeetings.length !== 1 ? 's' : ''} that {recoverableMeetings.length !== 1 ? 'were' : 'was'} interrupted. Select a meeting to preview and recover it.
           </DialogDescription>
@@ -127,7 +145,7 @@ export function TranscriptRecovery({
         <div className="flex-1 flex gap-4 px-6 pb-6 overflow-hidden">
           {/* Meeting List */}
           <div className="w-1/3 flex flex-col">
-            <h3 className="text-sm font-medium mb-2">Interrupted Meetings</h3>
+            <h3 className="text-sm font-medium mb-2">{t('recovery.interrupted')}</h3>
             <ScrollArea className="flex-1 border rounded-lg">
               <div className="p-2 space-y-2">
                 {recoverableMeetings.map((meeting) => (
@@ -154,11 +172,11 @@ export function TranscriptRecovery({
                         </p>
                       </div>
                       {meeting.folderPath ? (
-                        <span title="Audio available">
+                        <span title="音频 available">
                           <CheckCircle2 className="w-4 h-4 text-green-500 flex-shrink-0" />
                         </span>
                       ) : (
-                        <span title="No audio">
+                        <span title="否 audio">
                           <AlertCircle className="w-4 h-4 text-yellow-500 flex-shrink-0" />
                         </span>
                       )}
@@ -169,9 +187,9 @@ export function TranscriptRecovery({
             </ScrollArea>
           </div>
 
-          {/* Preview Panel */}
+          {/* {t('recovery.preview')} Panel */}
           <div className="flex-1 flex flex-col">
-            <h3 className="text-sm font-medium mb-2">Preview</h3>
+            <h3 className="text-sm font-medium mb-2">{t('recovery.preview')}</h3>
             <div className="flex-1 border rounded-lg overflow-hidden flex flex-col">
               {selectedMeeting ? (
                 <>
@@ -200,7 +218,7 @@ export function TranscriptRecovery({
                     </div>
                   </div>
 
-                  {/* Transcript Preview */}
+                  {/* Transcript {t('recovery.preview')} */}
                   <ScrollArea className="flex-1 p-4">
                     {isLoadingPreview ? (
                       <div className="flex items-center justify-center h-full text-muted-foreground">
@@ -238,7 +256,7 @@ export function TranscriptRecovery({
                           return (
                             <div key={index} className="text-sm">
                               <span className="text-muted-foreground">[{getTimestamp()}]</span>{' '}
-                              <span>{transcript.text}</span>
+                              <span>{typeof transcript?.text === 'string' ? transcript.text : '(空)'}</span>
                             </div>
                           );
                         })}

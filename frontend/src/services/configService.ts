@@ -36,7 +36,7 @@ export interface CustomOpenAIConfig {
   topP: number | null;
 }
 
-export interface RecordingPreferences {
+export interface Recording偏好设置 {
   preferred_mic_device: string | null;
   preferred_system_device: string | null;
 }
@@ -66,8 +66,8 @@ export class ConfigService {
    * Get saved audio device preferences
    * @returns Promise with { preferred_mic_device, preferred_system_device }
    */
-  async getRecordingPreferences(): Promise<RecordingPreferences> {
-    return invoke<RecordingPreferences>('get_recording_preferences');
+  async getRecording偏好设置(): Promise<Recording偏好设置> {
+    return invoke<Recording偏好设置>('get_recording_preferences');
   }
 
   /**

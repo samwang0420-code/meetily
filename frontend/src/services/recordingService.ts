@@ -52,7 +52,7 @@ export class RecordingService {
   }
 
   /**
-   * Start recording (no device configuration)
+   * 开始录音 (no device configuration)
    * @returns Promise<void>
    */
   async startRecording(): Promise<void> {
@@ -60,7 +60,7 @@ export class RecordingService {
   }
 
   /**
-   * Start recording with device configuration and meeting name
+   * 开始录音 with device configuration and meeting name
    * @param micDeviceName - Microphone device name (null for default)
    * @param systemDeviceName - System audio device name (null for none)
    * @param meetingName - Meeting name/title
@@ -79,7 +79,7 @@ export class RecordingService {
   }
 
   /**
-   * Stop recording and save to file
+   * 停止录音 and save to file
    * @param savePath - Path to save audio file
    * @returns Promise<void>
    */

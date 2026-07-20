@@ -1,3 +1,4 @@
+use crate::user::commands::SessionStore;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex as StdMutex;
@@ -53,6 +54,7 @@ pub mod state;
 pub mod summary;
 pub mod tray;
 pub mod utils;
+pub mod user;
 pub mod whisper_engine;
 
 use audio::{list_audio_devices, AudioDevice, trigger_audio_permission};
@@ -390,6 +392,9 @@ pub fn get_language_preference_internal() -> Option<String> {
 pub fn run() {
     log::set_max_level(log::LevelFilter::Info);
 
+    // v0.7.0+: panic hook (写本地 crash log)
+    install_panic_hook();
+
     let mut builder = tauri::Builder::default();
 
     #[cfg(any(target_os = "macos", windows, target_os = "linux"))]
@@ -417,6 +422,7 @@ pub fn run() {
         )) as NotificationManagerState<tauri::Wry>)
         .manage(audio::init_system_audio_state())
         .manage(summary::summary_engine::ModelManagerState(Arc::new(tokio::sync::Mutex::new(None))))
+        .manage(SessionStore::default())
         .setup(|_app| {
             log::info!("Application setup complete");
 
@@ -451,15 +457,9 @@ pub fn run() {
                 }
             });
 
-            // Set models directory to use app_data_dir (unified storage location)
-            whisper_engine::commands::set_models_directory(&_app.handle());
-
-            // Initialize Whisper engine on startup
-            tauri::async_runtime::spawn(async {
-                if let Err(e) = whisper_engine::commands::whisper_init().await {
-                    log::error!("Failed to initialize Whisper engine on startup: {}", e);
-                }
-            });
+            // 离线会记 v0.5.0: Whisper 已彻底移除 (默认 SenseVoice-zh)
+            // 保留 whisper_engine 模块代码作为参考, 但不启动, 不注册 invoke 命令
+            // 如果未来要回滚, 取消下面两行注释即可
 
             // Set Parakeet models directory
             parakeet_engine::commands::set_models_directory(&_app.handle());
@@ -555,18 +555,41 @@ pub fn run() {
             analytics::commands::track_analytics_enabled,
             analytics::commands::track_analytics_disabled,
             analytics::commands::track_analytics_transparency_viewed,
-            whisper_engine::commands::whisper_init,
-            whisper_engine::commands::whisper_get_available_models,
-            whisper_engine::commands::whisper_load_model,
-            whisper_engine::commands::whisper_get_current_model,
-            whisper_engine::commands::whisper_is_model_loaded,
-            whisper_engine::commands::whisper_has_available_models,
-            whisper_engine::commands::whisper_validate_model_ready,
-            whisper_engine::commands::whisper_transcribe_audio,
-            whisper_engine::commands::whisper_get_models_directory,
-            whisper_engine::commands::whisper_download_model,
-            whisper_engine::commands::whisper_cancel_download,
-            whisper_engine::commands::whisper_delete_corrupted_model,
+
+            // 离线会记 v0.5.0: 用户/会员管理
+            user::commands::user_register,
+            user::commands::user_login,
+            user::commands::user_bootstrap,
+            user::commands::user_get_current,
+            user::commands::user_logout,
+            user::commands::system_machine_id,
+            user::commands::user_activate_member,
+            user::commands::hotwords_get,
+            user::commands::hotwords_save,
+            user::commands::hotwords_set_globals,
+
+            // v0.6.10+: 商业化
+            user::commands::quota_get_status,
+            user::commands::quota_increment_after_record,
+            user::commands::lead_record_upgrade,
+            user::commands::admin_activate_member,
+            user::commands::admin_list_activation_orders,
+            user::commands::admin_list_upgrade_leads,
+            // C4: 激活码
+            user::commands::admin_generate_activation_codes,
+            user::commands::admin_list_activation_codes,
+            user::commands::admin_revoke_activation_code,
+            user::commands::user_redeem_activation_code,
+            // v0.7.0+: 商业化运营 (退款 / 解绑 / 封号 / 配额)
+            user::commands::admin_list_users,
+            user::commands::admin_revoke_membership,
+            user::commands::admin_unbind_machine,
+            user::commands::admin_set_user_active,
+            user::commands::admin_reset_user_quota,
+            user::commands::admin_refund_user,
+            // whisper 已停用 (见上注释)
+            // whisper_engine::commands::whisper_init,
+            // ... (11 commands, all disabled v0.5.0)
             // Parakeet engine commands
             parakeet_engine::commands::parakeet_init,
             parakeet_engine::commands::parakeet_get_available_models,
@@ -742,6 +765,10 @@ pub fn run() {
             audio::retranscription::start_retranscription_command,
             audio::retranscription::cancel_retranscription_command,
             audio::retranscription::is_retranscription_in_progress_command,
+            // v0.6.11: streaming pipeline (实时流式识别)
+            audio::sherpa_daemon::sherpa_stream_begin,
+            audio::sherpa_daemon::sherpa_stream_chunk,
+            audio::sherpa_daemon::sherpa_stream_finalize,
             // Import audio commands
             audio::import::select_and_validate_audio_command,
             audio::import::validate_audio_file_command,
@@ -783,4 +810,52 @@ pub fn run() {
                 _ => {}
             }
         });
+}
+
+/// v0.7.0+: 安装 panic hook.
+/// 任何 Rust 线程 panic 时, 把 backtrace 写到本地 crash log 文件, 用户可查.
+/// 完全本地, 0 网络, 0 第三方依赖.
+fn install_panic_hook() {
+    use std::panic;
+    use std::fs;
+    use std::io::Write;
+
+    let default_hook = panic::take_hook();
+    panic::set_hook(Box::new(move |panic_info| {
+        // 1) 调默认 hook (打到 stderr / log)
+        default_hook(panic_info);
+
+        // 2) 写本地 crash log
+        let app_data = std::env::var("LIXIANHUIJI_DATA_DIR").ok()
+            .or_else(|| dirs::data_dir().map(|p| p.join("cn.lixianhuiji.app").to_string_lossy().to_string()));
+        if let Some(dir) = app_data {
+            let crash_dir = std::path::PathBuf::from(&dir).join("crashes");
+            let _ = fs::create_dir_all(&crash_dir);
+            let now = chrono::Utc::now();
+            let filename = format!("crash-{}.txt", now.format("%Y%m%d-%H%M%S"));
+            let path = crash_dir.join(&filename);
+            if let Ok(mut f) = fs::File::create(&path) {
+                let _ = writeln!(f, "=== LixianHuiji Panic Report ===");
+                let _ = writeln!(f, "timestamp: {}", now.to_rfc3339());
+                let _ = writeln!(f, "version: {}", env!("CARGO_PKG_VERSION"));
+                let _ = writeln!(f, "os: {} / arch: {}", std::env::consts::OS, std::env::consts::ARCH);
+                let _ = writeln!(f, "
+--- panic_info ---");
+                let _ = writeln!(f, "{}", panic_info);
+                let _ = writeln!(f, "
+--- backtrace ---");
+                let _ = writeln!(f, "{}", std::backtrace::Backtrace::force_capture());
+            }
+            // 3) 仅保留最近 50 个 crash 文件
+            if let Ok(rd) = fs::read_dir(&crash_dir) {
+                let mut entries: Vec<_> = rd.flatten()
+                    .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("txt"))
+                    .collect();
+                entries.sort_by_key(|e| e.metadata().and_then(|m| m.modified()).ok());
+                for old in entries.iter().rev().skip(50) {
+                    let _ = fs::remove_file(old.path());
+                }
+            }
+        }
+    }));
 }

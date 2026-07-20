@@ -1,0 +1,143 @@
+{
+  "generated_at": "2026-07-18T01:49:29.870Z",
+  "hypothesis_dir": "/Users/wangwei/Documents/meetily/frontend/benchmarks/asr/hypotheses/sensevoice",
+  "completed": 10,
+  "missing": 0,
+  "summary": {
+    "cer": 0.05672066576290437,
+    "term_recall": 0.8142857142857143,
+    "fragment_ratio": 0
+  },
+  "cases": [
+    {
+      "id": "legal-01",
+      "domain": "legal",
+      "status": "ok",
+      "reference_chars": 138,
+      "hypothesis_chars": 138,
+      "cer": 0,
+      "term_hits": 10,
+      "term_total": 10,
+      "term_recall": 1,
+      "segments": 1,
+      "fragment_ratio": 0
+    },
+    {
+      "id": "legal-02",
+      "domain": "legal",
+      "status": "ok",
+      "reference_chars": 124,
+      "hypothesis_chars": 124,
+      "cer": 0.016129032258064516,
+      "term_hits": 7,
+      "term_total": 7,
+      "term_recall": 1,
+      "segments": 1,
+      "fragment_ratio": 0
+    },
+    {
+      "id": "legal-03",
+      "domain": "legal",
+      "status": "ok",
+      "reference_chars": 121,
+      "hypothesis_chars": 121,
+      "cer": 0.008264462809917356,
+      "term_hits": 7,
+      "term_total": 7,
+      "term_recall": 1,
+      "segments": 1,
+      "fragment_ratio": 0
+    },
+    {
+      "id": "legal-04",
+      "domain": "legal",
+      "status": "ok",
+      "reference_chars": 110,
+      "hypothesis_chars": 110,
+      "cer": 0,
+      "term_hits": 7,
+      "term_total": 7,
+      "term_recall": 1,
+      "segments": 1,
+      "fragment_ratio": 0
+    },
+    {
+      "id": "legal-05",
+      "domain": "legal",
+      "status": "ok",
+      "reference_chars": 117,
+      "hypothesis_chars": 117,
+      "cer": 0,
+      "term_hits": 7,
+      "term_total": 7,
+      "term_recall": 1,
+      "segments": 1,
+      "fragment_ratio": 0
+    },
+    {
+      "id": "medical-01",
+      "domain": "medical",
+      "status": "ok",
+      "reference_chars": 99,
+      "hypothesis_chars": 99,
+      "cer": 0.1414141414141414,
+      "term_hits": 4,
+      "term_total": 8,
+      "term_recall": 0.5,
+      "segments": 1,
+      "fragment_ratio": 0
+    },
+    {
+      "id": "medical-02",
+      "domain": "medical",
+      "status": "ok",
+      "reference_chars": 104,
+      "hypothesis_chars": 104,
+      "cer": 0.11538461538461539,
+      "term_hits": 4,
+      "term_total": 7,
+      "term_recall": 0.5714285714285714,
+      "segments": 1,
+      "fragment_ratio": 0
+    },
+    {
+      "id": "medical-03",
+      "domain": "medical",
+      "status": "ok",
+      "reference_chars": 102,
+      "hypothesis_chars": 103,
+      "cer": 0.11764705882352941,
+      "term_hits": 4,
+      "term_total": 7,
+      "term_recall": 0.5714285714285714,
+      "segments": 1,
+      "fragment_ratio": 0
+    },
+    {
+      "id": "medical-04",
+      "domain": "medical",
+      "status": "ok",
+      "reference_chars": 98,
+      "hypothesis_chars": 98,
+      "cer": 0.061224489795918366,
+      "term_hits": 6,
+      "term_total": 6,
+      "term_recall": 1,
+      "segments": 1,
+      "fragment_ratio": 0
+    },
+    {
+      "id": "medical-05",
+      "domain": "medical",
+      "status": "ok",
+      "reference_chars": 112,
+      "hypothesis_chars": 112,
+      "cer": 0.10714285714285714,
+      "term_hits": 4,
+      "term_total": 8,
+      "term_recall": 0.5,
+      "segments": 1,
+      "fragment_ratio": 0
+    }
+  ]
+}

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
+import { useTranslation } from '@/i18n';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Mic, Sparkles, Check, Loader2, Download } from 'lucide-react';
@@ -6,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { OnboardingContainer } from '../OnboardingContainer';
 import { useOnboarding } from '@/contexts/OnboardingContext';
 import { toast } from 'sonner';
+import { safeToast } from '@/lib/safeToast';
 import { motion, AnimatePresence } from 'framer-motion';
 import { getSummaryModelSizeLabel, getSummaryModelSizeMb } from '@/lib/onboarding-summary-model';
 
@@ -23,6 +25,7 @@ interface DownloadState {
 }
 
 export function DownloadProgressStep() {
+  const { t } = useTranslation();
   const {
     goNext,
     selectedSummaryModel,
@@ -61,6 +64,7 @@ export function DownloadProgressStep() {
 
   // Retry download handler
   const handleRetryDownload = async () => {
+  const { t } = useTranslation();
     // Prevent multiple simultaneous retries
     if (retryingRef.current) {
       console.log('[DownloadProgressStep] Retry already in progress, ignoring');
@@ -91,7 +95,7 @@ export function DownloadProgressStep() {
         error: error instanceof Error ? error.message : 'Retry failed',
       }));
 
-      toast.error('Download retry failed', {
+      safeToast.error('Download retry failed', {
         description: 'Please check your connection and try again.',
       });
     } finally {
@@ -139,7 +143,7 @@ export function DownloadProgressStep() {
         error: error instanceof Error ? error.message : 'Retry failed',
       }));
 
-      toast.error('Summary model download retry failed', {
+      safeToast.error('Summary model download retry failed', {
         description: 'Please check your connection and try again.',
       });
     } finally {
@@ -343,7 +347,7 @@ export function DownloadProgressStep() {
           progress: 100,
         }));
       } else if (!actuallyAvailable && parakeetState.status === 'error') {
-        toast.error('Transcription engine required', {
+        safeToast.error('Transcription engine required', {
           description: 'Please retry the download before continuing.',
         });
         return;
@@ -358,7 +362,7 @@ export function DownloadProgressStep() {
 
     // Show toast if downloads still in progress
     if (!downloadsComplete) {
-      toast.info('Downloads will continue in the background', {
+      safeToast.info('Downloads will continue in the background', {
         description: 'You can start using the app. Recording will be available once speech recognition is ready.',
         duration: 5000,
       });
@@ -379,7 +383,7 @@ export function DownloadProgressStep() {
         window.location.reload();
       } catch (error) {
         console.error('Failed to complete onboarding:', error);
-        toast.error('Failed to complete setup', {
+        safeToast.error('Failed to complete setup', {
           description: 'Please try again.',
         });
         setIsCompleting(false);
@@ -418,7 +422,7 @@ export function DownloadProgressStep() {
             </div>
           )}
           {state.status === 'error' && (
-            <span className="text-sm text-red-500">Failed</span>
+            <span className="text-sm text-red-500">{t('downloads.failed')}</span>
           )}
         </div>
       </div>
@@ -452,7 +456,7 @@ export function DownloadProgressStep() {
 
       {state.status === 'error' && state.error && (
         <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
-          <p className="text-sm text-red-600 font-medium">Download Error</p>
+          <p className="text-sm text-red-600 font-medium">{t('downloads.error')}</p>
           <p className="text-xs text-red-500 mt-1">{state.error}</p>
           {(title === 'Transcription Engine' || title === 'Summary Engine') && (
             <button
@@ -473,7 +477,7 @@ export function DownloadProgressStep() {
 
   return (
     <OnboardingContainer
-      title="Getting things ready"
+      title="正在准备环境"
       description="You can start using Meetily after downloading the Transcription Engine."
       step={3}
       totalSteps={isMac ? 4 : 3}
@@ -510,7 +514,7 @@ export function DownloadProgressStep() {
               <div className="flex items-start gap-3">
                 <Download className="w-5 h-5 text-gray-600 flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="font-medium">You can continue while this finishes</p>
+                  <p className="font-medium">{t('downloads.bg_hint')}</p>
                   <p className="text-gray-700 mt-1">
                     Download will continue in the background.
                   </p>

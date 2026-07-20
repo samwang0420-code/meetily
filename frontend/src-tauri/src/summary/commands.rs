@@ -34,6 +34,13 @@ pub struct ProcessTranscriptResponse {
     pub process_id: String,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StructuredTranscriptEvidence {
+    pub text: String,
+    pub start_seconds: Option<f64>,
+    pub end_seconds: Option<f64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SummaryLanguageStorage {
@@ -335,6 +342,7 @@ pub async fn api_process_transcript<R: Runtime>(
     custom_prompt: Option<String>,
     template_id: Option<String>,
     summary_language: Option<String>,
+    evidence: Option<Vec<StructuredTranscriptEvidence>>,
     _auth_token: Option<String>,
 ) -> Result<ProcessTranscriptResponse, String> {
     use uuid::Uuid;
@@ -355,6 +363,8 @@ pub async fn api_process_transcript<R: Runtime>(
         let t = s.trim();
         if t.is_empty() { None } else { Some(t.to_string()) }
     });
+
+    let structured_evidence = evidence.unwrap_or_default();
 
     // Create or reset the process entry in the database
     SummaryProcessesRepository::create_or_reset_process(&pool, &m_id)
@@ -394,6 +404,7 @@ pub async fn api_process_transcript<R: Runtime>(
             final_prompt,
             final_template_id,
             summary_language,
+            structured_evidence,
         )
         .await;
     });

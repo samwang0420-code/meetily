@@ -24,7 +24,7 @@ export function WelcomeStep() {
 
   return (
     <OnboardingContainer
-      title="Welcome to Meetily"
+      title="欢迎使用离线会记"
       description="Record. Transcribe. Summarize. All on your device."
       step={1}
       hideProgress={true}

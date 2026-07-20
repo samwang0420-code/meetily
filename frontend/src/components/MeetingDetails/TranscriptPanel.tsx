@@ -4,19 +4,23 @@ import { Transcript, TranscriptSegmentData } from '@/types';
 import { TranscriptView } from '@/components/TranscriptView';
 import { VirtualizedTranscriptView } from '@/components/VirtualizedTranscriptView';
 import { TranscriptButtonGroup } from './TranscriptButtonGroup';
-import { useMemo } from 'react';
+import { useState, useMemo } from 'react';
+import { ChevronDown, PencilLine } from 'lucide-react';
 
 interface TranscriptPanelProps {
   transcripts: Transcript[];
   customPrompt: string;
   onPromptChange: (value: string) => void;
   onCopyTranscript: () => void;
+  onExportMarkdown?: () => void;
+  onExportTxt?: () => void;
   onOpenMeetingFolder: () => Promise<void>;
   isRecording: boolean;
   disableAutoScroll?: boolean;
 
   // Optional pagination props (when using virtualization)
   usePagination?: boolean;
+  promptOpenDefault?: boolean;
   segments?: TranscriptSegmentData[];
   hasMore?: boolean;
   isLoadingMore?: boolean;
@@ -35,10 +39,13 @@ export function TranscriptPanel({
   customPrompt,
   onPromptChange,
   onCopyTranscript,
+  onExportMarkdown,
+  onExportTxt,
   onOpenMeetingFolder,
   isRecording,
   disableAutoScroll = false,
   usePagination = false,
+  promptOpenDefault = true,
   segments,
   hasMore,
   isLoadingMore,
@@ -49,6 +56,7 @@ export function TranscriptPanel({
   meetingFolderPath,
   onRefetchTranscripts,
 }: TranscriptPanelProps) {
+  const [promptOpen, setPromptOpen] = useState(promptOpenDefault);
   // Convert transcripts to segments if pagination is not used but we want virtualization
   const convertedSegments = useMemo(() => {
     if (usePagination && segments) {
@@ -71,6 +79,8 @@ export function TranscriptPanel({
         <TranscriptButtonGroup
           transcriptCount={usePagination ? (totalCount ?? convertedSegments.length) : (transcripts?.length || 0)}
           onCopyTranscript={onCopyTranscript}
+          onExportMarkdown={onExportMarkdown}
+          onExportTxt={onExportTxt}
           onOpenMeetingFolder={onOpenMeetingFolder}
           meetingId={meetingId}
           meetingFolderPath={meetingFolderPath}
@@ -97,15 +107,46 @@ export function TranscriptPanel({
         />
       </div>
 
-      {/* Custom prompt input at bottom of transcript section */}
+      {/* Custom prompt input — 折叠面板, 中文化, 字符计数 */}
       {!isRecording && convertedSegments.length > 0 && (
-        <div className="p-1 border-t border-gray-200">
-          <textarea
-            placeholder="Add context for AI summary. For example people involved, meeting overview, objective etc..."
-            className="w-full px-3 py-2 border border-gray-200 rounded-md text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 focus:border-blue-500 bg-white shadow-sm min-h-[80px] resize-y"
-            value={customPrompt}
-            onChange={(e) => onPromptChange(e.target.value)}
-          />
+        <div className="shrink-0 border-t border-neutral-200 bg-neutral-50/40">
+          <button
+            type="button"
+            onClick={() => setPromptOpen(!promptOpen)}
+            className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-neutral-100/60"
+          >
+            <div className="flex items-center gap-2">
+              <PencilLine className="h-3.5 w-3.5 text-neutral-500" />
+              <span className="text-[13px] font-medium text-neutral-800">附加提示词</span>
+              <span className="rounded-full bg-neutral-200/70 px-1.5 py-0.5 font-mono text-[10px] text-neutral-600">
+                可选
+              </span>
+              {customPrompt && (
+                <span className="rounded-full bg-blue-50 px-1.5 py-0.5 text-[10px] font-medium text-blue-600">
+                  {customPrompt.length} 字
+                </span>
+              )}
+            </div>
+            <ChevronDown className={`h-3.5 w-3.5 text-neutral-400 transition-transform ${promptOpen ? 'rotate-180' : ''}`} />
+          </button>
+          {promptOpen && (
+            <div className="px-4 pb-3">
+              <textarea
+                placeholder="给 AI 摘要加点背景, 例如:&#10;· 与会人 (产品/法务/财务)&#10;· 会议目标 (对齐 Q3 路线图)&#10;· 上下文 (上次会议遗留的 TODO)"
+                className="block w-full max-w-full box-border resize-none rounded-lg border border-neutral-200 bg-white px-3 py-2.5 text-[13px] leading-relaxed text-neutral-800 placeholder:text-neutral-400 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+                rows={3}
+                value={customPrompt}
+                onChange={(e) => onPromptChange(e.target.value)}
+                style={{ minHeight: '80px', maxHeight: '180px' }}
+              />
+              <div className="mt-1.5 flex items-center justify-between text-[10.5px] text-neutral-400">
+                <span>作为 system prompt 注入到摘要生成</span>
+                <span className={customPrompt.length > 1000 ? 'text-amber-600' : ''}>
+                  {customPrompt.length} / 2000 字
+                </span>
+              </div>
+            </div>
+          )}
         </div>
       )}
     </div>

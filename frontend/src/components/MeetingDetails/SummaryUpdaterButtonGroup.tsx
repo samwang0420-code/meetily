@@ -2,14 +2,17 @@
 
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
-import { Copy, Save, Loader2, Search, FolderOpen } from 'lucide-react';
+import { Copy, Save, Loader2, Search, FolderOpen, FileCode, FileText } from 'lucide-react';
 import Analytics from '@/lib/analytics';
+import { useTranslation } from '@/i18n';
 
 interface SummaryUpdaterButtonGroupProps {
   isSaving: boolean;
   isDirty: boolean;
   onSave: () => Promise<void>;
   onCopy: () => Promise<void>;
+  onExportMarkdown?: () => void;
+  onExportTxt?: () => void;
   onFind?: () => void;
   onOpenFolder: () => Promise<void>;
   hasSummary: boolean;
@@ -20,10 +23,13 @@ export function SummaryUpdaterButtonGroup({
   isDirty,
   onSave,
   onCopy,
+  onExportMarkdown,
+  onExportTxt,
   onFind,
   onOpenFolder,
   hasSummary
 }: SummaryUpdaterButtonGroupProps) {
+  const { t } = useTranslation();
   return (
     <ButtonGroup>
       {/* Save button */}
@@ -31,7 +37,7 @@ export function SummaryUpdaterButtonGroup({
         variant="outline"
         size="sm"
         className={`${isDirty ? 'bg-green-200' : ""}`}
-        title={isSaving ? "Saving" : "Save Changes"}
+        title={isSaving ? t('common.loading') : t('summary.save_changes')}
         onClick={() => {
           Analytics.trackButtonClick('save_changes', 'meeting_details');
           onSave();
@@ -41,12 +47,12 @@ export function SummaryUpdaterButtonGroup({
         {isSaving ? (
           <>
             <Loader2 className="animate-spin" />
-            <span className="hidden lg:inline">Saving...</span>
+            <span className="hidden lg:inline">{t('common.loading')}</span>
           </>
         ) : (
           <>
             <Save />
-            <span className="hidden lg:inline">Save</span>
+            <span className="hidden lg:inline">{t('summary.save')}</span>
           </>
         )}
       </Button>
@@ -55,7 +61,7 @@ export function SummaryUpdaterButtonGroup({
       <Button
         variant="outline"
         size="sm"
-        title="Copy Summary"
+        title={t('summary.copy')}
         onClick={() => {
           Analytics.trackButtonClick('copy_summary', 'meeting_details');
           onCopy();
@@ -64,15 +70,50 @@ export function SummaryUpdaterButtonGroup({
         className="cursor-pointer"
       >
         <Copy />
-        <span className="hidden lg:inline">Copy</span>
+        <span className="hidden lg:inline">{t('summary.copy')}</span>
       </Button>
+
+      {/* v0.6.15: Export MD/TXT buttons */}
+      {onExportMarkdown && (
+        <Button
+          variant="outline"
+          size="sm"
+          title={t('summary.export_md_title')}
+          onClick={() => {
+            Analytics.trackButtonClick('export_summary_md', 'meeting_details');
+            onExportMarkdown();
+          }}
+          disabled={!hasSummary}
+          className="cursor-pointer"
+        >
+          <FileCode />
+          <span className="hidden lg:inline">{t('summary.export_md')}</span>
+        </Button>
+      )}
+
+      {onExportTxt && (
+        <Button
+          variant="outline"
+          size="sm"
+          title={t('summary.export_txt_title')}
+          onClick={() => {
+            Analytics.trackButtonClick('export_summary_txt', 'meeting_details');
+            onExportTxt();
+          }}
+          disabled={!hasSummary}
+          className="cursor-pointer"
+        >
+          <FileText />
+          <span className="hidden lg:inline">{t('summary.export_txt')}</span>
+        </Button>
+      )}
 
       {/* Find button */}
       {/* {onFind && (
         <Button
           variant="outline"
           size="sm"
-          title="Find in Summary"
+          title="在摘要中查找"
           onClick={() => {
             Analytics.trackButtonClick('find_in_summary', 'meeting_details');
             onFind();

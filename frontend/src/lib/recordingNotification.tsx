@@ -1,4 +1,5 @@
 import { toast } from 'sonner';
+
 import Analytics from '@/lib/analytics';
 
 /**

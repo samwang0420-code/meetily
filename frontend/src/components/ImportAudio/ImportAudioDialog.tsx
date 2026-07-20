@@ -1,3 +1,4 @@
+import { useTranslation } from '@/i18n';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Upload,
@@ -31,6 +32,7 @@ import {
   SelectValue,
 } from '../ui/select';
 import { toast } from 'sonner';
+import { safeToast } from '@/lib/safeToast';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useImportAudio, ImportResult } from '@/hooks/useImportAudio';
 import { useRouter } from 'next/navigation';
@@ -70,6 +72,7 @@ export function ImportAudioDialog({
   preselectedFile,
   onComplete,
 }: ImportAudioDialogProps) {
+  const { t } = useTranslation();
   const router = useRouter();
   const { refetchMeetings } = useSidebar();
   const { selectedLanguage, transcriptModelConfig } = useConfig();
@@ -95,7 +98,7 @@ export function ImportAudioDialog({
   } = useTranscriptionModels(transcriptModelConfig);
 
   const handleImportComplete = useCallback((result: ImportResult) => {
-    toast.success(`Import complete! ${result.segments_count} segments created.`);
+    safeToast.success(`导入 complete! ${result.segments_count} segments created.`);
 
     // Refresh meetings list then navigate to the imported meeting
     refetchMeetings();
@@ -105,7 +108,7 @@ export function ImportAudioDialog({
   }, [router, refetchMeetings, onComplete, onOpenChange]);
 
   const handleImportError = useCallback((error: string) => {
-    toast.error('Import failed', { description: error });
+    safeToast.error('Import failed', { description: error });
   }, []);
 
   const {
@@ -199,7 +202,7 @@ export function ImportAudioDialog({
   const handleCancel = async () => {
     if (isProcessing) {
       await cancelImport();
-      toast.info('Import cancelled');
+      safeToast.info('Import cancelled');
     }
     onOpenChange(false);
   };
@@ -251,7 +254,7 @@ export function ImportAudioDialog({
             ) : (
               <>
                 <Upload className="h-5 w-5 text-blue-600" />
-                Import Audio File
+                导入音频文件
               </>
             )}
           </DialogTitle>
@@ -297,7 +300,7 @@ export function ImportAudioDialog({
                         setTitle(e.target.value);
                         setTitleModifiedByUser(true);
                       }}
-                      placeholder="Enter meeting title"
+                      placeholder="输入会议标题"
                     />
                   </div>
 
@@ -332,7 +335,7 @@ export function ImportAudioDialog({
                     onClick={() => setShowAdvanced(!showAdvanced)}
                     className="w-full flex items-center justify-between p-3 text-sm font-medium text-gray-700 hover:bg-gray-50"
                   >
-                    <span>Advanced Options</span>
+                    <span>{t('settings.advanced_options')}</span>
                     {showAdvanced ? (
                       <ChevronUp className="h-4 w-4" />
                     ) : (
@@ -347,11 +350,11 @@ export function ImportAudioDialog({
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
                             <Globe className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium">Language</span>
+                            <span className="text-sm font-medium">语言</span>
                           </div>
                           <Select value={selectedLang} onValueChange={setSelectedLang}>
                             <SelectTrigger className="w-full">
-                              <SelectValue placeholder="Select language" />
+                              <SelectValue placeholder="选择 language" />
                             </SelectTrigger>
                             <SelectContent className="max-h-60">
                               {LANGUAGES.map((lang) => (
@@ -366,7 +369,7 @@ export function ImportAudioDialog({
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
                             <Globe className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium">Language</span>
+                            <span className="text-sm font-medium">语言</span>
                           </div>
                           <p className="text-xs text-muted-foreground">
                             Language selection isn't supported for Parakeet. It always uses automatic detection.
@@ -379,7 +382,7 @@ export function ImportAudioDialog({
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
                             <Cpu className="h-4 w-4 text-muted-foreground" />
-                            <span className="text-sm font-medium">Model</span>
+                            <span className="text-sm font-medium">模型</span>
                           </div>
                           <Select
                             value={selectedModelKey}

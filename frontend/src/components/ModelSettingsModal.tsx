@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useTranslation } from '@/i18n';
 import { useSidebar } from './Sidebar/SidebarProvider';
 import { invoke } from '@tauri-apps/api/core';
 import { Button } from '@/components/ui/button';
@@ -29,6 +30,7 @@ import {
 } from '@/components/ui/command';
 import { cn, isOllamaNotInstalledError } from '@/lib/utils';
 import { toast } from 'sonner';
+import { safeToast } from '@/lib/safeToast';
 
 export interface ModelConfig {
   provider: 'ollama' | 'groq' | 'claude' | 'openai' | 'openrouter' | 'builtin-ai' | 'custom-openai';
@@ -116,6 +118,7 @@ export function ModelSettingsModal({
   skipInitialFetch = false,
   layout = 'inline',
 }: ModelSettingsModalProps) {
+  const { t } = useTranslation();
   // Use ConfigContext if available, fallback to props for backward compatibility
   const configContext = useConfig();
   const modelConfig = configContext?.modelConfig || propsModelConfig;
@@ -421,7 +424,7 @@ export function ModelSettingsModal({
       const errorMsg = 'Invalid Ollama endpoint URL. Must start with http:// or https://';
       setError(errorMsg);
       if (!silent) {
-        toast.error(errorMsg);
+        safeToast.error(errorMsg);
       }
       return;
     }
@@ -452,7 +455,7 @@ export function ModelSettingsModal({
       }
 
       if (!silent) {
-        toast.error(errorMsg);
+        safeToast.error(errorMsg);
       }
       console.error('Error loading models:', err);
     } finally {
@@ -519,7 +522,7 @@ export function ModelSettingsModal({
       }
     } catch (err) {
       console.error('Error loading Built-in AI models:', err);
-      toast.error('Failed to load Built-in AI models');
+      safeToast.error('Failed to load Built-in AI models');
     }
   };
 
@@ -629,7 +632,7 @@ export function ModelSettingsModal({
         console.log('Custom OpenAI config saved successfully');
       } catch (err) {
         console.error('Failed to save custom OpenAI config:', err);
-        toast.error('Failed to save custom OpenAI configuration');
+        safeToast.error('保存自定义 OpenAI 配置失败');
         return;
       }
     }
@@ -671,7 +674,7 @@ export function ModelSettingsModal({
   // Test custom OpenAI connection
   const testCustomOpenAIConnection = async () => {
     if (!customOpenAIEndpoint.trim() || !customOpenAIModel.trim()) {
-      toast.error('Please enter endpoint URL and model name first');
+      safeToast.error('请先输入端点 URL 和模型名称');
       return;
     }
 
@@ -682,10 +685,10 @@ export function ModelSettingsModal({
         apiKey: customOpenAIApiKey.trim() || null,
         model: customOpenAIModel.trim(),
       });
-      toast.success(result.message || 'Connection successful!');
+      safeToast.success(result.message || 'Connection successful!');
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
-      toast.error(errorMsg);
+      safeToast.error(errorMsg);
     } finally {
       setIsTestingConnection(false);
     }
@@ -704,7 +707,7 @@ export function ModelSettingsModal({
 
     // Prevent duplicate downloads (defense in depth - backend also checks)
     if (isDownloading(recommendedModel)) {
-      toast.info(`${recommendedModel} is already downloading`, {
+      safeToast.info(`${recommendedModel} is already downloading`, {
         description: `Progress: ${Math.round(getProgress(recommendedModel) || 0)}%`
       });
       return;
@@ -731,11 +734,11 @@ export function ModelSettingsModal({
 
       // Check if Ollama is not installed and show appropriate error
       if (isOllamaNotInstalledError(errorMsg)) {
-        toast.error('Ollama is not installed', {
-          description: 'Please download and install Ollama before downloading models.',
+        safeToast.error('未安装 Ollama', {
+          description: '下载模型前请先下载安装 Ollama。',
           duration: 7000,
           action: {
-            label: 'Download',
+            label: '下载',
             onClick: () => invoke('open_external_url', { url: 'https://ollama.com/download' })
           }
         });
@@ -755,11 +758,11 @@ export function ModelSettingsModal({
         endpoint
       });
 
-      toast.success(`Model ${modelName} deleted`);
+      safeToast.success(`模型 ${modelName} deleted`);
       await fetchOllamaModels(true); // Refresh list
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : 'Failed to delete model';
-      toast.error(errorMsg);
+      safeToast.error(errorMsg);
       console.error('Error deleting model:', err);
     }
   };
@@ -804,12 +807,12 @@ export function ModelSettingsModal({
   return (
     <div>
       <div className="flex justify-between items-center mb-4">
-        <h3 className="text-lg font-semibold">Model Settings</h3>
+        <h3 className="text-lg font-semibold">{t('model_settings.title')}</h3>
       </div>
 
       <div className="space-y-4">
         <div>
-          <Label>Summarization Model</Label>
+          <Label>{t('model_settings.summary_model')}</Label>
           <div className="flex space-x-2 mt-1">
             <Select
               value={modelConfig.provider}
@@ -871,16 +874,16 @@ export function ModelSettingsModal({
               }}
             >
               <SelectTrigger>
-                <SelectValue placeholder="Select provider" />
+                <SelectValue placeholder="选择 provider" />
               </SelectTrigger>
               <SelectContent className="max-h-64 overflow-y-auto">
                 <SelectItem value="builtin-ai">Built-in AI (Offline, No API needed)</SelectItem>
-                <SelectItem value="claude">Claude</SelectItem>
+                <SelectItem value="claude">{t('model_settings.claude')}</SelectItem>
                 <SelectItem value="custom-openai">Custom Server (OpenAI)</SelectItem>
-                <SelectItem value="groq">Groq</SelectItem>
-                <SelectItem value="ollama">Ollama</SelectItem>
-                <SelectItem value="openai">OpenAI</SelectItem>
-                <SelectItem value="openrouter">OpenRouter</SelectItem>
+                <SelectItem value="groq">{t('model_settings.groq')}</SelectItem>
+                <SelectItem value="ollama">{t('model_settings.ollama')}</SelectItem>
+                <SelectItem value="openai">{t('model_settings.openai')}</SelectItem>
+                <SelectItem value="openrouter">{t('model_settings.openrouter')}</SelectItem>
               </SelectContent>
             </Select>
 
@@ -894,14 +897,14 @@ export function ModelSettingsModal({
                     className="flex-1 max-w-[200px] justify-between font-normal"
                   >
                     <span className="truncate">
-                      {modelConfig.model || "Select model..."}
+                      {modelConfig.model || "选择 model..."}
                     </span>
                     <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent className="w-[250px] p-0" align="start">
                   <Command>
-                    <CommandInput placeholder="Search models..." />
+                    <CommandInput placeholder="搜索 models..." />
                     <CommandList className="max-h-[300px]">
                       {(modelConfig.provider === 'openrouter' && isLoadingOpenRouter) ||
                        (modelConfig.provider === 'openai' && isLoadingOpenAI) ||
@@ -913,7 +916,7 @@ export function ModelSettingsModal({
                         </div>
                       ) : (
                         <>
-                          <CommandEmpty>No models found.</CommandEmpty>
+                          <CommandEmpty>未找到模型。</CommandEmpty>
                           <CommandGroup>
                             {modelOptions[modelConfig.provider]?.map((model) => (
                               <CommandItem
@@ -993,7 +996,7 @@ export function ModelSettingsModal({
                 className="flex items-center justify-between cursor-pointer py-2"
                 onClick={() => setIsCustomOpenAIAdvancedOpen(!isCustomOpenAIAdvancedOpen)}
               >
-                <Label className="cursor-pointer">Advanced Options</Label>
+                <Label className="cursor-pointer">{t('model_settings.advanced')}</Label>
                 {isCustomOpenAIAdvancedOpen ? (
                   <ChevronUp className="h-4 w-4 text-muted-foreground" />
                 ) : (
@@ -1004,7 +1007,7 @@ export function ModelSettingsModal({
               {isCustomOpenAIAdvancedOpen && (
                 <div className="space-y-3 pl-2 border-l-2 border-muted mt-2">
                   <div>
-                    <Label htmlFor="custom-max-tokens">Max Tokens</Label>
+                    <Label htmlFor="custom-max-tokens">{t('model_settings.max_tokens')}</Label>
                     <Input
                       id="custom-max-tokens"
                       type="number"
@@ -1072,7 +1075,7 @@ export function ModelSettingsModal({
 
         {requiresApiKey && (
           <div>
-            <Label>API Key</Label>
+            <Label>API 密钥</Label>
             <div className="relative mt-1">
               <Input
                 type={showApiKey ? 'text' : 'password'}
@@ -1195,7 +1198,7 @@ export function ModelSettingsModal({
         {modelConfig.provider === 'ollama' && (
           <div>
             <div className="flex items-center justify-between mb-4">
-              <h4 className="text-sm font-bold">Available Ollama Models</h4>
+              <h4 className="text-sm font-bold">{t('model_settings.available_ollama')}</h4>
               {lastFetchedEndpoint && models.length > 0 && (
                 <div className="flex items-center gap-2 text-sm">
                   <span className="text-muted-foreground">Using:</span>
@@ -1208,7 +1211,7 @@ export function ModelSettingsModal({
             {models.length > 0 && (
               <div className="mb-4">
                 <Input
-                  placeholder="Search models..."
+                  placeholder="搜索 models..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   className="w-full"
@@ -1337,7 +1340,7 @@ export function ModelSettingsModal({
                           {modelIsDownloading && progress !== undefined && (
                             <div className="mt-3 pt-3 border-t border-gray-200">
                               <div className="flex items-center justify-between mb-2">
-                                <span className="text-sm font-medium text-blue-600">Downloading...</span>
+                                <span className="text-sm font-medium text-blue-600">下载中...</span>
                                 <span className="text-sm font-semibold text-blue-600">{Math.round(progress)}%</span>
                               </div>
                               <div className="w-full h-2 bg-gray-200 rounded-full overflow-hidden">

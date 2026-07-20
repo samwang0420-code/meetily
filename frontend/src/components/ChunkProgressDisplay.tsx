@@ -1,3 +1,4 @@
+import { useTranslation } from '@/i18n';
 import React from 'react';
 
 export interface ChunkStatus {
@@ -36,11 +37,13 @@ export function ChunkProgressDisplay({
   isPaused = false,
   className = ''
 }: ChunkProgressDisplayProps) {
+  const { t } = useTranslation();
   const completionPercentage = progress.total_chunks > 0
     ? Math.round((progress.completed_chunks / progress.total_chunks) * 100)
     : 0;
 
   const formatDuration = (ms: number) => {
+  const { t } = useTranslation();
     const seconds = Math.floor(ms / 1000);
     const minutes = Math.floor(seconds / 60);
     const hours = Math.floor(minutes / 60);
@@ -148,34 +151,34 @@ export function ChunkProgressDisplay({
         </div>
       </div>
 
-      {/* Processing Stats */}
+      {/* {t('recording_chip.processing')} Stats */}
       <div className="grid grid-cols-4 gap-4 mb-4 text-sm">
         <div className="text-center">
           <div className="text-lg font-semibold text-green-600">
             {progress.completed_chunks}
           </div>
-          <div className="text-gray-600">Completed</div>
+          <div className="text-gray-600">{t('recording_chip.completed')}</div>
         </div>
 
         <div className="text-center">
           <div className="text-lg font-semibold text-blue-600">
             {progress.processing_chunks}
           </div>
-          <div className="text-gray-600">Processing</div>
+          <div className="text-gray-600">{t('recording_chip.processing')}</div>
         </div>
 
         <div className="text-center">
           <div className="text-lg font-semibold text-gray-600">
             {progress.total_chunks - progress.completed_chunks - progress.processing_chunks - progress.failed_chunks}
           </div>
-          <div className="text-gray-600">Pending</div>
+          <div className="text-gray-600">{t('recording_chip.pending')}</div>
         </div>
 
         <div className="text-center">
           <div className="text-lg font-semibold text-red-600">
             {progress.failed_chunks}
           </div>
-          <div className="text-gray-600">Failed</div>
+          <div className="text-gray-600">{t('recording_chip.failed')}</div>
         </div>
       </div>
 
@@ -248,7 +251,7 @@ export function ChunkProgressDisplay({
           <div className="flex items-center space-x-2">
             <span className="text-green-600">🎉</span>
             <span className="text-sm font-medium text-green-800">
-              Processing completed! All {progress.total_chunks} chunks have been transcribed.
+              {t('recording_chip.processing')} completed! All {progress.total_chunks} chunks have been transcribed.
             </span>
           </div>
         </div>
@@ -259,6 +262,7 @@ export function ChunkProgressDisplay({
 
 // Mini version for sidebar or compact display
 export function ChunkProgressMini({ progress, className = '' }: { progress: ProcessingProgress; className?: string }) {
+  const { t } = useTranslation();
   const completionPercentage = progress.total_chunks > 0
     ? Math.round((progress.completed_chunks / progress.total_chunks) * 100)
     : 0;
@@ -267,7 +271,7 @@ export function ChunkProgressMini({ progress, className = '' }: { progress: Proc
     <div className={`bg-gray-50 border border-gray-200 rounded-lg p-3 ${className}`}>
       <div className="flex items-center justify-between mb-2">
         <span className="text-sm font-medium text-gray-700">
-          Processing
+          {t('recording_chip.processing')}
         </span>
         <span className="text-sm font-medium text-gray-700">
           {completionPercentage}%

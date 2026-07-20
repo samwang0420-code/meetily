@@ -177,9 +177,12 @@ impl SettingsRepository {
         provider: &str,
         api_key: &str,
     ) -> std::result::Result<(), sqlx::Error> {
+        // Sherpa / Parakeet are local models, no API key needed
+        if matches!(provider, "parakeet" | "sherpa_paraformer" | "sherpa_funasr_nano") {
+            return Ok(());
+        }
         let api_key_column = match provider {
             "localWhisper" => "whisperApiKey",
-            "parakeet" => return Ok(()), // Parakeet doesn't need an API key, return early
             "deepgram" => "deepgramApiKey",
             "elevenLabs" => "elevenLabsApiKey",
             "groq" => "groqApiKey",
@@ -209,9 +212,12 @@ impl SettingsRepository {
         pool: &SqlitePool,
         provider: &str,
     ) -> std::result::Result<Option<String>, sqlx::Error> {
+        // Sherpa / Parakeet are local models, no API key needed
+        if matches!(provider, "parakeet" | "sherpa_paraformer" | "sherpa_funasr_nano") {
+            return Ok(None);
+        }
         let api_key_column = match provider {
             "localWhisper" => "whisperApiKey",
-            "parakeet" => return Ok(None), // Parakeet doesn't need an API key
             "deepgram" => "deepgramApiKey",
             "elevenLabs" => "elevenLabsApiKey",
             "groq" => "groqApiKey",

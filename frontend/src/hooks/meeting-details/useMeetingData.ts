@@ -3,7 +3,8 @@ import { Transcript, Summary } from '@/types';
 import { BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummaryView';
 import { CurrentMeeting, useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { invoke as invokeTauri } from '@tauri-apps/api/core';
-import { toast } from 'sonner';
+import { safeToast, sanitizeDescription } from "@/lib/safeToast";
+import { useTranslation } from '@/i18n';
 
 interface UseMeetingDataProps {
   meeting: any;
@@ -12,6 +13,7 @@ interface UseMeetingDataProps {
 }
 
 export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMeetingDataProps) {
+  const { t } = useTranslation();
   // State
   // Use prop directly since summary generation fetches transcripts independently
   const transcripts = meeting.transcripts;
@@ -21,7 +23,6 @@ export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMe
   const [aiSummary, setAiSummary] = useState<Summary | null>(summaryData);
   const [isSaving, setIsSaving] = useState(false);
   const [, setIsSummaryDirty] = useState(false);
-  const [, setError] = useState<string>('');
 
   // Ref for BlockNoteSummaryView
   const blockNoteSummaryRef = useRef<BlockNoteSummaryViewRef>(null);
@@ -30,7 +31,13 @@ export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMe
   const { setCurrentMeeting, setMeetings, meetings: sidebarMeetings } = useSidebar();
 
   // Sync aiSummary state when summaryData prop changes (fixes display of fetched summaries)
+  // v0.6.20+: 加 hasInitializedRef 保护 — 只在 prop 真变化 (引用不同) 时同步,
+  // 避免覆盖 useSummaryGeneration.setAiSummary 写入的新结果
+  const lastSyncedPropRef = useRef<typeof summaryData>(undefined);
   useEffect(() => {
+    // 引用相同 → 不动 state (避免覆盖正在 polling 的新结果)
+    if (lastSyncedPropRef.current === summaryData) return;
+    lastSyncedPropRef.current = summaryData;
     console.log('[useMeetingData] Syncing summary data from prop:', summaryData ? 'present' : 'null');
     setAiSummary(summaryData);
   }, [summaryData]); // Only trigger when parent prop changes, not when aiSummary changes
@@ -64,14 +71,11 @@ export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMe
       return true;
     } catch (error) {
       console.error('Failed to save meeting title:', error);
-      if (error instanceof Error) {
-        setError(error.message);
-      } else {
-        setError('Failed to save meeting title: Unknown error');
-      }
+      const errMsg = error instanceof Error && error.message ? sanitizeDescription(error.message) : t('errors.meeting_save_failed');
+      safeToast.error(t('summary.save_failed'), { description: errMsg });
       return false;
     }
-  }, [meeting.id, meetingTitle, sidebarMeetings, setMeetings, setCurrentMeeting]);
+  }, [meeting.id, meetingTitle, sidebarMeetings, setMeetings, setCurrentMeeting, t]);
 
   const handleSaveSummary = useCallback(async (summary: Summary | { markdown?: string; summary_json?: any[] }) => {
     console.log('📄 handleSaveSummary called with:', {
@@ -108,13 +112,11 @@ export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMe
       console.log('✅ Save meeting summary success');
     } catch (error) {
       console.error('❌ Failed to save meeting summary:', error);
-      if (error instanceof Error) {
-        setError(error.message);
-      } else {
-        setError('Failed to save meeting summary: Unknown error');
-      }
+      const errMsg = error instanceof Error && error.message ? sanitizeDescription(error.message) : t('errors.meeting_save_failed');
+      safeToast.error(t('summary.save_failed'), { description: errMsg });
+      throw error; // 重抛让 saveAllChanges catch 抓到, 避免双 toast
     }
-  }, [meeting.id, meetingTitle]);
+  }, [meeting.id, meetingTitle, t]);
 
   const saveAllChanges = useCallback(async () => {
     setIsSaving(true);
@@ -132,14 +134,15 @@ export function useMeetingData({ meeting, summaryData, onMeetingUpdated }: UseMe
         await handleSaveSummary(aiSummary);
       }
 
-      toast.success("Changes saved successfully");
+      // v0.6.22: 只在 children 都没 throw 时弹 success
+      safeToast.success(t('summary.changes_saved'));
     } catch (error) {
+      // 子函数已经 toast 过了, 这里只 console.error, 不再 toast (避免双 toast)
       console.error('Failed to save changes:', error);
-      toast.error("Failed to save changes", { description: String(error) });
     } finally {
       setIsSaving(false);
     }
-  }, [isTitleDirty, handleSaveMeetingTitle, aiSummary, handleSaveSummary]);
+  }, [isTitleDirty, handleSaveMeetingTitle, aiSummary, handleSaveSummary, t]);
 
   // Update meeting title from external source (e.g., AI summary)
   const updateMeetingTitle = useCallback((newTitle: string) => {

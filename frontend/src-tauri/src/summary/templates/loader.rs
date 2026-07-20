@@ -217,6 +217,33 @@ pub fn list_templates() -> Vec<(String, String, String)> {
     templates
 }
 
+/// v0.7.0+: 按用户 tier 过滤模板 + 标 required_tier.
+/// 返回 (id, name, description, required_tier_str).
+/// - free tier 用户: 只返 free 模板 (member 模板被隐藏)
+/// - member tier 用户: 返全部
+pub fn list_templates_for_tier(user_tier: &str) -> Vec<(String, String, String, String)> {
+    let mut out = Vec::new();
+    for id in list_template_ids() {
+        match get_template(&id) {
+            Ok(t) => {
+                let tier = match t.required_tier {
+                    super::types::TemplateTier::Free => "free",
+                    super::types::TemplateTier::Member => "member",
+                };
+                // free 用户看不到 member 模板
+                if tier == "member" && user_tier != "member" {
+                    continue;
+                }
+                out.push((id, t.name, t.description, tier.to_string()));
+            }
+            Err(e) => {
+                warn!("Failed to load template '{}': {}", id, e);
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

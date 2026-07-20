@@ -2,8 +2,11 @@
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
+import { FeedbackDialog } from '@/components/FeedbackDialog';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
+import { useTranslation } from '@/i18n';
+import { useAuth } from '@/contexts/AuthContext';
 import type { CurrentMeeting } from '@/components/Sidebar/SidebarProvider';
 import { ConfirmationModal } from '../ConfirmationModel/confirmation-modal';
 import { ModelConfig } from '@/components/ModelSettingsModal';
@@ -13,6 +16,7 @@ import Analytics from '@/lib/analytics';
 import { invoke } from '@tauri-apps/api/core';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { toast } from 'sonner';
+import { safeToast } from '@/lib/safeToast';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
 import { useImportDialog } from '@/contexts/ImportDialogContext';
 import { useConfig } from '@/contexts/ConfigContext';
@@ -26,7 +30,6 @@ import {
 import { VisuallyHidden } from "@/components/ui/visually-hidden"
 
 import { MessageToast } from '../MessageToast';
-import Logo from '../Logo';
 import Info from '../Info';
 import { ComplianceNotification } from '../ComplianceNotification';
 import { Input } from '../ui/input';
@@ -56,14 +59,33 @@ const Sidebar: React.FC = () => {
     setMeetings,
     serverAddress
   } = useSidebar();
+  const { user, logout } = useAuth();
+  const { locale, t } = useTranslation();
 
   // Get recording state from RecordingStateContext (single source of truth)
   const { isRecording } = useRecordingState();
+
+  // v0.6.7: 监听 Topbar 派发的事件
+  useEffect(() => {
+    const recHandler = () => { handleRecordingToggle(); };
+    const searchHandler = (e: Event) => {
+      const q = (e as CustomEvent<string>).detail || '';
+      setSearchQuery(q);
+      if (q) searchTranscripts(q);
+    };
+    window.addEventListener('lixianhuiji:toggle-recording', recHandler);
+    window.addEventListener('lixianhuiji:search-query', searchHandler);
+    return () => {
+      window.removeEventListener('lixianhuiji:toggle-recording', recHandler);
+      window.removeEventListener('lixianhuiji:search-query', searchHandler);
+    };
+  }, [handleRecordingToggle, searchTranscripts]);
   const { openImportDialog } = useImportDialog();
   const { betaFeatures } = useConfig();
   const [expandedFolders, setExpandedFolders] = useState<Set<string>>(new Set(['meetings']));
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [showModelSettings, setShowModelSettings] = useState(false);
+  const [feedbackOpen, setFeedbackOpen] = useState(false);
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
     provider: 'ollama',
     model: '',
@@ -337,18 +359,18 @@ const Sidebar: React.FC = () => {
       Analytics.trackMeetingDeleted(itemId);
 
       // Show success toast
-      toast.success("Meeting deleted successfully", {
-        description: "All associated data has been removed"
+      safeToast.success("会议 deleted successfully", {
+        description: "关联数据已全部删除"
       });
 
-      // If deleting the active meeting, navigate to home
+      // If deleting the active meeting, navigate to Home
       if (currentMeeting?.id === itemId) {
         setCurrentMeeting({ id: 'intro-call', title: '+ New Call' });
         router.push('/');
       }
     } catch (error) {
-      console.error('Failed to delete meeting:', error);
-      toast.error("Failed to delete meeting", {
+      console.error('删除会议失败:', error);
+      safeToast.error("删除会议失败", {
         description: error instanceof Error ? error.message : String(error)
       });
     }
@@ -379,7 +401,7 @@ const Sidebar: React.FC = () => {
 
     // Prevent empty titles
     if (!newTitle) {
-      toast.error("Meeting title cannot be empty");
+      safeToast.error("会议 title cannot be empty");
       return;
     }
 
@@ -403,14 +425,14 @@ const Sidebar: React.FC = () => {
       // Track the edit
       Analytics.trackButtonClick('edit_meeting_title', 'sidebar');
 
-      toast.success("Meeting title updated successfully");
+      safeToast.success("会议 title updated successfully");
 
       // Close modal and reset state
       setEditModalState({ isOpen: false, meetingId: null, currentTitle: '' });
       setEditingTitle('');
     } catch (error) {
-      console.error('Failed to update meeting title:', error);
-      toast.error("Failed to update meeting title", {
+      console.error('更新会议标题失败:', error);
+      safeToast.error("更新会议标题失败", {
         description: error instanceof Error ? error.message : String(error)
       });
     }
@@ -454,8 +476,6 @@ const Sidebar: React.FC = () => {
     return (
       <TooltipProvider>
         <div className="flex flex-col items-center space-y-4 mt-4">
-          <Logo isCollapsed={isCollapsed} />
-
           <Tooltip>
             <TooltipTrigger asChild>
               <button
@@ -467,7 +487,7 @@ const Sidebar: React.FC = () => {
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p>Home</p>
+              {t('nav.home')}
             </TooltipContent>
           </Tooltip>
 
@@ -486,7 +506,7 @@ const Sidebar: React.FC = () => {
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p>{isRecording ? "Recording in progress..." : "Start Recording"}</p>
+              {isRecording ? t('nav.recording_in_progress') : t('nav.start_recording') }
             </TooltipContent>
           </Tooltip>
 
@@ -501,7 +521,7 @@ const Sidebar: React.FC = () => {
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right">
-                <p>Import Audio</p>
+                {t('nav.import_audio') }
               </TooltipContent>
             </Tooltip>
           )}
@@ -520,7 +540,7 @@ const Sidebar: React.FC = () => {
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p>Meeting Notes</p>
+              {t('nav.notes') }
             </TooltipContent>
           </Tooltip>
 
@@ -535,7 +555,7 @@ const Sidebar: React.FC = () => {
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              <p>Settings</p>
+              {t('nav.settings') }
             </TooltipContent>
           </Tooltip>
 
@@ -624,7 +644,7 @@ const Sidebar: React.FC = () => {
                         handleEditStart(item.id, item.title);
                       }}
                       className="hover:text-blue-600 p-1 rounded-md hover:bg-blue-50 flex-shrink-0"
-                      aria-label="Edit meeting title"
+                      aria-label="编辑 meeting title"
                     >
                       <Pencil className="w-4 h-4" />
                     </button>
@@ -634,7 +654,7 @@ const Sidebar: React.FC = () => {
                         setDeleteModalState({ isOpen: true, itemId: item.id });
                       }}
                       className="hover:text-red-600 p-1 rounded-md hover:bg-red-50 flex-shrink-0"
-                      aria-label="Delete meeting"
+                      aria-label="删除 meeting"
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>
@@ -645,7 +665,7 @@ const Sidebar: React.FC = () => {
               {/* Show transcript match snippet if available */}
               {hasTranscriptMatch && (
                 <div className="mt-1 ml-8 text-xs text-gray-500 bg-yellow-50 p-1.5 rounded border border-yellow-100 line-clamp-2">
-                  <span className="font-medium text-yellow-600">Match:</span> {matchingResult.matchContext}
+                  <span className="font-medium text-yellow-600">匹配片段:</span> {matchingResult.matchContext}
                 </div>
               )}
             </div>
@@ -660,181 +680,226 @@ const Sidebar: React.FC = () => {
     );
   };
 
+  // 离线会记 v0.5.0: auth route 不显示 sidebar, 全屏
+  if (pathname === '/login' || pathname === '/register') return null;
   return (
-    <div className="fixed top-0 left-0 h-screen z-40">
-      {/* Floating collapse button */}
+    <>
+      <aside
+      className={`fixed top-0 left-0 h-screen z-40 flex flex-col border-r border-neutral-200/80 bg-white transition-[width] duration-300 ease-out dark:border-neutral-800 dark:bg-neutral-950 ${isCollapsed ? 'w-[68px]' : 'w-[252px]'}`}
+    >
+      {/* Collapse / expand handle */}
       <button
         onClick={toggleCollapse}
-        className="absolute -right-6 top-20 z-50 p-1 bg-white hover:bg-gray-100 rounded-full shadow-lg border"
-        style={{ transform: 'translateX(50%)' }}
+        aria-label={isCollapsed ? '展开侧栏' : '收起侧栏'}
+        className="absolute -right-3 top-20 z-50 flex h-6 w-6 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-500 shadow-sm transition-colors hover:bg-neutral-50 hover:text-neutral-800"
       >
         {isCollapsed ? (
-          <ChevronRightCircle className="w-6 h-6" />
+          <ChevronRightCircle className="h-5 w-5" />
         ) : (
-          <ChevronLeftCircle className="w-6 h-6" />
+          <ChevronLeftCircle className="h-5 w-5" />
         )}
       </button>
 
-      <div
-        className={`h-screen bg-white border-r shadow-sm flex flex-col transition-all duration-300 ${isCollapsed ? 'w-16' : 'w-64'
-          }`}
-      >
-        {/*  Header with traffic light spacing */}
-        <div className="flex-shrink-0 h-22 flex items-center">
-
-          {/* Title container */}
-
-
-
-          <div className="flex-1">
-            {!isCollapsed && (
-              <div className="p-3">
-                {/* <span className="text-lg text-center border rounded-full bg-blue-50 border-white font-semibold text-gray-700 mb-2 block items-center">
-                  <span>Meetily</span>
-                </span> */}
-                <Logo isCollapsed={isCollapsed} />
-
-                <div className="relative mb-1">
-                  <InputGroup >
-                    <InputGroupInput placeholder='Search meeting content...' value={searchQuery}
-                      onChange={(e) => handleSearchChange(e.target.value)}
-                    />
-                    <InputGroupAddon>
-                      <SearchIcon />
-                    </InputGroupAddon>
-                    {searchQuery &&
-                      <InputGroupAddon align={'inline-end'}>
-                        <InputGroupButton
-                          onClick={() => handleSearchChange('')}
-                        >
-                          <X />
-                        </InputGroupButton>
-                      </InputGroupAddon>
-                    }
-                  </InputGroup>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Main content - scrollable area */}
-        <div className="flex-1 flex flex-col min-h-0">
-          {/* Fixed navigation items */}
-          <div className="flex-shrink-0">
-            {!isCollapsed && (
-              <div
-                onClick={() => router.push('/')}
-                className="p-3  text-lg font-semibold items-center hover:bg-gray-100 h-10   flex mx-3 mt-3 rounded-lg cursor-pointer"
-              >
-                <Home className="w-4 h-4 mr-2" />
-                <span>Home</span>
-              </div>
-            )}
-          </div>
-
-          {/* Content area */}
-          <div className="flex-1 flex flex-col min-h-0">
-            {renderCollapsedIcons()}
-            {/* Meeting Notes folder header - fixed */}
-            {!isCollapsed && (
-              <div className="flex-shrink-0">
-                {filteredSidebarItems.filter(item => item.type === 'folder').map(item => (
-                  <div key={item.id}>
-                    <div
-                      className="flex items-center transition-all duration-150 p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg"
-                    >
-                      <NotebookPen className="w-4 h-4 mr-2 text-gray-600" />
-                      <span className="text-gray-700">{item.title}</span>
-                      {searchQuery && item.id === 'meetings' && isSearching && (
-                        <span className="ml-2 text-xs text-blue-500 animate-pulse">Searching...</span>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {/* Scrollable meeting items */}
-            {!isCollapsed && (
-              <div className="flex-1 overflow-y-auto custom-scrollbar min-h-0">
-                {filteredSidebarItems
-                  .filter(item => item.type === 'folder' && expandedFolders.has(item.id) && item.children)
-                  .map(item => (
-                    <div key={`${item.id}-children`} className="mx-3">
-                      {item.children!.map(child => renderItem(child, 1))}
-                    </div>
-                  ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Footer */}
-        {!isCollapsed && (
-
-          <div className="flex-shrink-0 p-2 border-t border-gray-100">
+      {/* Brand: 盾牌 + 文字 + v0.6.10 chip (展开态) / 单盾 (折叠态) */}
+      <div className="flex h-14 items-center border-b border-neutral-200/70 px-3.5">
+        {!isCollapsed ? (
+          <div className="flex min-w-0 items-center gap-2.5">
             <button
-              onClick={handleRecordingToggle}
-              disabled={isRecording}
-              className={`w-full flex items-center justify-center px-3 py-2 text-sm font-medium text-white ${isRecording ? 'bg-red-300 cursor-not-allowed' : 'bg-red-500 hover:bg-red-600'} rounded-lg transition-colors shadow-sm`}
+              onClick={() => router.push('/')}
+              aria-label="离线会记"
+              className="shrink-0 rounded-md transition-opacity hover:opacity-80"
             >
-              {isRecording ? (
-                <>
-                  <Square className="w-4 h-4 mr-2" />
-                  <span>Recording in progress...</span>
-                </>
-              ) : (
-                <>
-                  <Mic className="w-4 h-4 mr-2" />
-                  <span>Start Recording</span>
-                </>
-              )}
+              <svg viewBox="0 0 100 100" className="h-7 w-7" fill="none" aria-hidden="true">
+                <path d="M50 5 L90 18 L90 50 C90 75 70 90 50 96 C30 90 10 75 10 50 L10 18 Z" fill="#0B2545"/>
+                <path d="M50 9 L86 21 L86 50 C86 73 68 87 50 92 C32 87 14 73 14 50 L14 21 Z" fill="#FFFFFF"/>
+                <path d="M50 9 L86 21 L86 50 C86 73 68 87 50 92 L50 9 Z" fill="#13A89E"/>
+                <path d="M50 9 L14 21 L14 50 C14 73 32 87 50 92 L50 9 Z" fill="#FFFFFF"/>
+                <rect x="2" y="49" width="14" height="3" fill="#0B2545"/>
+                <rect x="84" y="49" width="14" height="3" fill="#0B2545"/>
+                <rect x="29" y="48" width="4" height="4" rx="2" fill="#0B2545"/>
+                <rect x="37" y="42" width="4" height="16" rx="2" fill="#13A89E"/>
+                <rect x="45" y="35" width="4" height="30" rx="2" fill="#0B2545"/>
+                <rect x="53" y="42" width="4" height="16" rx="2" fill="#FFFFFF"/>
+                <rect x="61" y="45" width="4" height="10" rx="2" fill="#FFFFFF"/>
+                <circle cx="69" cy="50" r="2.5" fill="#FFFFFF"/>
+              </svg>
             </button>
-
-            {betaFeatures.importAndRetranscribe && (
-              <button
-                onClick={() => openImportDialog()}
-                className="w-full flex items-center justify-center px-3 py-2 mt-1 text-sm font-medium text-gray-700 bg-blue-100 hover:bg-blue-200 rounded-lg transition-colors shadow-sm"
-              >
-                <Upload className="w-4 h-4 mr-2" />
-                <span>Import Audio</span>
-              </button>
-            )}
-
-            <button
-              onClick={() => router.push('/settings')}
-              className="w-full flex items-center justify-center px-3 py-1.5 mt-1 mb-1 text-sm font-medium text-gray-700 bg-gray-200 hover:bg-gray-300 rounded-lg transition-colors shadow-sm"
-            >
-              <Settings className="w-4 h-4 mr-2" />
-              <span>Settings</span>
-            </button>
-            <Info isCollapsed={isCollapsed} />
-            <div className="w-full flex items-center justify-center px-3 py-1 text-xs text-gray-400">
-              v0.4.0
+            <div className="flex min-w-0 items-baseline gap-1.5">
+              <span className="truncate text-[14px] font-semibold tracking-[-0.01em] text-neutral-900 dark:text-neutral-50">
+                离线会记
+              </span>
+              <span className="shrink-0 rounded border border-neutral-200 px-1 py-px font-mono text-[9.5px] uppercase tracking-wider text-neutral-500 dark:border-neutral-700 dark:text-neutral-500">
+                v0.6.10
+              </span>
             </div>
           </div>
+        ) : (
+          <button
+            onClick={() => router.push('/')}
+            aria-label="离线会记"
+            className="mx-auto rounded-md p-1 transition-opacity hover:opacity-80"
+          >
+            <svg viewBox="0 0 100 100" className="h-7 w-7" fill="none" aria-hidden="true">
+              <path d="M50 5 L90 18 L90 50 C90 75 70 90 50 96 C30 90 10 75 10 50 L10 18 Z" fill="#0B2545"/>
+              <path d="M50 9 L86 21 L86 50 C86 73 68 87 50 92 C32 87 14 73 14 50 L14 21 Z" fill="#FFFFFF"/>
+              <path d="M50 9 L86 21 L86 50 C86 73 68 87 50 92 L50 9 Z" fill="#13A89E"/>
+              <path d="M50 9 L14 21 L14 50 C14 73 32 87 50 92 L50 9 Z" fill="#FFFFFF"/>
+              <rect x="2" y="49" width="14" height="3" fill="#0B2545"/>
+              <rect x="84" y="49" width="14" height="3" fill="#0B2545"/>
+              <rect x="29" y="48" width="4" height="4" rx="2" fill="#0B2545"/>
+              <rect x="37" y="42" width="4" height="16" rx="2" fill="#13A89E"/>
+              <rect x="45" y="35" width="4" height="30" rx="2" fill="#0B2545"/>
+              <rect x="53" y="42" width="4" height="16" rx="2" fill="#FFFFFF"/>
+              <rect x="61" y="45" width="4" height="10" rx="2" fill="#FFFFFF"/>
+              <circle cx="69" cy="50" r="2.5" fill="#FFFFFF"/>
+            </svg>
+          </button>
         )}
       </div>
+
+      {/* Primary nav */}
+      <nav className="flex-1 overflow-y-auto px-2.5 py-3 space-y-0.5">
+        {!isCollapsed && (
+          <div className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
+            {t('sidebar.workspace')}
+          </div>
+        )}
+
+        {/* Home */}
+        {(() => {
+          const active = pathname === '/';
+          return (
+            <button onClick={() => router.push('/')} title={isCollapsed ? t('nav.home') : undefined}
+              className={`relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] font-medium transition-colors ${active ? 'bg-blue-50/80 text-blue-700' : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900'} ${isCollapsed ? 'justify-center' : ''}`}>
+              {active && <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r bg-blue-600" />}
+              <Home className={`h-[18px] w-[18px] ${active ? 'text-blue-600' : 'text-neutral-500'}`} />
+              {!isCollapsed && <span className="truncate">{t('nav.home')}</span>}
+            </button>
+          );
+        })()}
+
+        {/* Recording CTA */}
+        {(() => {
+          const active = isRecording;
+          return (
+            <button onClick={handleRecordingToggle} disabled={isRecording}
+              title={isCollapsed ? t('nav.start_recording') : undefined}
+              className={`relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] font-medium transition-colors ${active ? 'bg-red-50 text-red-700' : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900'} ${isCollapsed ? 'justify-center' : ''}`}>
+              {active ? <Square className="h-[18px] w-[18px] text-red-600" /> : <Mic className="h-[18px] w-[18px] text-neutral-500" />}
+              {!isCollapsed && <span className="truncate">{active ? t('nav.recording_in_progress') : t('nav.start_recording')}</span>}
+            </button>
+          );
+        })()}
+
+        {/* Library: meetings folder */}
+        {!isCollapsed && filteredSidebarItems.filter(i => i.type === 'folder').map(item => (
+          <div key={item.id} className="mt-2">
+            <div
+              onClick={() => toggleFolder(item.id)}
+              className="mb-1 flex cursor-pointer items-center gap-2 px-2.5"
+            >
+              {expandedFolders.has(item.id)
+                ? <ChevronDown className="h-3.5 w-3.5 text-neutral-400" />
+                : <ChevronRight className="h-3.5 w-3.5 text-neutral-400" />}
+              <NotebookPen className="h-3.5 w-3.5 text-neutral-500" />
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-neutral-500">{item.title}</span>
+              {searchQuery && item.id === 'meetings' && isSearching && (
+                <span className="text-[10.5px] text-blue-500 animate-pulse">…</span>
+              )}
+            </div>
+            {expandedFolders.has(item.id) && item.children && item.children.length > 0 && (
+              <div className="space-y-0.5">
+                {item.children.map((child: any) => renderItem(child, 1))}
+              </div>
+            )}
+            {/* Empty search state for meetings folder */}
+            {expandedFolders.has(item.id) && searchQuery.trim() && (!item.children || item.children.length === 0) && (
+              <div className="mt-1 ml-2 px-2.5 py-2 text-[12px] text-neutral-400">
+                <span>{t('home.no_match')}</span>
+                <button
+                  onClick={() => {
+                    window.dispatchEvent(new CustomEvent('lixianhuiji:search-query', { detail: '' }));
+                  }}
+                  className="ml-2 text-blue-500 hover:underline"
+                >
+                  {t('common.clear')}
+                </button>
+              </div>
+            )}
+          </div>
+        ))}
+
+        {/* Configure */}
+        <div className="pt-4" />
+        {!isCollapsed && (
+          <div className="px-2 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">{t('sidebar.configure')}</div>
+        )}
+        {(() => {
+          const active = pathname.startsWith('/settings');
+          return (
+            <button onClick={() => router.push('/settings')} title={isCollapsed ? t('nav.settings') : undefined}
+              className={`relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] font-medium transition-colors ${active ? 'bg-blue-50/80 text-blue-700' : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900'} ${isCollapsed ? 'justify-center' : ''}`}>
+              {active && <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r bg-blue-600" />}
+              <Settings className={`h-[18px] w-[18px] ${active ? 'text-blue-600' : 'text-neutral-500'}`} />
+              {!isCollapsed && <span className="truncate">{t('nav.settings')}</span>}
+            </button>
+          );
+        })()}
+        {/* About */}
+        <div className="pt-2">
+          <Info isCollapsed={isCollapsed} />
+        </div>
+      </nav>
+
+      {/* Footer */}
+      <div className="border-t border-neutral-200/70 px-3 py-2.5 text-[10.5px] text-neutral-400">
+        <div className="flex items-center justify-between">
+          {!isCollapsed ? (
+            <>
+              <span>v0.6.10 · MIT</span>
+              <span className="inline-flex items-center gap-1 text-emerald-600">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />offline
+              </span>
+            </>
+          ) : (
+            <span className="mx-auto">v0.6.10</span>
+          )}
+        </div>
+        {!isCollapsed && (
+          <a
+            href="mailto:sam.wang01@icloud.com?subject=离线会记 - 反馈&body=版本 v0.6.10 · macOS"
+            className="mt-1.5 flex items-center gap-1 text-[10px] text-neutral-500 hover:text-blue-600 transition-colors truncate"
+            title="联系客服: sam.wang01@icloud.com"
+          >
+            <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
+            <span className="truncate">客服: sam.wang01@icloud.com</span>
+          </a>
+        )}
+      </div>
+    <FeedbackDialog
+        open={feedbackOpen}
+        onOpenChange={setFeedbackOpen}
+      />
+    </aside>
 
       {/* Confirmation Modal for Delete */}
       <ConfirmationModal
         isOpen={deleteModalState.isOpen}
-        text="Are you sure you want to delete this meeting? This action cannot be undone."
+        text="确认删除该会议? 此操作不可撤销。"
         onConfirm={handleDeleteConfirm}
         onCancel={() => setDeleteModalState({ isOpen: false, itemId: null })}
       />
 
-      {/* Edit Meeting Title Modal */}
+      {/* 编辑会议标题 Modal */}
       <Dialog open={editModalState.isOpen} onOpenChange={(open) => {
         if (!open) handleEditCancel();
       }}>
         <DialogContent className="sm:max-w-[425px]">
           <VisuallyHidden>
-            <DialogTitle>Edit Meeting Title</DialogTitle>
+            <DialogTitle>编辑会议标题</DialogTitle>
           </VisuallyHidden>
           <div className="py-4">
-            <h3 className="text-lg font-semibold mb-4">Edit Meeting Title</h3>
+            <h3 className="text-lg font-semibold mb-4">编辑会议标题</h3>
             <div className="space-y-4">
               <div>
                 <label htmlFor="meeting-title" className="block text-sm font-medium text-gray-700 mb-2">
@@ -853,7 +918,7 @@ const Sidebar: React.FC = () => {
                     }
                   }}
                   className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                  placeholder="Enter meeting title"
+                  placeholder="输入会议标题"
                   autoFocus
                 />
               </div>
@@ -875,7 +940,7 @@ const Sidebar: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-    </div>
+    </>
   );
 };
 

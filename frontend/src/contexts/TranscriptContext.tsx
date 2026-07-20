@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useRef, useCallback, ReactNode, MutableRefObject } from 'react';
 import { Transcript, TranscriptUpdate } from '@/types';
 import { toast } from 'sonner';
+import { safeToast } from '@/lib/safeToast';
 import { useRecordingState } from './RecordingStateContext';
 import { transcriptService } from '@/services/transcriptService';
 import { recordingService } from '@/services/recordingService';
@@ -20,6 +21,12 @@ interface TranscriptContextType {
   clearTranscripts: () => void;
   currentMeetingId: string | null;
   markMeetingAsSaved: () => Promise<void>;
+  // v0.6.11: 实时 partial 文本 (灰色预览, 录音中可见)
+  livePartialText: string;
+  isPartialEndpoint: boolean;
+  // v0.6.12+: 最近一次 sherpa-onnx decode 耗时 (前端可显示, 让你直观感受延迟)
+  lastDecodeMs: number | null;
+  lastBufferAgeMs: number | null;
 }
 
 const TranscriptContext = createContext<TranscriptContextType | undefined>(undefined);
@@ -28,6 +35,11 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
   const [transcripts, setTranscripts] = useState<Transcript[]>([]);
   const [meetingTitle, setMeetingTitle] = useState('+ New Call');
   const [currentMeetingId, setCurrentMeetingId] = useState<string | null>(null);
+  const [livePartialText, setLivePartialText] = useState<string>('');
+  const [isPartialEndpoint, setIsPartialEndpoint] = useState<boolean>(false);
+  // v0.6.12+: decoding latency (只在 partial 来时更新)
+  const [lastDecodeMs, setLastDecodeMs] = useState<number | null>(null);
+  const [lastBufferAgeMs, setLastBufferAgeMs] = useState<number | null>(null);
 
   // Recording state context - provides backend-synced state
   const recordingState = useRecordingState();
@@ -106,7 +118,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
             const meetingName = await recordingService.getRecordingMeetingName();
 
             // Use a better fallback that matches the backend's naming pattern
-            const effectiveTitle = meetingName || `Meeting ${new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')}`;
+            const effectiveTitle = meetingName || `会议 ${new Date().toISOString().slice(0, 19).replace('T', '_').replace(/:/g, '-')}`;
 
             // Initialize meeting metadata in IndexedDB
             await indexedDBService.saveMeetingMetadata({
@@ -244,13 +256,20 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
 
       if (allNewTranscripts.length > 0) {
         setTranscripts(prev => {
-          // Create a set of existing sequence_ids for deduplication
-          const existingSequenceIds = new Set(prev.map(t => t.sequence_id).filter(id => id !== undefined));
-
-          // Filter out any new transcripts that already exist
-          const uniqueNewTranscripts = allNewTranscripts.filter(transcript =>
-            transcript.sequence_id !== undefined && !existingSequenceIds.has(transcript.sequence_id)
-          );
+          // v0.6.11+ bug fix: 双层去重 (sequence_id OR audio time range)
+          // - sequence_id 主: 同 segment 重发时跳过
+          // - (audio_start_time, audio_end_time) 副: 多个 listener 累积场景, 同时间段重复
+          //   fetch_add SEQUENCE_COUNTER 拿到不同 seq, 单层去重会漏, 用时间范围二次校验
+          const TIME_TOL = 0.05; // 50ms
+          const isDup = (a: Transcript, t: Transcript) => {
+            if (a.sequence_id !== undefined && t.sequence_id !== undefined && a.sequence_id === t.sequence_id) return true;
+            if (a.audio_start_time !== undefined && t.audio_start_time !== undefined
+                && a.audio_end_time !== undefined && t.audio_end_time !== undefined
+                && Math.abs(a.audio_start_time - t.audio_start_time) < TIME_TOL
+                && Math.abs(a.audio_end_time - t.audio_end_time) < TIME_TOL) return true;
+            return false;
+          };
+          const uniqueNewTranscripts = allNewTranscripts.filter(t => !prev.some(p => isDup(p, t)));
 
           // Only combine if we have unique new transcripts
           if (uniqueNewTranscripts.length === 0) {
@@ -258,7 +277,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
             return prev; // No new unique transcripts to add
           }
 
-          console.log(`Adding ${uniqueNewTranscripts.length} unique transcripts out of ${allNewTranscripts.length} received`);
+          console.log(`添加ing ${uniqueNewTranscripts.length} unique transcripts out of ${allNewTranscripts.length} received`);
 
           // Merge with existing transcripts, maintaining chronological order
           const combined = [...prev, ...uniqueNewTranscripts];
@@ -282,9 +301,29 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
     // Assign final flush function to ref for external access
     finalFlushRef.current = () => processBufferedTranscripts(true);
 
-    const setupListener = async () => {
+    let unlistenPartial: any;
+  const setupListener = async () => {
       try {
         console.log('🔥 Setting up MAIN transcript listener during component initialization...');
+        // v0.6.11: 监听 streaming partial 事件 (灰色文字实时浮现)
+        const unlistenPartial = await transcriptService.onTranscriptPartial((payload) => {
+          setLivePartialText(payload.text);
+          setIsPartialEndpoint(payload.is_endpoint);
+          // v0.6.12+: 解码延迟曝光到前端, 让 UI 能显示 "实时识别 decode: 95ms"
+          if (typeof payload.decode_ms === 'number') {
+            setLastDecodeMs(payload.decode_ms);
+          }
+          if (typeof payload.buffer_age_ms === 'number') {
+            setLastBufferAgeMs(payload.buffer_age_ms);
+          }
+          if (payload.is_endpoint && payload.delta) {
+            // 一句完成 → 平滑过渡: 渐隐而非突然清空 (避免 50ms 黑屏)
+            // v0.6.12+: 给前端 400ms 让 transcript-update 先把 final 段塞进 transcripts,
+            // 然后 partial 自动让位, 无闪烁
+            setTimeout(() => setLivePartialText(''), 400);
+          }
+        });
+
         unlistenFn = await transcriptService.onTranscriptUpdate((update) => {
           const now = Date.now();
           console.log('🎯 MAIN LISTENER: Received transcript update:', {
@@ -338,7 +377,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
         console.log('✅ MAIN transcript listener setup complete');
       } catch (error) {
         console.error('❌ Failed to setup MAIN transcript listener:', error);
-        alert('Failed to setup transcript listener. Check console for details.');
+        alert('转录监听器初始化失败,请查看控制台详情');
       }
     };
 
@@ -429,10 +468,17 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
     setTranscripts(prev => {
       console.log('📊 Current transcripts count before update:', prev.length);
 
-      // Check if this transcript already exists
-      const exists = prev.some(
-        t => t.text === update.text && t.timestamp === update.timestamp
-      );
+      // v0.6.11+ bug fix: 多重 listener 累积时同一时间段会 emit 多次, text+timestamp 不足以去重
+      //   (text 完全一样但 listener2 走完时间戳可能略有偏差), 用 (start, end) 二次校验
+      const TIME_TOL = 0.05;
+      const exists = prev.some(t => {
+        if (t.text === update.text && t.timestamp === update.timestamp) return true;
+        if (t.audio_start_time !== undefined && update.audio_start_time !== undefined
+            && t.audio_end_time !== undefined && update.audio_end_time !== undefined
+            && Math.abs(t.audio_start_time - update.audio_start_time) < TIME_TOL
+            && Math.abs(t.audio_end_time - update.audio_end_time) < TIME_TOL) return true;
+        return false;
+      });
       if (exists) {
         console.log('🚫 Duplicate transcript detected, skipping:', update.text.substring(0, 30) + '...');
         return prev;
@@ -469,7 +515,7 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
       .join('\n');
     navigator.clipboard.writeText(fullTranscript);
 
-    toast.success("Transcript copied to clipboard");
+    safeToast.success("转录文本 copied to clipboard");
   }, [transcripts]);
 
   // Force flush buffer (for final transcript processing)
@@ -483,6 +529,8 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
   // Clear transcripts (used when starting new recording)
   const clearTranscripts = useCallback(() => {
     setTranscripts([]);
+    setLivePartialText('');
+    setIsPartialEndpoint(false);
     // Don't clear currentMeetingId here - it will be set by recording-started event
   }, []);
 
@@ -510,6 +558,10 @@ export function TranscriptProvider({ children }: { children: ReactNode }) {
   }, [currentMeetingId]);
 
   const value: TranscriptContextType = {
+    livePartialText,
+    isPartialEndpoint,
+    lastDecodeMs,
+    lastBufferAgeMs,
     transcripts,
     transcriptsRef,
     addTranscript,

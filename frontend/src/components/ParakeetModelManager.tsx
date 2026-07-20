@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event';
 import { invoke } from '@tauri-apps/api/core';
 import { motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
+import { safeToast } from '@/lib/safeToast';
 import {
   ParakeetModelInfo,
   ModelStatus,
@@ -59,7 +60,7 @@ export function ParakeetModelManager({
       } catch (err) {
         console.error('Failed to initialize Parakeet:', err);
         setError(err instanceof Error ? err.message : 'Failed to load models');
-        toast.error('Failed to load transcription models', {
+        safeToast.error('加载转录模型失败', {
           description: err instanceof Error ? err.message : 'Unknown error',
           duration: 5000
         });
@@ -133,8 +134,8 @@ export function ParakeetModelManager({
           // Clean up throttle data
           progressThrottleRef.current.delete(modelName);
 
-          toast.success(`${displayInfo?.icon || '✓'} ${displayName} ready!`, {
-            description: 'Model downloaded and ready to use',
+          safeToast.success(`${displayInfo?.icon || '✓'} ${displayName} ready!`, {
+            description: '模型已下载,可以使用了',
             duration: 4000
           });
 
@@ -173,11 +174,11 @@ export function ParakeetModelManager({
           // Clean up throttle data
           progressThrottleRef.current.delete(modelName);
 
-          toast.error(`Failed to download ${displayName}`, {
+          safeToast.error(`Failed to download ${displayName}`, {
             description: error,
             duration: 6000,
             action: {
-              label: 'Retry',
+              label: '重试',
               onClick: () => downloadModel(modelName)
             }
           });
@@ -231,12 +232,12 @@ export function ParakeetModelManager({
       // Clean up throttle data
       progressThrottleRef.current.delete(modelName);
 
-      toast.info(`${displayName} download cancelled`, {
+      safeToast.info(`${displayName} download cancelled`, {
         duration: 3000
       });
     } catch (err) {
       console.error('Failed to cancel download:', err);
-      toast.error('Failed to cancel download', {
+      safeToast.error('取消下载失败', {
         description: err instanceof Error ? err.message : 'Unknown error',
         duration: 4000
       });
@@ -260,8 +261,8 @@ export function ParakeetModelManager({
         )
       );
 
-      toast.info(`Downloading ${displayName}...`, {
-        description: 'This may take a few minutes',
+      safeToast.info(`下载ing ${displayName}...`, {
+        description: '可能需要几分钟',
         duration: 5000  // Auto-dismiss after 5 seconds
       });
 
@@ -294,7 +295,7 @@ export function ParakeetModelManager({
 
     const displayInfo = getModelDisplayInfo(modelName);
     const displayName = displayInfo?.friendlyName || modelName;
-    toast.success(`Switched to ${displayName}`, {
+    safeToast.success(`Switched to ${displayName}`, {
       duration: 3000
     });
   };
@@ -310,8 +311,8 @@ export function ParakeetModelManager({
       const modelList = await ParakeetAPI.getAvailableModels();
       setModels(modelList);
 
-      toast.success(`${displayName} deleted`, {
-        description: 'Model removed to free up space',
+      safeToast.success(`${displayName} deleted`, {
+        description: '模型已删除以释放空间',
         duration: 3000
       });
 
@@ -321,7 +322,7 @@ export function ParakeetModelManager({
       }
     } catch (err) {
       console.error('Failed to delete model:', err);
-      toast.error(`Failed to delete ${displayName}`, {
+      safeToast.error(`Failed to delete ${displayName}`, {
         description: err instanceof Error ? err.message : 'Delete failed',
         duration: 4000
       });
@@ -342,7 +343,7 @@ export function ParakeetModelManager({
   if (error) {
     return (
       <div className={`bg-red-50 border border-red-200 rounded-lg p-4 ${className}`}>
-        <p className="text-sm text-red-800">Failed to load models</p>
+        <p className="text-sm text-red-800">加载模型失败</p>
         <p className="text-xs text-red-600 mt-1">{error}</p>
       </div>
     );
@@ -505,7 +506,7 @@ function ModelCard({
               <>
                 <div className="flex items-center gap-1.5 text-green-600">
                   <div className="w-2 h-2 bg-green-500 rounded-full"></div>
-                  <span className="text-xs font-medium">Ready</span>
+                  <span className="text-xs font-medium">就绪</span>
                 </div>
                 <AnimatePresence>
                   {isHovered && (
@@ -519,7 +520,7 @@ function ModelCard({
                         onDelete();
                       }}
                       className="text-gray-400 hover:text-red-600 transition-colors p-1"
-                      title="Delete model to free up space"
+                      title="删除 model to free up space"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -589,7 +590,7 @@ function ModelCard({
           >
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-blue-600">Downloading...</span>
+                <span className="text-sm font-medium text-blue-600">下载中...</span>
                 <span className="text-sm font-semibold text-blue-600">{Math.round(downloadProgress)}%</span>
               </div>
               <button
@@ -598,7 +599,7 @@ function ModelCard({
                   onCancel();
                 }}
                 className="text-xs text-gray-600 hover:text-red-600 font-medium transition-colors px-2 py-1 rounded hover:bg-red-50"
-                title="Cancel download"
+                title="取消 download"
               >
                 Cancel
               </button>

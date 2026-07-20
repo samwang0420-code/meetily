@@ -13,6 +13,7 @@ import { updateService, UpdateInfo, UpdateProgress } from '@/services/updateServ
 import { check, Update } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { toast } from 'sonner';
+import { safeToast } from '@/lib/safeToast';
 
 interface UpdateDialogProps {
   open: boolean;
@@ -123,7 +124,7 @@ export function UpdateDialog({ open, onOpenChange, updateInfo }: UpdateDialogPro
       });
 
       console.log('[UpdateDialog] Update installed successfully');
-      toast.success('Update installed successfully. The app will restart...');
+      safeToast.success('Update installed successfully. The app will restart...');
 
       // Mark download as complete before closing
       setIsDownloading(false);
@@ -137,7 +138,7 @@ export function UpdateDialog({ open, onOpenChange, updateInfo }: UpdateDialogPro
       console.error('Update failed:', err);
       setError(err.message || 'Failed to download or install update');
       setIsDownloading(false);
-      toast.error('Update failed: ' + (err.message || 'Unknown error'));
+      safeToast.error('Update failed: ' + (err.message || 'Unknown error'));
     }
   };
 

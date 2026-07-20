@@ -8,7 +8,7 @@ export interface RawModelInfo {
 }
 
 export interface ModelOption {
-  provider: 'whisper' | 'parakeet';
+  provider: 'parakeet' | 'sherpa_paraformer' | 'sherpa_funasr_nano';
   name: string;
   displayName: string;
   size_mb: number;
@@ -45,21 +45,31 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
     setLoadingModels(true);
     const allModels: ModelOption[] = [];
 
-    // Fetch Whisper models
-    try {
-      const whisperModels = await invoke<RawModelInfo[]>('whisper_get_available_models');
-      const availableWhisper = whisperModels
-        .filter((m) => m.status === 'Available')
-        .map((m) => ({
-          provider: 'whisper' as const,
-          name: m.name,
-          displayName: `🏠 Whisper: ${m.name}`,
-          size_mb: m.size_mb,
-        }));
-      allModels.push(...availableWhisper);
-    } catch (err) {
-      console.error('Failed to fetch Whisper models:', err);
-    }
+    // 离线会记 W2.5: Whisper 从 enhance 选项删除 (recording 也改为 sherpa, 不再需要 Whisper)
+    // Whisper 体验差 (幻觉多 / 中文漏字), 完全被 SenseVoice-zh 替代
+    // 模型文件 ggml-large-v3-turbo-q5_0.bin 547MB 也即将删除
+
+    // 离线会记 W2.3: 默认推荐 SenseVoice-zh (23 段按句切 + 字级 timestamp + 中文 SOTA)
+    // Paraformer 排在第二位 (W2.2 验证可用, 但无 timestamps, 退回 VAD 段循环)
+    // 用户反馈: "Paraformer 不能看, SenseVoice 默认体验最好"
+    allModels.push({
+      provider: 'sherpa_funasr_nano' as const,
+      name: 'sense-voice-zh-int8',
+      displayName: '✨ SenseVoice-zh (推荐 · 23 段)',
+      size_mb: 228,
+    });
+    allModels.push({
+      provider: 'sherpa_funasr_nano' as const,
+      name: 'funasr-nano-zh',
+      displayName: '🧪 FunASR-Nano (实验性离线精转 · 较慢)',
+      size_mb: 948,
+    });
+    allModels.push({
+      provider: 'sherpa_paraformer' as const,
+      name: 'paraformer-zh-int8',
+      displayName: '🐉 Paraformer-zh (备选 · 10 段)',
+      size_mb: 217,
+    });
 
     // Fetch Parakeet models
     try {
@@ -84,11 +94,12 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
     const configuredModel = transcriptModelConfig?.model || '';
 
     // Try to match the configured model
-    // Note: 'localWhisper' in config maps to 'whisper' provider in model list
+    // W2.5: 已移除 whisper, 不再处理 localWhisper 配置
     const configuredMatch = allModels.find(
       (m) =>
-        (configuredProvider === 'localWhisper' && m.provider === 'whisper' && m.name === configuredModel) ||
-        (configuredProvider === 'parakeet' && m.provider === 'parakeet' && m.name === configuredModel)
+        (configuredProvider === 'parakeet' && m.provider === 'parakeet' && m.name === configuredModel) ||
+        ((configuredProvider === 'sherpa_paraformer' || configuredProvider === 'sherpa_funasr_nano') &&
+         (m.provider === configuredProvider))
     );
 
     // Only set default model if user hasn't manually selected one
@@ -96,9 +107,18 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
       if (configuredMatch) {
         // Use the configured model if available
         setSelectedModelKey(`${configuredMatch.provider}:${configuredMatch.name}`);
-      } else if (allModels.length > 0) {
-        // Fall back to first available model
-        setSelectedModelKey(`${allModels[0].provider}:${allModels[0].name}`);
+      } else {
+        // Fall back: 优先 SenseVoice-zh (默认推荐), 然后任意 sherpa, 最后第一个
+        const senseVoice = allModels.find(
+          (m) => m.provider === 'sherpa_funasr_nano' && m.name === 'sense-voice-zh-int8'
+        );
+        const anySherpa = allModels.find(
+          (m) => m.provider === 'sherpa_funasr_nano' || m.provider === 'sherpa_paraformer'
+        );
+        const fallback = senseVoice || anySherpa || allModels[0];
+        if (fallback) {
+          setSelectedModelKey(`${fallback.provider}:${fallback.name}`);
+        }
       }
     }
 

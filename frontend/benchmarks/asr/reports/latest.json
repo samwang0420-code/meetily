@@ -1,0 +1,63 @@
+{
+  "generated_at": "2026-07-18T01:23:48.209Z",
+  "hypothesis_dir": "/Users/wangwei/Documents/meetily/frontend/benchmarks/asr/hypotheses",
+  "completed": 0,
+  "missing": 10,
+  "summary": {
+    "cer": null,
+    "term_recall": null,
+    "fragment_ratio": null
+  },
+  "cases": [
+    {
+      "id": "legal-01",
+      "domain": "legal",
+      "status": "missing"
+    },
+    {
+      "id": "legal-02",
+      "domain": "legal",
+      "status": "missing"
+    },
+    {
+      "id": "legal-03",
+      "domain": "legal",
+      "status": "missing"
+    },
+    {
+      "id": "legal-04",
+      "domain": "legal",
+      "status": "missing"
+    },
+    {
+      "id": "legal-05",
+      "domain": "legal",
+      "status": "missing"
+    },
+    {
+      "id": "medical-01",
+      "domain": "medical",
+      "status": "missing"
+    },
+    {
+      "id": "medical-02",
+      "domain": "medical",
+      "status": "missing"
+    },
+    {
+      "id": "medical-03",
+      "domain": "medical",
+      "status": "missing"
+    },
+    {
+      "id": "medical-04",
+      "domain": "medical",
+      "status": "missing"
+    },
+    {
+      "id": "medical-05",
+      "domain": "medical",
+      "status": "missing"
+    }
+  ]
+}

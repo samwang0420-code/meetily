@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "cases": [
+    {"id":"two-speaker-legal","expected_speakers":2,"audio":"audio/two-speaker-legal.wav","segments":"segments/two-speaker-legal.json"},
+    {"id":"four-speaker-medical","expected_speakers":4,"audio":"audio/four-speaker-medical.wav","segments":"segments/four-speaker-medical.json"}
+  ]
+}

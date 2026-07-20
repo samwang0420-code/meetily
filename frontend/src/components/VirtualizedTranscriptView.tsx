@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useRef, useReducer, startTransition, useEffect, useState, memo } from "react";
+import { useTranscripts } from "@/contexts/TranscriptContext";
 import { useVirtualizer } from "@tanstack/react-virtual";
 import { useAutoScroll } from "@/hooks/useAutoScroll";
 import { useTranscriptStreaming } from "@/hooks/useTranscriptStreaming";
@@ -158,6 +159,8 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
     });
 
     // Streaming text effect hook (typewriter animation for new transcripts)
+    // v0.6.11+ bug fix: 读 livePartialText (灰色 preview 流式显示)
+    const { livePartialText, isPartialEndpoint } = useTranscripts();
     const { streamingSegmentId, getDisplayText } = useTranscriptStreaming(
         segments,
         isRecording,
@@ -243,24 +246,20 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                     animate={{ opacity: 1 }}
                     className="text-center text-gray-500 mt-8"
                 >
+                    {/* v0.6.7: !isRecording 时让 page.tsx 的 hero CTA 控制提示, 不在这里重复 */}
                     {isRecording ? (
                         <>
                             <div className="flex items-center justify-center mb-3">
                                 <div className={`w-3 h-3 rounded-full ${isPaused ? 'bg-orange-500' : 'bg-blue-500 animate-pulse'}`}></div>
                             </div>
                             <p className="text-sm text-gray-600">
-                                {isPaused ? 'Recording paused' : 'Listening for speech...'}
+                                {isPaused ? '录音已暂停' : '正在聆听语音...'}
                             </p>
                             <p className="text-xs mt-1 text-gray-400">
-                                {isPaused ? 'Click resume to continue recording' : 'Speak to see live transcription'}
+                                {isPaused ? '点击继续录音' : '点击开始录音, 即可看到实时转录文字'}
                             </p>
                         </>
-                    ) : (
-                        <>
-                            <p className="text-lg font-semibold">Welcome to meetily!</p>
-                            <p className="text-xs mt-1">Start recording to see live transcription</p>
-                        </>
-                    )}
+                    ) : null}
                 </motion.div>
             ) : useVirtualization ? (
                 // Virtualized rendering for large lists
@@ -308,7 +307,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             {isLoadingMore ? (
                                 <div className="flex items-center gap-2 text-gray-500">
                                     <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-                                    <span className="text-sm">Loading more...</span>
+                                    <span className="text-sm">加载更多...</span>
                                 </div>
                             ) : hasMore && totalCount > 0 ? (
                                 <span className="text-sm text-gray-400">
@@ -316,6 +315,24 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                 </span>
                             ) : null}
                         </div>
+                    )}
+
+                    {/* v0.6.11+ bug fix: 灰色 partial 实时浮现 (解决 27s 空白问题) */}
+                    {isRecording && !isStopping && !isPaused && !isProcessing && livePartialText && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="ml-12 mb-3"
+                        >
+                            <p className="text-sm text-gray-400 italic leading-relaxed">
+                                {livePartialText}
+                                <span className="inline-block w-1.5 h-3.5 bg-gray-400 ml-0.5 align-middle animate-pulse" />
+                            </p>
+                            {isPartialEndpoint && (
+                                <p className="text-xs text-gray-300 mt-1">正在切句...</p>
+                            )}
+                        </motion.div>
                     )}
 
                     {/* Listening indicator when recording */}
@@ -327,7 +344,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             className="flex items-center gap-2 mt-4 text-gray-500"
                         >
                             <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                            <span className="text-sm">Listening...</span>
+                            <span className="text-sm">正在聆听...</span>
                         </motion.div>
                     )}
                 </>
@@ -364,7 +381,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             {isLoadingMore ? (
                                 <div className="flex items-center gap-2 text-gray-500">
                                     <div className="w-4 h-4 border-2 border-gray-300 border-t-gray-600 rounded-full animate-spin" />
-                                    <span className="text-sm">Loading more...</span>
+                                    <span className="text-sm">加载更多...</span>
                                 </div>
                             ) : hasMore && totalCount > 0 ? (
                                 <span className="text-sm text-gray-400">
@@ -372,6 +389,24 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                                 </span>
                             ) : null}
                         </div>
+                    )}
+
+                    {/* v0.6.11+ bug fix: 灰色 partial 实时浮现 (解决 27s 空白问题) */}
+                    {isRecording && !isStopping && !isPaused && !isProcessing && livePartialText && (
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            exit={{ opacity: 0 }}
+                            className="ml-12 mb-3"
+                        >
+                            <p className="text-sm text-gray-400 italic leading-relaxed">
+                                {livePartialText}
+                                <span className="inline-block w-1.5 h-3.5 bg-gray-400 ml-0.5 align-middle animate-pulse" />
+                            </p>
+                            {isPartialEndpoint && (
+                                <p className="text-xs text-gray-300 mt-1">正在切句...</p>
+                            )}
+                        </motion.div>
                     )}
 
                     {/* Listening indicator when recording */}
@@ -383,7 +418,7 @@ export const VirtualizedTranscriptView: React.FC<VirtualizedTranscriptViewProps>
                             className="flex items-center gap-2 mt-4 text-gray-500"
                         >
                             <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-                            <span className="text-sm">Listening...</span>
+                            <span className="text-sm">正在聆听...</span>
                         </motion.div>
                     )}
                 </>

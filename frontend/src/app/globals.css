@@ -2,6 +2,68 @@
 @tailwind components;
 @tailwind utilities;
 
+/* 离线会记 v0.6.0 design tokens (从 src/lib/design-tokens.ts 同步)
+   这些 CSS variable 全局可用,Tailwind 通过 bg-app-* text-app-* 等 alias 间接引用。
+   任何页面要修改某个 token,直接在这里改 — 不需要重启。 */
+:root {
+  --app-canvas: #0a0b0d;
+  --app-surface-1: #0f1011;
+  --app-surface-2: #141516;
+  --app-surface-3: #191a1b;
+  --app-surface-4: #1d1e20;
+  --app-hairline: #23252a;
+  --app-hairline-strong: #34343a;
+
+  --app-ink: #f4f4f6;
+  --app-ink-muted: #d0d6e0;
+  --app-ink-subtle: #8a8f98;
+  --app-ink-tertiary: #62666d;
+
+  /* 三状态 accent (核心) */
+  --app-recording: #ff5757;
+  --app-recording-soft: rgba(255,87,87,0.15);
+  --app-transcript: #5e6ad2;
+  --app-transcript-soft: rgba(94,106,210,0.15);
+  --app-transcript-hover: #828fff;
+  --app-summary: #ffc533;
+  --app-summary-soft: rgba(255,197,51,0.15);
+  --app-summary-deep: #ab570a;
+
+  --app-success: #59d499;
+  --app-success-soft: rgba(89,212,153,0.15);
+  --app-warning: #ffa42b;
+  --app-error: #f3727f;
+  --app-info: #57c1ff;
+
+  --app-canvas-light: #faf9f5;
+  --app-surface-light-1: #f5f0e8;
+  --app-ink-light: #141413;
+  --app-ink-light-muted: #6c6a64;
+
+  /* radius */
+  --app-radius-xs: 4px;
+  --app-radius-sm: 6px;
+  --app-radius-md: 8px;
+  --app-radius-lg: 12px;
+  --app-radius-xl: 16px;
+  --app-radius-xxl: 24px;
+  --app-radius-pill: 9999px;
+
+  /* shadows */
+  --app-shadow-subtle: 0 1px 2px rgba(0,0,0,0.4);
+  --app-shadow-card: 0 1px 0 rgba(255,255,255,0.04) inset, 0 4px 16px rgba(0,0,0,0.4);
+  --app-shadow-elevated: 0 0 0 1px rgba(255,255,255,0.06), 0 16px 48px rgba(0,0,0,0.5);
+  --app-shadow-dialog: 0 16px 48px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.06);
+
+  /* font feature — Raycast 标志 */
+  --app-font-feature: "calt", "kern", "liga", "ss03";
+}
+
+/* v0.6.0: 不强制 html/body 背景 — 颜色交给 Tailwind bg-background / bg-app-* 控制
+   这里只加 Raycast 风格 Inter 字形 + ss03 feature */
+html { font-feature-settings: var(--app-font-feature); }
+body { font-feature-settings: var(--app-font-feature); }
+
 @keyframes vibrate {
   0% {
     transform: translate(0);
@@ -212,3 +274,4 @@
     overflow: visible !important;
   }
 }
+/* v0.6.4-build-stamp: force chunk hash refresh */

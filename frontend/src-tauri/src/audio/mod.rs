@@ -48,6 +48,9 @@ pub mod constants;
 // Retranscription module (re-process stored audio with different settings)
 pub mod retranscription;
 
+// sherpa-onnx 后端 daemon (离线会记 W2)
+pub mod sherpa_daemon;
+
 // Import module (import external audio files as new meetings)
 pub mod import;
 
@@ -119,3 +122,6 @@ pub use decoder::{decode_audio_file, DecodedAudio};
 // Export audio constants
 pub use constants::AUDIO_EXTENSIONS;
 
+pub mod hotwords_globals;
+pub mod industry_terms;
+pub mod industry_vocab;

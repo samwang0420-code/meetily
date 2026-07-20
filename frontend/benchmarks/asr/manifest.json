@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "description": "离线会记法律诉讼与医疗会诊固定 ASR 基准集",
+  "cases": [
+    {"id":"legal-01","domain":"legal","reference":"legal/legal-01.txt","terms":["原告","被告","违约金","管辖权异议","北京仲裁委员会","仲裁条款","仲裁裁决","申请撤销","中级人民法院","提起上诉"]},
+    {"id":"legal-02","domain":"legal","reference":"legal/legal-02.txt","terms":["借款合同","银行转账凭证","民间借贷","诉讼时效","举证质证","合议庭","案件受理费"]},
+    {"id":"legal-03","domain":"legal","reference":"legal/legal-03.txt","terms":["庭前会议","证据目录","争议焦点","司法鉴定","举证期限","证明目的","鉴定机构"]},
+    {"id":"legal-04","domain":"legal","reference":"legal/legal-04.txt","terms":["违法解除劳动合同","赔偿金","拖欠工资","仲裁委员会","规章制度","民主程序","解除通知"]},
+    {"id":"legal-05","domain":"legal","reference":"legal/legal-05.txt","terms":["知识产权侵权","软件著作权登记证书","源代码","公证购买记录","实质性相似","合法来源抗辩","损害赔偿"]},
+    {"id":"medical-01","domain":"medical","reference":"medical/medical-01.txt","terms":["高血压","二型糖尿病","空腹血糖","糖化血红蛋白","二甲双胍","肾小球滤过率","低盐低脂饮食","复查"]},
+    {"id":"medical-02","domain":"medical","reference":"medical/medical-02.txt","terms":["心电图","窦性心律","心肌酶","超声心动图","左心室射血分数","冠状动脉","缺血性心脏病"]},
+    {"id":"medical-03","domain":"medical","reference":"medical/medical-03.txt","terms":["脓性分泌物","血常规","白细胞","降钙素原","抗菌药物","血培养","深部感染"]},
+    {"id":"medical-04","domain":"medical","reference":"medical/medical-04.txt","terms":["胰岛素","夜间低血糖","基础胰岛素剂量","空腹饮酒","快速吸收","碳水化合物"]},
+    {"id":"medical-05","domain":"medical","reference":"medical/medical-05.txt","terms":["多学科会诊","肺部占位","支气管镜活检","免疫组化","肺功能检查","病理分型","临床分期","不良反应"]}
+  ]
+}

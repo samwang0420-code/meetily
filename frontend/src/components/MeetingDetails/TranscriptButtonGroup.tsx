@@ -3,15 +3,18 @@
 import { useState, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { ButtonGroup } from '@/components/ui/button-group';
-import { Copy, FolderOpen, RefreshCw } from 'lucide-react';
+import { Copy, FolderOpen, RefreshCw, FileText, FileCode } from 'lucide-react';
 import Analytics from '@/lib/analytics';
 import { RetranscribeDialog } from './RetranscribeDialog';
 import { useConfig } from '@/contexts/ConfigContext';
+import { useTranslation } from '@/i18n';
 
 
 interface TranscriptButtonGroupProps {
   transcriptCount: number;
   onCopyTranscript: () => void;
+  onExportMarkdown?: () => void;
+  onExportTxt?: () => void;
   onOpenMeetingFolder: () => Promise<void>;
   meetingId?: string;
   meetingFolderPath?: string | null;
@@ -22,11 +25,14 @@ interface TranscriptButtonGroupProps {
 export function TranscriptButtonGroup({
   transcriptCount,
   onCopyTranscript,
+  onExportMarkdown,
+  onExportTxt,
   onOpenMeetingFolder,
   meetingId,
   meetingFolderPath,
   onRefetchTranscripts,
 }: TranscriptButtonGroupProps) {
+  const { t } = useTranslation();
   const { betaFeatures } = useConfig();
   const [showRetranscribeDialog, setShowRetranscribeDialog] = useState(false);
 
@@ -48,11 +54,43 @@ export function TranscriptButtonGroup({
             onCopyTranscript();
           }}
           disabled={transcriptCount === 0}
-          title={transcriptCount === 0 ? 'No transcript available' : 'Copy Transcript'}
+          title={transcriptCount === 0 ? t('meeting_details.no_transcript') : t('meeting_details.copy_transcript_title')}
         >
           <Copy />
-          <span className="hidden lg:inline">Copy</span>
+          <span className="hidden lg:inline">{t('meeting_details.copy_transcript')}</span>
         </Button>
+
+        {onExportMarkdown && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              Analytics.trackButtonClick('export_md', 'meeting_details');
+              onExportMarkdown();
+            }}
+            disabled={transcriptCount === 0}
+            title={t('meeting_details.export_md_title')}
+          >
+            <FileCode />
+            <span className="hidden lg:inline">{t('meeting_details.export_md')}</span>
+          </Button>
+        )}
+
+        {onExportTxt && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              Analytics.trackButtonClick('export_txt', 'meeting_details');
+              onExportTxt();
+            }}
+            disabled={transcriptCount === 0}
+            title={t('meeting_details.export_txt_title')}
+          >
+            <FileText />
+            <span className="hidden lg:inline">{t('meeting_details.export_txt')}</span>
+          </Button>
+        )}
 
         <Button
           size="sm"
@@ -62,10 +100,10 @@ export function TranscriptButtonGroup({
             Analytics.trackButtonClick('open_recording_folder', 'meeting_details');
             onOpenMeetingFolder();
           }}
-          title="Open Recording Folder"
+          title={t('meeting_details.open_folder')}
         >
           <FolderOpen className="xl:mr-2" size={18} />
-          <span className="hidden lg:inline">Recording</span>
+          <span className="hidden lg:inline">{t('meeting_details.recording')}</span>
         </Button>
 
         {betaFeatures.importAndRetranscribe && meetingId && meetingFolderPath && (
@@ -77,10 +115,10 @@ export function TranscriptButtonGroup({
               Analytics.trackButtonClick('enhance_transcript', 'meeting_details');
               setShowRetranscribeDialog(true);
             }}
-            title="Retranscribe to enhance your recorded audio"
+            title={t('meeting_details.enhance_title')}
           >
             <RefreshCw className="xl:mr-2" size={18} />
-            <span className="hidden lg:inline">Enhance</span>
+            <span className="hidden lg:inline">{t('meeting_details.enhance')}</span>
           </Button>
         )}
       </ButtonGroup>

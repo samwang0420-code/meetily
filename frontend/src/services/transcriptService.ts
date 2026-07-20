@@ -60,6 +60,49 @@ export class TranscriptService {
   }
 
   /**
+   * v0.6.11: 监听 streaming pipeline 推的 partial/final delta (实时字幕)
+   * - chunk 内 partial 流式 → 用户可看到文字逐步浮现
+   * - is_endpoint + delta → 与 transcript-update 互补
+   */
+  async onTranscriptPartial(callback: (payload: {
+    text: string;
+    delta: string;
+    is_endpoint: boolean;
+    chunk_id: number;
+    audio_start_time: number;
+    audio_end_time: number;
+    // v0.6.12+: 诊断字段 (前端可选显示)
+    decode_ms?: number;
+    buffer_age_ms?: number;
+  }) => void): Promise<UnlistenFn> {
+    return listen<{
+      text: string;
+      delta: string;
+      is_endpoint: boolean;
+      chunk_id: number;
+      audio_start_time: number;
+      audio_end_time: number;
+      decode_ms?: number;
+      buffer_age_ms?: number;
+    }>('transcript-partial', (event) => {
+      callback(event.payload);
+    });
+  }
+
+  /** v0.6.12+: 拉取实时识别 50 样本滚动延迟统计 (admin / 调试面板) */
+  async getStreamingTimingStats(): Promise<{
+    samples: number;
+    decode_avg_ms: number;
+    decode_p95_ms: number;
+    decode_max_ms: number;
+    buffer_avg_ms: number;
+    buffer_p95_ms: number;
+    buffer_max_ms: number;
+  }> {
+    return invoke('get_streaming_timing_stats');
+  }
+
+  /**
    * Listen for transcription-complete event
    * @param callback - Function to call when transcription processing is complete
    * @returns Promise that resolves to unlisten function

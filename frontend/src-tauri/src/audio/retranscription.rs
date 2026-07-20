@@ -1,6 +1,8 @@
 // Retranscription module - allows re-processing stored audio with different settings
 
 use crate::audio::decoder::decode_audio_file;
+use crate::audio::audio_processing::prepare_for_asr_16k;
+use crate::audio::industry_terms::{correct_industry_terms, correct_industry_terms_with_known, runtime_hotword_terms, L3Config};
 use crate::audio::vad::get_speech_chunks_with_progress;
 use super::common::{create_transcript_segments, split_segment_at_silence, write_transcripts_json};
 use super::constants::AUDIO_EXTENSIONS;
@@ -15,6 +17,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
+use base64::Engine as _;
 
 /// Global flag to track if retranscription is in progress
 static RETRANSCRIPTION_IN_PROGRESS: AtomicBool = AtomicBool::new(false);
@@ -45,11 +48,23 @@ impl Drop for RetranscriptionGuard {
     }
 }
 
-/// VAD redemption time in milliseconds - bridges natural pauses in speech
-/// Batch processing needs longer redemption (2000ms) than live pipeline (400ms)
-/// because the entire file is processed at once by VAD, and 400ms fragments
-/// speech at every natural sentence/topic pause (500ms-2s)
-const VAD_REDEMPTION_TIME_MS: u32 = 2000;
+/// VAD redemption time for batch enhancement.
+///
+/// A long redemption window merges several sentences into one segment. That
+/// makes the transcript readable, but destroys the timestamp granularity used
+/// by the evidence-based summary. Keep short recordings close to the live
+/// pipeline; only long recordings get a wider pause bridge.
+fn vad_redemption_time_ms(duration_seconds: f64) -> u32 {
+    if duration_seconds <= 90.0 {
+        700
+    } else if duration_seconds <= 900.0 {
+        1200
+    } else {
+        1600
+    }
+}
+
+const MAX_EVIDENCE_SEGMENT_SECONDS: f64 = 12.0;
 
 /// Progress update emitted during retranscription
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -67,6 +82,107 @@ pub struct RetranscriptionResult {
     pub segments_count: usize,
     pub duration_seconds: f64,
     pub language: Option<String>,
+    pub speech_coverage: f64,
+    pub transcript_chars: usize,
+    pub average_segment_seconds: f64,
+    pub low_quality_warning: Option<String>,
+    pub applied: bool,
+}
+
+#[derive(Debug, Default)]
+struct ExistingTranscriptStats {
+    segments: usize,
+    chars: usize,
+    average_segment_seconds: f64,
+    texts: Vec<String>,
+}
+
+const LEGAL_GUARD_TERMS: &[&str] = &[
+    "原告", "被告", "合同", "违约金", "管辖权异议", "仲裁条款", "仲裁程序",
+    "仲裁裁决", "北京仲裁委员会", "中级人民法院", "申请撤销", "提起上诉",
+];
+const MEDICAL_GUARD_TERMS: &[&str] = &[
+    "患者", "诊断", "高血压", "糖尿病", "二甲双胍", "胰岛素", "糖化血红蛋白",
+    "肾小球滤过率", "低盐低脂饮食", "复查", "医嘱", "不良反应",
+];
+
+fn normalized_content(texts: &[String]) -> String {
+    texts.iter().flat_map(|text| text.chars()).filter(|ch| {
+        !ch.is_whitespace() && !ch.is_ascii_punctuation() && !"，。！？；：、（）【】《》“”‘’…—".contains(*ch)
+    }).collect()
+}
+
+fn meaningful_char_count(text: &str) -> usize {
+    normalized_content(&[text.to_string()]).chars().count()
+}
+
+fn fragment_ratio(texts: &[String]) -> f64 {
+    if texts.is_empty() { return 1.0; }
+    let fragments = texts.iter().filter(|text| meaningful_char_count(text) < 4).count();
+    fragments as f64 / texts.len() as f64
+}
+
+fn punctuation_only_count(texts: &[String]) -> usize {
+    texts.iter().filter(|text| meaningful_char_count(text) == 0).count()
+}
+
+fn retained_domain_terms(existing: &str, candidate: &str) -> (usize, usize) {
+    let terms = LEGAL_GUARD_TERMS.iter().chain(MEDICAL_GUARD_TERMS.iter());
+    let expected: Vec<&&str> = terms.filter(|term| existing.contains(**term)).collect();
+    let retained = expected.iter().filter(|term| candidate.contains(***term)).count();
+    (retained, expected.len())
+}
+
+fn should_apply_retranscription(
+    existing: &ExistingTranscriptStats,
+    candidate_segments: usize,
+    candidate_chars: usize,
+    candidate_average_segment_seconds: f64,
+    candidate_texts: &[String],
+    low_quality_warning: Option<&str>,
+) -> Result<(), String> {
+    if candidate_segments == 0 || candidate_chars == 0 {
+        return Err("未识别出有效内容，已保留原始转录".to_string());
+    }
+    if low_quality_warning.is_some() && existing.chars > 0 {
+        return Err("新结果质量检测未通过，已保留原始转录".to_string());
+    }
+    if existing.chars >= 20 && candidate_chars * 100 < existing.chars * 75 {
+        return Err(format!("新结果仅保留原文约 {}%，已保留原始转录", candidate_chars * 100 / existing.chars));
+    }
+    if existing.segments >= 4 && candidate_segments * 2 < existing.segments {
+        return Err("新结果分段明显减少，已保留原始时间戳分段".to_string());
+    }
+    if existing.segments >= 2 && candidate_segments > existing.segments.saturating_mul(3) {
+        return Err("新结果分段暴增，已保留原始时间戳分段".to_string());
+    }
+    let candidate_fragment_ratio = fragment_ratio(candidate_texts);
+    let existing_fragment_ratio = fragment_ratio(&existing.texts);
+    if candidate_segments >= 5 && candidate_fragment_ratio > 0.25 && candidate_fragment_ratio > existing_fragment_ratio + 0.10 {
+        return Err(format!("新结果碎片段占比过高（{}%），已保留原始转录", (candidate_fragment_ratio * 100.0).round() as usize));
+    }
+    if punctuation_only_count(candidate_texts) > punctuation_only_count(&existing.texts) {
+        return Err("新结果包含独立标点段，已保留原始转录".to_string());
+    }
+    let existing_content = normalized_content(&existing.texts);
+    let candidate_content = normalized_content(candidate_texts);
+    let (retained_terms, expected_terms) = retained_domain_terms(&existing_content, &candidate_content);
+    if expected_terms >= 3 && retained_terms * 100 < expected_terms * 85 {
+        return Err(format!("新结果仅保留 {}/{} 个关键术语，已保留原始转录", retained_terms, expected_terms));
+    }
+    if existing.average_segment_seconds > 0.0
+        && candidate_average_segment_seconds > existing.average_segment_seconds * 2.5
+        && candidate_average_segment_seconds > 10.0
+    {
+        return Err("新结果时间戳粒度明显变差，已保留原始分段".to_string());
+    }
+    let gains_more_content = candidate_content.chars().count() >= existing_content.chars().count() * 105 / 100;
+    let gains_fewer_fragments = candidate_fragment_ratio + 0.05 < existing_fragment_ratio;
+    let gains_better_segments = existing.segments >= 6 && candidate_segments < existing.segments && candidate_segments * 2 >= existing.segments;
+    if existing.chars > 0 && !gains_more_content && !gains_fewer_fragments && !gains_better_segments {
+        return Err("新结果没有检测到明确质量提升，已保留原始转录".to_string());
+    }
+    Ok(())
 }
 
 /// Error during retranscription
@@ -118,7 +234,12 @@ pub async fn start_retranscription<R: Runtime>(
                     "meeting_id": res.meeting_id,
                     "segments_count": res.segments_count,
                     "duration_seconds": res.duration_seconds,
-                    "language": res.language
+                    "language": res.language,
+                    "speech_coverage": res.speech_coverage,
+                    "transcript_chars": res.transcript_chars,
+                    "average_segment_seconds": res.average_segment_seconds,
+                    "low_quality_warning": res.low_quality_warning,
+                    "applied": res.applied
                 }),
             );
         }
@@ -180,12 +301,15 @@ async fn run_retranscription<R: Runtime>(
     let folder_path = PathBuf::from(&meeting_folder_path);
     let audio_path = find_audio_file(&folder_path)?;
 
-    // Determine which provider to use (default to whisper)
-    let use_parakeet = provider.as_deref() == Some("parakeet");
+    // Batch enhancement follows the same local Sherpa default as recording.
+    let effective_provider = provider.as_deref().unwrap_or("sherpa_funasr_nano");
+    let use_parakeet = effective_provider == "parakeet";
+    let use_sherpa = effective_provider == "sherpa_paraformer"
+        || effective_provider == "sherpa_funasr_nano";
 
     info!(
         "Starting retranscription for meeting {} with language {:?}, model {:?}, provider {:?}",
-        meeting_id, language, model, provider
+        meeting_id, language, model, effective_provider
     );
 
     // Emit progress: decoding
@@ -219,7 +343,8 @@ async fn run_retranscription<R: Runtime>(
 
     // Convert to 16kHz mono format (CPU-intensive, run in blocking task)
     let audio_samples = tokio::task::spawn_blocking(move || {
-        decoded.to_whisper_format()
+        let samples = decoded.to_whisper_format();
+        prepare_for_asr_16k(&samples)
     })
     .await
     .map_err(|e| anyhow!("Resample task panicked: {}", e))?;
@@ -237,11 +362,15 @@ async fn run_retranscription<R: Runtime>(
     // For large files (35+ minutes), VAD processing can take several minutes
     let app_for_vad = app.clone();
     let meeting_id_for_vad = meeting_id.clone();
+    // 离线会记 W2: sherpa 路径需要整体音频,VAD 闭包会 move audio_samples,先 clone 一份备用
+    // W2.2: sherpa 路径已改成 VAD 段级循环,每段用 segment.samples 直接送 daemon,无需整段克隆
+    let _sherpa_audio_samples = if use_sherpa { Some(audio_samples.clone()) } else { None };
 
+    let vad_redemption_ms = vad_redemption_time_ms(duration_seconds);
     let speech_segments = tokio::task::spawn_blocking(move || {
         get_speech_chunks_with_progress(
             &audio_samples,
-            VAD_REDEMPTION_TIME_MS,
+            vad_redemption_ms,
             |vad_progress, segments_found| {
                 // Map VAD progress (0-100) to overall progress (20-25)
                 let overall_progress = 20 + (vad_progress as f32 * 0.05) as u32;
@@ -263,7 +392,7 @@ async fn run_retranscription<R: Runtime>(
     .map_err(|e| anyhow!("VAD processing failed: {}", e))?;
 
     let total_segments = speech_segments.len();
-    info!("VAD detected {} speech segments (redemption_time={}ms)", total_segments, VAD_REDEMPTION_TIME_MS);
+    info!("VAD detected {} speech segments (redemption_time={}ms)", total_segments, vad_redemption_ms);
 
     // Diagnostic: log segment duration distribution
     if !speech_segments.is_empty() {
@@ -299,12 +428,13 @@ async fn run_retranscription<R: Runtime>(
     emit_progress(&app, &meeting_id, "transcribing", 25, "Loading transcription engine...");
 
     // Initialize the appropriate engine once (not per-segment)
-    let whisper_engine = if !use_parakeet {
+    // 离线会记 W2: sherpa 路径不加载 whisper/parakeet engine,直接走 daemon subprocess
+    let whisper_engine = if !use_parakeet && !use_sherpa {
         Some(get_or_init_whisper(&app, model.as_deref()).await?)
     } else {
         None
     };
-    let parakeet_engine = if use_parakeet {
+    let parakeet_engine = if use_parakeet && !use_sherpa {
         Some(get_or_init_parakeet(&app, model.as_deref()).await?)
     } else {
         None
@@ -313,7 +443,7 @@ async fn run_retranscription<R: Runtime>(
     // Split very long segments at silence boundaries for better transcription quality.
     // Hard cuts at arbitrary sample positions lose words at boundaries. Instead, scan
     // for the lowest-energy window near the target split point and cut there.
-    const MAX_SEGMENT_SAMPLES: usize = 25 * 16000; // 25 seconds at 16kHz
+    const MAX_SEGMENT_SAMPLES: usize = (MAX_EVIDENCE_SEGMENT_SECONDS as usize) * 16000;
 
     let mut processable_segments: Vec<crate::audio::vad::SpeechSegment> = Vec::new();
     for segment in &speech_segments {
@@ -339,6 +469,23 @@ async fn run_retranscription<R: Runtime>(
     let mut all_transcripts: Vec<(String, f64, f64)> = Vec::new(); // (text, start_ms, end_ms)
     let mut total_confidence = 0.0f32;
 
+    // sherpa backend name (resolved once, reused per segment)
+    let sherpa_backend = if use_sherpa {
+        if effective_provider == "sherpa_funasr_nano" {
+            Some("sensevoice-zh".to_string())
+        } else {
+            Some("paraformer-zh".to_string())
+        }
+    } else {
+        None
+    };
+    let hotwords_pack_str = crate::audio::hotwords_globals::current_pack();
+    let hotwords_custom_owned = crate::audio::hotwords_globals::current_custom_with_product_terms();
+    let hotwords_custom_str = hotwords_custom_owned.as_str();
+    // Level 3 不再需要全局 Mutex 暂存 token — 每段 daemon 返回后立即在闭包内切 sub-segments
+
+    // 离线会记 W2.2: 所有 backend (whisper/parakeet/sherpa) 都走 VAD 段级 loop
+    // 之前 sherpa 路径绕过 VAD 整段喂 Paraformer,导致 127s 音频只识别 1 段 (丢 95% 内容)
     for (i, segment) in processable_segments.iter().enumerate() {
         // Check for cancellation before each segment
         if RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst) {
@@ -367,21 +514,63 @@ async fn run_retranscription<R: Runtime>(
             continue;
         }
 
-        // Transcribe this segment
-        let (text, conf) = if use_parakeet {
+        // Transcribe this segment — dispatch by backend
+        // Level 3 设计: sherpa 分支返回 ((text, conf), Option<(tokens, timestamps)>) —
+        // 把 token/timestamp 直接返回给外层, 避免任何 Mutex 共享状态.
+        let (text, conf, sherpa_tokens_ts) = if let Some(backend) = sherpa_backend.as_deref() {
+            // sherpa-onnx: per-segment call to daemon (each VAD segment <=25s, aligned with model window)
+            // daemon.transcribe_blocking is sync I/O — use block_in_place to avoid blocking the tokio worker pool
+            // (SherpaHandle is !Send so we can't use spawn_blocking; block_in_place keeps it on this thread).
+            let pcm_bytes: Vec<u8> = segment.samples.iter().flat_map(|s| s.to_le_bytes()).collect();
+            let pcm_b64 = base64::engine::general_purpose::STANDARD.encode(&pcm_bytes);
+            debug!(
+                "Sherpa segment {}/{}: backend={} samples={} ({:.2}s)",
+                i + 1, processable_count, backend, segment.samples.len(), segment_duration_sec
+            );
+            let seg_idx = i + 1;
+            let result: anyhow::Result<crate::audio::sherpa_daemon::SherpaResponse> = tokio::task::block_in_place(|| {
+                let daemon = crate::audio::sherpa_daemon::global();
+                // Level 3: 总是请求 timestamps (RAM<8GB 时 daemon 端自动降级为不返回)
+                daemon.transcribe_blocking(backend, &pcm_b64, 16000, true, hotwords_pack_str, hotwords_custom_str)
+            });
+            match result {
+                Ok(resp) if !resp.text.trim().is_empty() => {
+                    debug!(
+                        "Sherpa seg {}/{} OK: chars={} conf={:.2} tokens={} timestamps={}",
+                        seg_idx, processable_count,
+                        resp.text.chars().count(), resp.confidence,
+                        resp.tokens.len(), resp.timestamps.len()
+                    );
+                    let ts = if !resp.tokens.is_empty() && !resp.timestamps.is_empty() {
+                        Some((resp.tokens, resp.timestamps))
+                    } else {
+                        None
+                    };
+                    (resp.text, resp.confidence.max(0.0), ts)
+                }
+                Ok(_) => (String::new(), 0.0, None),
+                Err(e) => {
+                    warn!(
+                        "Sherpa daemon seg {}/{} failed: {} (skip segment)",
+                        seg_idx, processable_count, e
+                    );
+                    (String::new(), 0.0, None)
+                }
+            }
+        } else if use_parakeet {
             let engine = parakeet_engine.as_ref().unwrap();
             let text = engine
                 .transcribe_audio(segment.samples.clone())
                 .await
                 .map_err(|e| anyhow!("Parakeet transcription failed on segment {}: {}", i, e))?;
-            (text, 0.9f32)
+            (text, 0.9f32, None)
         } else {
             let engine = whisper_engine.as_ref().unwrap();
             let (text, conf, _) = engine
                 .transcribe_audio_with_confidence(segment.samples.clone(), language.clone())
                 .await
                 .map_err(|e| anyhow!("Whisper transcription failed on segment {}: {}", i, e))?;
-            (text, conf)
+            (text, conf, None)
         };
 
         // Skip empty transcripts
@@ -392,8 +581,29 @@ async fn run_retranscription<R: Runtime>(
                 i + 1, processable_count, segment_duration_sec, conf,
                 if trimmed.len() > 80 { let mut end = 80; while !trimmed.is_char_boundary(end) { end -= 1; } &trimmed[..end] } else { trimmed }
             );
-            all_transcripts.push((text, segment.start_timestamp_ms, segment.end_timestamp_ms));
-            total_confidence += conf;
+
+            // Level 3 (sherpa only): 用字级 timestamps 切 sub-segments.
+            // whisper/parakeet 没有 token timestamps, 直接 push 整段.
+            if let Some((toks, tss)) = sherpa_tokens_ts {
+                let sub_segs = split_text_by_timestamps(
+                    &text,
+                    &toks,
+                    &tss,
+                    segment.start_timestamp_ms,
+                );
+                debug!(
+                    "  Level 3 split: 1 VAD seg -> {} sub-segments (tokens={})",
+                    sub_segs.len(), toks.len()
+                );
+                for (sub_text, sub_start, sub_end) in sub_segs {
+                    all_transcripts.push((correct_industry_terms_with_known(&sub_text, &runtime_hotword_terms(), L3Config::default()), sub_start, sub_end));
+                }
+                total_confidence += conf;
+                // toks/tss 在这里 drop (作用域结束)
+            } else {
+                all_transcripts.push((correct_industry_terms_with_known(&text, &runtime_hotword_terms(), L3Config::default()), segment.start_timestamp_ms, segment.end_timestamp_ms));
+                total_confidence += conf;
+            }
         } else {
             debug!("Segment {}/{}: {:.1}s — empty transcription", i + 1, processable_count, segment_duration_sec);
         }
@@ -411,11 +621,49 @@ async fn run_retranscription<R: Runtime>(
         transcribed_count, processable_count, avg_confidence
     );
 
+    let speech_ms: f64 = speech_segments
+        .iter()
+        .map(|segment| segment.end_timestamp_ms - segment.start_timestamp_ms)
+        .sum();
+    let speech_coverage = if duration_seconds > 0.0 {
+        (speech_ms / 1000.0 / duration_seconds).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    let transcript_chars = all_transcripts
+        .iter()
+        .map(|(text, _, _)| text.chars().count())
+        .sum();
+    let average_segment_seconds = if transcribed_count > 0 {
+        all_transcripts
+            .iter()
+            .map(|(_, start, end)| (end - start) / 1000.0)
+            .sum::<f64>()
+            / transcribed_count as f64
+    } else {
+        0.0
+    };
+    let low_quality_warning = if transcribed_count == 0 {
+        Some("没有识别出有效语音，请检查麦克风、录音音量或模型状态".to_string())
+    } else if speech_coverage > 0.05 && transcript_chars < (speech_ms / 1000.0 * 1.5) as usize {
+        Some("识别文本密度偏低，建议检查录音音量或使用更高质量模型".to_string())
+    } else {
+        None
+    };
+    info!(
+        "Retranscription quality: coverage={:.1}%, chars={}, avg_segment={:.2}s, warning={:?}",
+        speech_coverage * 100.0,
+        transcript_chars,
+        average_segment_seconds,
+        low_quality_warning
+    );
+
     // Check for cancellation
     if RETRANSCRIPTION_CANCELLED.load(Ordering::SeqCst) {
         return Err(anyhow!("Retranscription cancelled"));
     }
 
+    // 离线会记 W2.2: sherpa 段已在上面 for-loop 内逐段处理完成,这里直接进入保存阶段
     emit_progress(&app, &meeting_id, "saving", 80, "Saving transcripts...");
 
     // Create transcript segments with proper timestamps from VAD
@@ -428,6 +676,46 @@ async fn run_retranscription<R: Runtime>(
 
     // Wrap delete+insert+update in a transaction to prevent data loss
     let pool = app_state.db_manager.pool();
+    let existing_rows: Vec<(String, Option<f64>, Option<f64>)> = sqlx::query_as(
+        "SELECT transcript, audio_start_time, audio_end_time FROM transcripts WHERE meeting_id = ? ORDER BY audio_start_time ASC"
+    )
+    .bind(&meeting_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| anyhow!("Failed to inspect existing transcripts: {}", e))?;
+    let existing_duration_sum: f64 = existing_rows.iter().map(|(_, start, end)| match (start, end) {
+        (Some(start), Some(end)) if end > start => end - start,
+        _ => 0.0,
+    }).sum();
+    let existing = ExistingTranscriptStats {
+        segments: existing_rows.len(),
+        chars: existing_rows.iter().map(|(text, _, _)| text.chars().count()).sum(),
+        average_segment_seconds: if existing_rows.is_empty() { 0.0 } else { existing_duration_sum / existing_rows.len() as f64 },
+        texts: existing_rows.iter().map(|(text, _, _)| text.clone()).collect(),
+    };
+    let candidate_texts: Vec<String> = segments.iter().map(|segment| segment.text.clone()).collect();
+    if let Err(reason) = should_apply_retranscription(
+        &existing,
+        segments.len(),
+        transcript_chars,
+        average_segment_seconds,
+        &candidate_texts,
+        low_quality_warning.as_deref(),
+    ) {
+        warn!("Retranscription rejected for meeting {}: {}", meeting_id, reason);
+        emit_progress(&app, &meeting_id, "complete", 100, "Original transcript preserved");
+        return Ok(RetranscriptionResult {
+            meeting_id,
+            segments_count: existing.segments,
+            duration_seconds,
+            language,
+            speech_coverage,
+            transcript_chars: existing.chars,
+            average_segment_seconds: existing.average_segment_seconds,
+            low_quality_warning: Some(reason),
+            applied: false,
+        });
+    }
     let mut conn = pool.acquire().await.map_err(|e| anyhow!("DB error: {}", e))?;
     let mut tx = sqlx::Connection::begin(&mut *conn)
         .await
@@ -441,7 +729,7 @@ async fn run_retranscription<R: Runtime>(
 
     for segment in &segments {
         sqlx::query(
-            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration)
+            "INSERT OR IGNORE INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration)
              VALUES (?, ?, ?, ?, ?, ?, ?)"
         )
         .bind(&segment.id)
@@ -495,6 +783,11 @@ async fn run_retranscription<R: Runtime>(
         segments_count: segments.len(),
         duration_seconds,
         language,
+        speech_coverage,
+        transcript_chars,
+        average_segment_seconds,
+        low_quality_warning,
+        applied: true,
     })
 }
 
@@ -929,9 +1222,12 @@ mod tests {
     }
 
     #[test]
-    fn test_vad_redemption_time_constant() {
-        // Batch processing uses 2000ms to bridge natural pauses in full-file VAD
-        assert_eq!(VAD_REDEMPTION_TIME_MS, 2000);
+    fn test_vad_redemption_time_adapts_to_recording_length() {
+        assert_eq!(vad_redemption_time_ms(30.0), 700);
+        assert_eq!(vad_redemption_time_ms(90.0), 700);
+        assert_eq!(vad_redemption_time_ms(91.0), 1200);
+        assert_eq!(vad_redemption_time_ms(900.0), 1200);
+        assert_eq!(vad_redemption_time_ms(901.0), 1600);
     }
 
     #[test]
@@ -1012,5 +1308,162 @@ mod tests {
         // Non-audio formats
         assert!(!AUDIO_EXTENSIONS.contains(&"txt"));
         assert!(!AUDIO_EXTENSIONS.contains(&"pdf"));
+    }
+}
+
+/// Level 3: 按字级 timestamps 把一段 text 切成多 sub-segments.
+/// 切点规则:
+///   1. token 字符是 `。！？，；` → 强制切
+///   2. 当前 token 与下一个 token 时间戳差 > 0.5s → 切 (长停顿)
+///   3. token 是空格 + 下一个时间戳差 > 0.3s → 切 (英文短语边界)
+/// 太短的 sub-segment (< 200ms) 合并到下一个.
+/// 返回 Vec<(text, start_ms, end_ms)>.
+/// `segment_offset_ms`: 本段在整音频中的起点 (用于把 token 时间戳转绝对毫秒).
+fn split_text_by_timestamps(
+    text: &str,
+    tokens: &[String],
+    timestamps: &[f32],
+    segment_offset_ms: f64,
+) -> Vec<(String, f64, f64)> {
+    // 兜底: 无 token/timestamps 或长度不匹配, 直接返回整段
+    if tokens.is_empty() || timestamps.is_empty() || tokens.len() != timestamps.len() {
+        return vec![(text.to_string(), segment_offset_ms, segment_offset_ms + (text.len() as f64 * 50.0))];
+    }
+    let mut out: Vec<(String, f64, f64)> = Vec::new();
+    let mut cur_text = String::new();
+    let mut cur_start_ms: Option<f64> = None;
+    let mut cur_end_ms: f64 = 0.0;
+
+    let punct_end = "。！？";  // 强制句末切
+    let _punct_comma = "，；、";  // 强制短语切
+    let pause_long_ms = 500.0_f32;   // >0.5s 停顿切
+    let pause_short_ms = 300.0_f32;  // 空格 + >0.3s 停顿切
+
+    for i in 0..tokens.len() {
+        let tok = &tokens[i];
+        let ts_sec = timestamps[i] as f64;
+        let ts_ms = ts_sec * 1000.0;
+
+        // 起始: 第一个 token
+        if cur_start_ms.is_none() {
+            cur_start_ms = Some(segment_offset_ms + ts_ms);
+        }
+        cur_text.push_str(tok);
+        cur_end_ms = segment_offset_ms + ts_ms;
+
+        // 判断是否要在此 token 后切
+        let mut should_split = false;
+        let last_char = tok.chars().last().unwrap_or(' ');
+
+        // 规则 1: 强标点
+        if punct_end.contains(last_char) {
+            should_split = true;
+        }
+        // 规则 2: 长停顿 (下一 token 时间差)
+        else if i + 1 < tokens.len() {
+            let next_ts = timestamps[i + 1] as f64;
+            let gap_ms = (next_ts * 1000.0) - ts_ms;
+            if gap_ms > pause_long_ms as f64 {
+                should_split = true;
+            }
+            // 规则 3: 空格 + 中等停顿
+            else if last_char == ' ' && gap_ms > pause_short_ms as f64 {
+                should_split = true;
+            }
+            // 规则 1b: 逗号类标点 (短语切, 但不强制)
+            // 暂不强制, 避免过度切; 如需可加
+        }
+
+        if should_split {
+            let start_ms = cur_start_ms.unwrap_or(segment_offset_ms);
+            // 兜底: end 不能 < start
+            let end_ms = if cur_end_ms > start_ms { cur_end_ms } else { start_ms + 100.0 };
+            let trimmed = cur_text.trim().to_string();
+            if !trimmed.is_empty() {
+                out.push((trimmed, start_ms, end_ms));
+            }
+            cur_text.clear();
+            cur_start_ms = None;
+            cur_end_ms = 0.0;
+        }
+    }
+
+    // flush 残余
+    if !cur_text.trim().is_empty() {
+        let start_ms = cur_start_ms.unwrap_or(segment_offset_ms);
+        let end_ms = if cur_end_ms > start_ms { cur_end_ms } else { start_ms + 100.0 };
+        out.push((cur_text.trim().to_string(), start_ms, end_ms));
+    }
+
+    // 合并过短 sub-segments (<200ms 或 <2 字符)
+    let min_dur_ms = 200.0_f64;
+    let mut merged: Vec<(String, f64, f64)> = Vec::new();
+    for (txt, s, e) in out {
+        if let Some(last) = merged.last_mut() {
+            let last_dur = last.2 - last.1;
+            let cur_dur = e - s;
+            // 合并条件: 上一个 < min_dur_ms 或 (上一个 < 500ms 且当前 < min_dur_ms)
+            if last_dur < min_dur_ms || (last_dur < 500.0 && cur_dur < min_dur_ms) {
+                last.0.push(' ');
+                last.0.push_str(&txt);
+                last.2 = e;
+                continue;
+            }
+        }
+        merged.push((txt, s, e));
+    }
+    merged
+}
+
+#[cfg(test)]
+mod quality_gate_tests {
+    use super::*;
+
+    #[test]
+    fn rejects_candidate_that_loses_most_text() {
+        let existing = ExistingTranscriptStats { segments: 8, chars: 200, average_segment_seconds: 4.0, texts: vec!["原告主张合同违约金".into(); 8] };
+        assert!(should_apply_retranscription(&existing, 8, 100, 4.0, &vec!["原告主张".to_string(); 8], None).is_err());
+    }
+
+    #[test]
+    fn rejects_candidate_that_destroys_timestamp_granularity() {
+        let existing = ExistingTranscriptStats { segments: 10, chars: 200, average_segment_seconds: 3.0, texts: vec!["仲裁条款合法有效".into(); 10] };
+        assert!(should_apply_retranscription(&existing, 3, 190, 12.0, &vec!["仲裁条款合法有效".to_string(); 3], None).is_err());
+    }
+
+    #[test]
+    fn accepts_candidate_with_comparable_content_and_segments() {
+        let existing = ExistingTranscriptStats { segments: 8, chars: 200, average_segment_seconds: 4.0, texts: vec!["原告主张合同违约金".into(); 8] };
+        assert!(should_apply_retranscription(&existing, 7, 210, 5.0, &vec!["原告主张合同违约金并申请撤销仲裁裁决".to_string(); 7], None).is_ok());
+    }
+
+    #[test]
+    fn rejects_screenshot_regression_with_fragment_explosion() {
+        let existing = ExistingTranscriptStats {
+            segments: 3,
+            chars: 118,
+            average_segment_seconds: 12.0,
+            texts: vec![
+                "本案原告主张被告违反合同约定，要求解除合同并支付违约金。被告提出管辖权异议，认为案件应当提交北京仲裁委员会处理".into(),
+                "法院审查后认为，仲裁条款合法有效，双方应先履行仲裁程序。如果任何一方对仲裁裁决不服，可以依法申请撤销，但不能直接向中级人民法院提起上诉".into(),
+                "请记录原告、被告、违约金、管辖权异议、仲裁条款和仲裁裁决".into(),
+            ],
+        };
+        let degraded = vec![
+            "，本案原告主张被告违反合同约定，要求解除合同并支付违约金".into(),
+            "啊。".into(),
+            "被告提出管辖权异议，认为案件应当提交北京仲裁委员会处理。".into(),
+            "法院审查后认为，仲裁条款合法有效，双方应先履行仲裁程序。".into(),
+            "如果任何一方对仲裁".into(),
+            "裁决不服。".into(),
+            "可以依法申请撤销".into(),
+            "。".into(),
+            "但不能直接向中级人民法院提起".into(),
+            "上诉，请进入原告被告违约金管辖权异议、仲裁".into(),
+            "条款和".into(),
+            "仲裁裁决".into(),
+            "。".into(),
+        ];
+        assert!(should_apply_retranscription(&existing, degraded.len(), 126, 3.0, &degraded, None).is_err());
     }
 }

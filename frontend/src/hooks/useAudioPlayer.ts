@@ -168,7 +168,7 @@ export const useAudioPlayer = (audioPath: string | null) => {
         throw new Error('No audio buffer loaded - try loading the audio file first');
       }
       if (audioRef.current.state !== 'running') {
-        throw new Error(`Audio context is in invalid state: ${audioRef.current.state}`);
+        throw new Error(`音频 context is in invalid state: ${audioRef.current.state}`);
       }
 
       // Stop any existing playback

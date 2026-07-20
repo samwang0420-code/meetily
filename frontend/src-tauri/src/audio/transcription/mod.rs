@@ -5,6 +5,7 @@
 pub mod provider;
 pub mod whisper_provider;
 pub mod parakeet_provider;
+pub mod sherpa_provider;
 pub mod engine;
 pub mod worker;
 
@@ -12,6 +13,7 @@ pub mod worker;
 pub use provider::{TranscriptionError, TranscriptionProvider, TranscriptResult};
 pub use whisper_provider::WhisperProvider;
 pub use parakeet_provider::ParakeetProvider;
+pub use sherpa_provider::SherpaProvider;
 pub use engine::{
     TranscriptionEngine,
     validate_transcription_model_ready,
@@ -21,5 +23,9 @@ pub use engine::{
 pub use worker::{
     start_transcription_task,
     reset_speech_detected_flag,
+    get_streaming_timing_stats,
     TranscriptUpdate
 };
+
+// v0.6.14+: Optional streaming session (feature-flagged via OFFLINE_HUIJI_STREAMING env var)
+pub mod sherpa_stream;

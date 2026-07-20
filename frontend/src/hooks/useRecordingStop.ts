@@ -1,13 +1,15 @@
+import { invoke } from '@tauri-apps/api/core';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/navigation';
 import { listen } from '@tauri-apps/api/event';
-import { toast } from 'sonner';
+import { safeToast, sanitizeDescription } from '@/lib/safeToast';
 import { useTranscripts } from '@/contexts/TranscriptContext';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { useRecordingState, RecordingStatus } from '@/contexts/RecordingStateContext';
 import { storageService } from '@/services/storageService';
 import { transcriptService } from '@/services/transcriptService';
 import Analytics from '@/lib/analytics';
+import { useConfig } from '@/contexts/ConfigContext';
 import {
   applyPinnedSummaryLanguageToMeeting,
   detectAndCacheSummaryLanguage,
@@ -270,7 +272,7 @@ export function useRecordingStop(
             shouldDetectSummaryLanguage = !(await applyPinnedSummaryLanguageToMeeting(meetingId));
           } catch (error) {
             console.warn('Failed to apply pinned summary language preference for new meeting:', error);
-            toast.warning('Could not apply default summary language', {
+            safeToast.warning('Could not apply default summary language', {
               description: 'The meeting was saved, but the default summary language was not applied.',
             });
           }
@@ -283,7 +285,7 @@ export function useRecordingStop(
               );
             } catch (error) {
               console.warn('Failed to detect summary language for new meeting:', error);
-              toast.warning('Could not detect summary language', {
+              safeToast.warning('Could not detect summary language', {
                 description: 'The meeting was saved, but Auto could not detect the summary language.',
               });
             }
@@ -295,6 +297,44 @@ export function useRecordingStop(
 
           // Mark meeting as saved in IndexedDB (for recovery system)
           await markMeetingAsSaved();
+
+          // v0.6.10+: 商业化配额 - 录制成功后 +1 计数
+          // 未登录用户: localStorage 计数 (useQuota 同步读)
+          // 注册用户: 后端 quota_increment_after_record
+          try {
+            const session = typeof window !== 'undefined'
+              ? window.localStorage.getItem('lixianhuiji.session')
+              : null;
+            if (session) {
+              const r = await invoke<{ can_record: boolean; month_meetings_used: number; month_meetings_limit: number; reason: string | null }>(
+                'quota_increment_after_record', { session }
+              );
+              // 用 window 全局事件, 让其他组件刷新 quota
+              if (typeof window !== 'undefined') {
+                window.dispatchEvent(new CustomEvent('lixianhuiji:quota-changed', { detail: r }));
+              }
+              // 配额耗尽? 用户界面提示
+              if (!r.can_record && r.reason) {
+                safeToast.warning(r.reason, { duration: 8000 });
+              }
+            } else {
+              // 匿名: 增量 localStorage 然后 dispatch
+              try {
+                const cur = parseInt(window.localStorage.getItem('lixianhuiji.anonymous_trial_meetings') || '0', 10);
+                const next = (isNaN(cur) ? 0 : cur) + 1;
+                window.localStorage.setItem('lixianhuiji.anonymous_trial_meetings', String(next));
+                window.dispatchEvent(new CustomEvent('lixianhuiji:quota-changed', { detail: { used: next } }));
+                if (next >= 1) {
+                  safeToast.warning('试用已用完, 请注册账号继续使用!', {
+                    description: '注册免费, 每月 5 次录音额度.',
+                    duration: 8000,
+                  });
+                }
+              } catch {}
+            }
+          } catch (e) {
+            console.warn('[quota] increment failed', e);
+          }
 
           // Clean up session storage
           sessionStorage.removeItem('last_recording_folder_path');
@@ -323,10 +363,10 @@ export function useRecordingStop(
           setStatus(RecordingStatus.COMPLETED);
 
           // Show success toast with navigation option
-          toast.success('Recording saved successfully!', {
+          safeToast.success('Recording saved successfully!', {
             description: `${freshTranscripts.length} transcript segments saved.`,
             action: {
-              label: 'View Meeting',
+              label: '查看会议',
               onClick: () => {
                 router.push(`/meeting-details?id=${meetingId}`);
                 Analytics.trackButtonClick('view_meeting_from_toast', 'recording_complete');
@@ -334,6 +374,35 @@ export function useRecordingStop(
             },
             duration: 10000,
           });
+
+          // v0.6.11+: 录音保存后自动触发整段重新转录 (整段上下文 → 字幕不再碎裂)
+          // v0.7.0+: 用户可在 /settings 里关闭 (localStorage 'isAutoRetranscribe').
+          // 仅当 folderPath 存在 (音频文件已落地) 才触发
+          // v0.6.11 bug fix: 不再依赖 freshTranscripts > 0 (streaming pipeline 可能没切句就关闭,
+          //   这种情况 transcripts=[] 但 audio.mp4 已有内容, 必须整段重跑)
+          const { isAutoRetranscribe } = useConfig();
+          if (folderPath && isAutoRetranscribe) {
+            // 告诉用户正在做什么. 否则 transcript 突然变了, 不知道为啥.
+            safeToast.info('正在后台重新转录以优化结果...', {
+              description: '整段上下文模型效果更好, 通常 10-30 秒。设置里可关闭。',
+              duration: 8000,
+            });
+            try {
+              console.log('🔄 触发整段重新转录 (整段上下文模型)...', folderPath,
+                { fresh_count: freshTranscripts.length });
+              await invoke('start_retranscription_command', {
+                meetingId,
+                meetingFolderPath: folderPath,
+                language: null,
+                model: null,
+                provider: null,
+              });
+              console.log('✅ 重新转录已启动, meeting-details 加载时会显示优化版本');
+            } catch (e: any) {
+              console.warn('自动重新转录启动失败 (非阻塞):', e?.message || e);
+              // 失败不阻塞主流程, 已有实时结果可用
+            }
+          }
 
           // Auto-navigate after a short delay with source parameter
           setTimeout(() => {
@@ -395,13 +464,22 @@ export function useRecordingStop(
             // Don't block user flow on analytics errors
           }
 
-        } catch (saveError) {
-          console.error('Failed to save meeting to database:', saveError);
-          setStatus(RecordingStatus.ERROR, saveError instanceof Error ? saveError.message : 'Unknown error');
-          toast.error('Failed to save meeting', {
-            description: saveError instanceof Error ? saveError.message : 'Unknown error'
-          });
-          throw saveError;
+        } catch (saveError: any) {
+          // v0.6.10+: 把 'Minified React error #321' 这种噪音过滤掉, 给用户友好的提示
+          console.error('[useRecordingStop] save meeting failed', saveError);
+          const msg = saveError instanceof Error ? saveError.message : String(saveError || 'Unknown error');
+          const isReactInternal = /Minified React error #\d+/.test(msg);
+          const friendly = isReactInternal
+            ? '保存会议失败 (UI 渲染时出错, 已隔离该会议卡; 控制台查看堆栈)'
+            : msg;
+          setStatus(RecordingStatus.ERROR, sanitizeDescription(msg, 'error'));
+          try {
+            safeToast.error('保存会议失败', {
+              description: friendly,
+              duration: 8000,
+            });
+          } catch {}
+          // 不再 throw saveError (避免 React error 在上层 uncaught 渲染栈炸开)
         }
       } else {
         // No save needed, go back to IDLE
@@ -413,7 +491,7 @@ export function useRecordingStop(
       setIsRecordingDisabled(false);
     } catch (error) {
       console.error('Error in handleRecordingStop:', error);
-      setStatus(RecordingStatus.ERROR, error instanceof Error ? error.message : 'Unknown error');
+      setStatus(RecordingStatus.ERROR, sanitizeDescription(error instanceof Error ? error.message : 'Unknown error', 'error'));
       // isRecording already set to false at function start
       setIsRecordingDisabled(false);
     } finally {

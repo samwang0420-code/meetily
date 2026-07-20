@@ -128,3 +128,18 @@ pub struct TranscriptSetting {
     #[serde(rename = "openaiApiKey")]
     pub openai_api_key: Option<String>,
 }
+
+// 离线会记 v0.5.0: 用户模型
+#[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
+pub struct UserModel {
+    pub id: i64,
+    pub email: String,
+    pub display_name: Option<String>,
+    pub created_at: DateTimeUtc,
+    pub last_login_at: Option<DateTimeUtc>,
+    pub membership: String,
+    pub membership_activated_at: Option<DateTimeUtc>,
+    pub license_key: Option<String>,
+    pub machine_id: Option<String>,
+    pub is_active: i64,
+}

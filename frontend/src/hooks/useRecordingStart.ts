@@ -8,6 +8,7 @@ import { recordingService } from '@/services/recordingService';
 import Analytics from '@/lib/analytics';
 import { showRecordingNotification } from '@/lib/recordingNotification';
 import { toast } from 'sonner';
+import { safeToast } from '@/lib/safeToast';
 
 interface UseRecordingStartReturn {
   handleRecordingStart: () => Promise<void>;
@@ -34,7 +35,7 @@ export function useRecordingStart(
 
   const { clearTranscripts, setMeetingTitle } = useTranscripts();
   const { setIsMeetingActive } = useSidebar();
-  const { selectedDevices } = useConfig();
+  const { selectedDevices, transcriptModelConfig } = useConfig();
   const { setStatus } = useRecordingState();
 
   // Generate meeting title with timestamp
@@ -46,25 +47,38 @@ export function useRecordingStart(
     const hours = String(now.getHours()).padStart(2, '0');
     const minutes = String(now.getMinutes()).padStart(2, '0');
     const seconds = String(now.getSeconds()).padStart(2, '0');
-    return `Meeting ${day}_${month}_${year}_${hours}_${minutes}_${seconds}`;
+    return `会议 ${day}_${month}_${year}_${hours}_${minutes}_${seconds}`;
   }, []);
 
-  // Check if Parakeet transcription model is ready
+  // 离线会记 W2.5: recording 实时转录改用 sherpa-onnx daemon
+  // 检查 ~/Library/Application Support/cn.lixianhuiji.app/models/sherpa/ 下是否有可用模型
   const checkParakeetReady = useCallback(async (): Promise<boolean> => {
     try {
+      const provider = transcriptModelConfig?.provider ?? 'sherpa_funasr_nano';
+      if (provider === 'sherpa_funasr_nano' || provider === 'sherpa_paraformer') {
+        // sherpa daemon 启动时会自动扫描 models/sherpa/, 检查目录是否存在
+        // 实际模型存在性由 daemon 端保证, 这里只需返回 true 让 recording 开始
+        return true;
+      }
+      // parakeet 路径 (未删, 保留兼容)
       await invoke('parakeet_init');
       const hasModels = await invoke<boolean>('parakeet_has_available_models');
       return hasModels;
     } catch (error) {
-      console.error('Failed to check Parakeet status:', error);
+      console.error('Failed to check transcription model status:', error);
       return false;
     }
-  }, []);
+  }, [transcriptModelConfig]);
 
-  // Check if any model is currently downloading
+  // Check if any transcription model is currently downloading (W2.5: sherpa 模型无下载机制, 直接 false)
   const checkIfModelDownloading = useCallback(async (): Promise<boolean> => {
     try {
-      const models = await invoke<any[]>('parakeet_get_available_models');
+      const provider = transcriptModelConfig?.provider ?? 'sherpa_funasr_nano';
+      if (provider === 'sherpa_funasr_nano' || provider === 'sherpa_paraformer') {
+        return false;  // sherpa 模型不走前端下载
+      }
+      const cmd = 'parakeet_get_available_models';
+      const models = await invoke<any[]>(cmd);
       const isDownloading = models.some(m =>
         m.status && (
           typeof m.status === 'object'
@@ -77,36 +91,37 @@ export function useRecordingStart(
       console.error('Failed to check model download status:', error);
       return false; // Default to not downloading (will show error + modal)
     }
-  }, []);
+  }, [transcriptModelConfig]);
 
   // Handle manual recording start (from button click)
   const handleRecordingStart = useCallback(async () => {
     try {
-      console.log('handleRecordingStart called - checking Parakeet model status');
+      console.log('handleRecordingStart called - checking sherpa model status');
 
       // Check if Parakeet transcription model is ready before starting
       const parakeetReady = await checkParakeetReady();
       if (!parakeetReady) {
         const isDownloading = await checkIfModelDownloading();
         if (isDownloading) {
-          toast.info('Model download in progress', {
+          safeToast.info('模型下载进行中', {
             description: 'Please wait for the transcription model to finish downloading before recording.',
             duration: 5000,
           });
-          Analytics.trackButtonClick('start_recording_blocked_downloading', 'home_page');
+          Analytics.trackButtonClick('start_recording_blocked_downloading', '首页_page');
         } else {
-          toast.error('Transcription model not ready', {
-            description: 'Please download a transcription model before recording.',
+          // v0.6.0: 文案改为不误导用户(sherpa 模型目录实际上有,只是检测逻辑假定为空)
+          safeToast.error('转录模型未就绪', {
+            description: 'SenseVoice / Paraformer 模型未就绪,请到「设置 → 转录」检查模型配置 (离线会记 v0.6.0)',
             duration: 5000,
           });
           showModal?.('modelSelector', 'Transcription model setup required');
-          Analytics.trackButtonClick('start_recording_blocked_missing', 'home_page');
+          Analytics.trackButtonClick('start_recording_blocked_missing', '首页_page');
         }
         setStatus(RecordingStatus.IDLE);
         return;
       }
 
-      console.log('Parakeet ready - setting up meeting title and state');
+      console.log('Sherpa ready - setting up meeting title and state');
 
       const randomTitle = generateMeetingTitle();
       setMeetingTitle(randomTitle);
@@ -129,17 +144,20 @@ export function useRecordingStart(
       setIsRecording(true); // This will also update the sidebar via the useEffect
       clearTranscripts(); // Clear previous transcripts when starting new recording
       setIsMeetingActive(true);
-      Analytics.trackButtonClick('start_recording', 'home_page');
+      Analytics.trackButtonClick('start_recording', '首页_page');
 
       // Show recording notification if enabled
       await showRecordingNotification();
     } catch (error) {
-      console.error('Failed to start recording:', error);
-      setStatus(RecordingStatus.ERROR, error instanceof Error ? error.message : 'Failed to start recording');
-      setIsRecording(false); // Reset state on error
-      Analytics.trackButtonClick('start_recording_error', 'home_page');
-      // Re-throw so RecordingControls can handle device-specific errors
-      throw error;
+      // v0.6.0: 不再 re-throw,避免客户端异常把整个 SPA 打挂
+      // 改为保守清理 + Toast 报警 + 控制台 stack 暴露,方便 Console.app 调试
+      const msg = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : '';
+      console.error('[离线会记] handleRecordingStart failed:', error, '\n', stack);
+      try { setStatus(RecordingStatus.ERROR, msg); } catch (e) { console.error('[离线会记] setStatus 二次错误:', e); }
+      try { setIsRecording(false); } catch (e) { console.error('[离线会记] setIsRecording 二次错误:', e); }
+      try { Analytics.trackButtonClick('start_recording_error', '首页_page'); } catch (e) { console.error('[离线会记] Analytics 二次错误:', e); }
+      safeToast.error('启动录音失败', { description: msg, duration: 5000 });
     }
   }, [generateMeetingTitle, setMeetingTitle, setIsRecording, clearTranscripts, setIsMeetingActive, checkParakeetReady, checkIfModelDownloading, selectedDevices, showModal, setStatus]);
 
@@ -158,14 +176,14 @@ export function useRecordingStart(
           if (!parakeetReady) {
             const isDownloading = await checkIfModelDownloading();
             if (isDownloading) {
-              toast.info('Model download in progress', {
+              safeToast.info('模型下载进行中', {
                 description: 'Please wait for the transcription model to finish downloading before recording.',
                 duration: 5000,
               });
               Analytics.trackButtonClick('start_recording_blocked_downloading', 'sidebar_auto');
             } else {
-              toast.error('Transcription model not ready', {
-                description: 'Please download a transcription model before recording.',
+              safeToast.error('转录模型未就绪', {
+                description: '请先在 Settings 下载 SenseVoice / Paraformer 模型后再录音 (sherpa 模型目录为空)',
                 duration: 5000,
               });
               showModal?.('modelSelector', 'Transcription model setup required');
@@ -226,11 +244,12 @@ export function useRecordingStart(
     setIsMeetingActive,
     checkParakeetReady,
     checkIfModelDownloading,
+    transcriptModelConfig,
     showModal,
     setStatus,
   ]);
 
-  // Listen for direct recording trigger from sidebar when already on home page
+  // Listen for direct recording trigger from sidebar when already on Home page
   useEffect(() => {
     const handleDirectStart = async () => {
       if (isRecording || isAutoStarting) {
@@ -246,14 +265,14 @@ export function useRecordingStart(
       if (!parakeetReady) {
         const isDownloading = await checkIfModelDownloading();
         if (isDownloading) {
-          toast.info('Model download in progress', {
+          safeToast.info('模型下载进行中', {
             description: 'Please wait for the transcription model to finish downloading before recording.',
             duration: 5000,
           });
           Analytics.trackButtonClick('start_recording_blocked_downloading', 'sidebar_direct');
         } else {
-          toast.error('Transcription model not ready', {
-            description: 'Please download a transcription model before recording.',
+          safeToast.error('转录模型未就绪', {
+            description: '请先在 Settings 下载 SenseVoice / Paraformer 模型后再录音 (sherpa 模型目录为空)',
             duration: 5000,
           });
           showModal?.('modelSelector', 'Transcription model setup required');
@@ -315,6 +334,7 @@ export function useRecordingStart(
     setIsMeetingActive,
     checkParakeetReady,
     checkIfModelDownloading,
+    transcriptModelConfig,
     showModal,
     setStatus,
   ]);

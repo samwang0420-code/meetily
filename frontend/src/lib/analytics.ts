@@ -490,7 +490,7 @@ export class Analytics {
   }
 
   // Copy tracking with frequency
-  static async trackCopy(copyType: 'transcript' | 'summary', properties?: Record<string, any>): Promise<void> {
+  static async trackCopy(copyType: 'transcript' | 'summary' | 'export_md' | 'export_txt' | 'export_summary_md' | 'export_summary_txt', properties?: Record<string, any>): Promise<void> {
     if (!this.initialized) return;
 
     try {

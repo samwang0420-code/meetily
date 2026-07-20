@@ -1,6 +1,7 @@
 import React from 'react';
 import { Download } from 'lucide-react';
 import { toast } from 'sonner';
+
 import { UpdateInfo } from '@/services/updateService';
 
 let globalShowDialogCallback: (() => void) | null = null;
@@ -23,7 +24,7 @@ export function showUpdateNotification(updateInfo: UpdateInfo, onUpdateClick?: (
       <div className="flex items-center gap-2">
         <Download className="h-4 w-4" />
         <div>
-          <p className="font-medium">Update Available</p>
+          <p className="font-medium">有新版本可用</p>
           <p className="text-sm text-muted-foreground">
             Version {updateInfo.version} is now available
           </p>

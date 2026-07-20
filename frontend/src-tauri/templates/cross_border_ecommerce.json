@@ -1,0 +1,54 @@
+{
+  "name": "Cross-border E-commerce / SMM (跨境电商 & 社媒营销)",
+  "description": "面向跨境电商、SMM 工作室的运营周会,重点提取 KPI 变化、达人/红人合作、广告投放决策。",
+  "sections": [
+    {
+      "title": "周会基本信息",
+      "instruction": "Date, week number, channel (Amazon / TikTok Shop / Shopify / Instagram / YouTube), attending team members",
+      "format": "string"
+    },
+    {
+      "title": "本周核心数据",
+      "instruction": "本周关键 KPI:GMV、订单数、客单价、CTR、CPM、ROAS、毛利率、退货率,标注环比/同比变化",
+      "format": "list",
+      "item_format": "| **指标** | **本周** | **上周** | **变化** | **备注** |\n| --- | --- | --- | --- | --- |"
+    },
+    {
+      "title": "达人/红人合作进展",
+      "instruction": "本周接触/谈判/签约的达人,合作形式(CPS/CPC/纯佣),报价,档期,内容方向",
+      "format": "list"
+    },
+    {
+      "title": "广告投放决策",
+      "instruction": "Meta/Google/TikTok 广告预算调整,新素材测试,暂停的 campaign,ROAS 变化原因",
+      "format": "list",
+      "item_format": "- **渠道**: 动作 (增/减预算/暂停/上新) — 原因 — 金额"
+    },
+    {
+      "title": "供应链与库存",
+      "instruction": "断货风险、补货计划、FBA 仓库调拨、滞销品处理、原材料涨价影响",
+      "format": "list"
+    },
+    {
+      "title": "客户/平台反馈",
+      "instruction": "差评/退货原因、平台政策更新、合规风险、客户高频问题",
+      "format": "list"
+    },
+    {
+      "title": "下周重点事项",
+      "instruction": "下周要做的 3-7 件事,负责人,截止时间",
+      "format": "list",
+      "item_format": "| **事项** | **负责人** | **截止日** | **优先级** |\n| --- | --- | --- | --- |"
+    },
+    {
+      "title": "风险与卡点",
+      "instruction": "本周发现的风险(资金/合规/账号/物流),需要老板决策的事项",
+      "format": "list"
+    },
+    {
+      "title": "下周 OKR 目标",
+      "instruction": "下周明确的 OKR 数字,例如 GMV 目标、新增达人数量、新品上架数",
+      "format": "paragraph"
+    }
+  ]
+}

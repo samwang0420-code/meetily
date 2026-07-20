@@ -8,6 +8,7 @@ import { Block } from '@blocknote/core';
 import { useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/shadcn';
 import { blocksToMarkdownSafely } from '@/lib/blocknote-markdown';
+import { FactGuardBanner } from './FactGuardBanner';
 import "@blocknote/shadcn/style.css";
 
 // Dynamically import BlockNote Editor to avoid SSR issues
@@ -80,6 +81,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
   const [currentBlocks, setCurrentBlocks] = useState<Block[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const isContentLoaded = useRef(false);
+  const lastLoadedMarkdownRef = useRef<string>('');
 
   // Create BlockNote editor for markdown parsing
   const editor = useCreateBlockNote({
@@ -92,6 +94,9 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
       const loadMarkdown = async () => {
         try {
           console.log('📝 Parsing markdown to BlockNote blocks...');
+          // v0.6.22: 防 #321 死循环 — 在 replaceBlocks 前先关掉 isContentLoaded,
+          // 让 onChange 期间的 setCurrentBlocks/setIsDirty 不触发 parent re-render
+          isContentLoaded.current = false;
           const blocks = await editor.tryParseMarkdownToBlocks(data.markdown);
           editor.replaceBlocks(editor.document, blocks);
           console.log('✅ Markdown parsed successfully');
@@ -102,6 +107,8 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
           }, 100);
         } catch (err) {
           console.error('❌ Failed to parse markdown:', err);
+          // 失败也要恢复,避免 dirty state 永久僵住
+          isContentLoaded.current = true;
         }
       };
       loadMarkdown();
@@ -117,6 +124,29 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
       }, 100);
     }
   }, [format, data?.summary_json]);
+
+  // v0.6.21+: 双重触发条件
+  // - status 从其他状态 → completed (polling 完成时)
+  // - markdown 字符串变化 (切走切回, 父组件换了新 prop)
+  // 防同 markdown 重复触发: 用 `${len}:${prefix64}` 做 key
+  useEffect(() => {
+    if (status !== 'completed') return;
+    if (format !== 'markdown' || !data?.markdown || !editor) return;
+    const md = data.markdown;
+    const markdownKey = `${md.length}:${md.slice(0, 64)}`;
+    if (lastLoadedMarkdownRef.current === markdownKey) return;
+    lastLoadedMarkdownRef.current = markdownKey;
+    (async () => {
+      try {
+        const blocks = await editor.tryParseMarkdownToBlocks(md);
+        editor.replaceBlocks(editor.document, blocks);
+        isContentLoaded.current = true;
+        console.log('✅ [BlockNote] force reload on status=completed, len=', md.length);
+      } catch (err) {
+        console.error('❌ [BlockNote] force reload failed', err);
+      }
+    })();
+  }, [status, data?.markdown, editor, format]);
 
   const handleEditorChange = useCallback((blocks: Block[]) => {
     // Only set dirty flag if content has finished loading
@@ -238,6 +268,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
     console.log('🎨 Rendering BLOCKNOTE format (direct)');
     return (
       <div className="flex flex-col w-full">
+        <FactGuardBanner report={data?.fact_guard} severe={data?.fact_guard_severe} />
         <div className="w-full">
           <Editor
             initialContent={data.summary_json}
@@ -257,6 +288,7 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
     console.log('🎨 Rendering MARKDOWN format (parsed to BlockNote)');
     return (
       <div className="flex flex-col w-full">
+        <FactGuardBanner report={data?.fact_guard} severe={data?.fact_guard_severe} />
         <div className="w-full">
           <BlockNoteView
             editor={editor}

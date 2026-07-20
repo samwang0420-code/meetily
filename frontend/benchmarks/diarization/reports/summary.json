@@ -1,0 +1,27 @@
+{
+  "cases": 2,
+  "speaker_count_pass": 2,
+  "average_purity": 1,
+  "results": [
+    {
+      "id": "two-speaker-legal",
+      "status": "ok",
+      "expected_speakers": 2,
+      "actual_speakers": 2,
+      "segments": 6,
+      "covered_segments": 6,
+      "total_segments": 6,
+      "speaker_purity": 1
+    },
+    {
+      "id": "four-speaker-medical",
+      "status": "ok",
+      "expected_speakers": 4,
+      "actual_speakers": 4,
+      "segments": 8,
+      "covered_segments": 8,
+      "total_segments": 8,
+      "speaker_purity": 1
+    }
+  ]
+}

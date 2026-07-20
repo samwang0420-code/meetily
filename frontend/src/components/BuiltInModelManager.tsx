@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { useTranslation } from '@/i18n';
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { Button } from '@/components/ui/button';
@@ -8,6 +9,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert';
 import { cn } from '@/lib/utils';
 import { Download, RefreshCw, BadgeAlert, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { safeToast } from '@/lib/safeToast';
 import { formatSummaryModelSizeLabelFromMb } from '@/lib/onboarding-summary-model';
 
 interface ModelInfo {
@@ -45,6 +47,7 @@ export function BuiltInModelManager({
   const [hasFetched, setHasFetched] = useState<boolean>(false);
   const [downloadProgress, setDownloadProgress] = useState<Record<string, number>>({});
   const [downloadProgressInfo, setDownloadProgressInfo] = useState<Record<string, DownloadProgressInfo>>({});
+  const { t } = useTranslation();
   const [downloadingModels, setDownloadingModels] = useState<Set<string>>(new Set());
 
   const fetchModels = async () => {
@@ -62,7 +65,7 @@ export function BuiltInModelManager({
       }
     } catch (error) {
       console.error('Failed to fetch built-in AI models:', error);
-      toast.error('Failed to load models');
+      safeToast.error('加载模型失败');
     } finally {
       setIsLoading(false);
       setHasFetched(true);
@@ -127,7 +130,7 @@ export function BuiltInModelManager({
           });
           // Refresh models list
           fetchModels();
-          toast.success(`Model ${model} downloaded successfully`);
+          safeToast.success(`模型 ${model} downloaded successfully`);
         }
 
         // Handle cancelled status
@@ -216,7 +219,7 @@ export function BuiltInModelManager({
       }
 
       // For real errors, show toast and remove from downloading
-      toast.error(`Failed to download ${modelName}`);
+      safeToast.error(`Failed to download ${modelName}`);
 
       setDownloadingModels((prev) => {
         const newSet = new Set(prev);
@@ -232,7 +235,7 @@ export function BuiltInModelManager({
   const cancelDownload = async (modelName: string) => {
     try {
       await invoke('builtin_ai_cancel_download', { modelName });
-      toast.info(`Download of ${modelName} cancelled`);
+      safeToast.info(`下载 of ${modelName} cancelled`);
       setDownloadingModels((prev) => {
         const newSet = new Set(prev);
         newSet.delete(modelName);
@@ -246,11 +249,11 @@ export function BuiltInModelManager({
   const deleteModel = async (modelName: string) => {
     try {
       await invoke('builtin_ai_delete_model', { modelName });
-      toast.success(`Model ${modelName} deleted`);
+      safeToast.success(`模型 ${modelName} deleted`);
       fetchModels();
     } catch (error) {
       console.error('Failed to delete model:', error);
-      toast.error(`Failed to delete ${modelName}`);
+      safeToast.error(`Failed to delete ${modelName}`);
     }
   };
 
@@ -278,7 +281,7 @@ export function BuiltInModelManager({
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h4 className="text-sm font-bold">Built-in AI Models</h4>
+        <h4 className="text-sm font-bold">内置 AI 模型</h4>
       </div>
 
       <div
@@ -426,7 +429,7 @@ export function BuiltInModelManager({
                         e.stopPropagation();
                         deleteModel(model.name);
                       }}
-                      title="Delete model"
+                      title="删除 model"
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -442,8 +445,8 @@ export function BuiltInModelManager({
                     {isError && typeof model.status === 'object' && 'Error' in model.status
                       ? (model.status as any).Error
                       : isCorrupted
-                      ? 'File is corrupted. Retry download or delete.'
-                      : 'An error occurred'}
+                      ? t('model_dialog.file_corrupted')
+                      : t('errors.unknown')}
                   </p>
                 )}
                 <div className="text-xs text-gray-500">
@@ -456,7 +459,7 @@ export function BuiltInModelManager({
               {modelIsDownloading && progress !== undefined && (
                 <div className="mt-3 pt-3 border-t border-gray-200">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-medium text-gray-900">Downloading...</span>
+                    <span className="text-sm font-medium text-gray-900">下载中...</span>
                     <span className="text-sm font-semibold text-gray-900">
                       {Math.round(progress)}%
                     </span>

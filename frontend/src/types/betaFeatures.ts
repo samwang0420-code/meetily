@@ -33,7 +33,7 @@ export const DEFAULT_BETA_FEATURES: BetaFeatures = {
  * Human-readable feature names for UI display
  */
 export const BETA_FEATURE_NAMES: Record<keyof BetaFeatures, string> = {
-  importAndRetranscribe: 'Import Audio & Retranscribe',
+  importAndRetranscribe: '导入音频 & 重新转录',
 };
 
 /**

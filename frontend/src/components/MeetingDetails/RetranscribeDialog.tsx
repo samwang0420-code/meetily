@@ -22,7 +22,9 @@ import { toast } from 'sonner';
 import { useConfig } from '@/contexts/ConfigContext';
 import { LANGUAGES } from '@/constants/languages';
 import { useTranscriptionModels, ModelOption } from '@/hooks/useTranscriptionModels';
+import { sanitizeDescription, safeToast } from "@/lib/safeToast";
 import Analytics from '@/lib/analytics';
+import { useTranslation } from '@/i18n';
 
 interface RetranscribeDialogProps {
   open: boolean;
@@ -44,6 +46,11 @@ interface RetranscriptionResult {
   segments_count: number;
   duration_seconds: number;
   language: string | null;
+  speech_coverage: number;
+  transcript_chars: number;
+  average_segment_seconds: number;
+  low_quality_warning?: string | null;
+  applied: boolean;
 }
 
 interface RetranscriptionError {
@@ -59,6 +66,7 @@ export function RetranscribeDialog({
   onComplete,
 }: RetranscribeDialogProps) {
   const { selectedLanguage, transcriptModelConfig } = useConfig();
+  const { t } = useTranslation();
   const [isProcessing, setIsProcessing] = useState(false);
   const [progress, setProgress] = useState<RetranscriptionProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -153,9 +161,22 @@ export function RetranscribeDialog({
             });
 
             setIsProcessing(false);
-            toast.success(
-              `Retranscription complete! ${event.payload.segments_count} segments created.`
-            );
+            const coverage = Math.round(event.payload.speech_coverage * 100);
+            if (!event.payload.applied) {
+              safeToast.warning('本次优化未覆盖原始转录', {
+                description: event.payload.low_quality_warning || '新结果未通过质量检测，原始时间戳和文本已保留',
+                duration: 8000,
+              });
+            } else if (event.payload.low_quality_warning) {
+              safeToast.warning(`转录完成，但需要检查：${event.payload.low_quality_warning}`, {
+                description: `语音覆盖率 ${coverage}% · ${event.payload.transcript_chars} 个字符`,
+                duration: 8000,
+              });
+            } else {
+              safeToast.success(`转录完成! 共 ${event.payload.segments_count} 段`, {
+                description: `语音覆盖率 ${coverage}% · 平均段长 ${event.payload.average_segment_seconds.toFixed(1)} 秒`,
+              });
+            }
             onCompleteRef.current?.();
             onOpenChangeRef.current(false);
           }
@@ -176,7 +197,7 @@ export function RetranscribeDialog({
             await Analytics.trackError('enhance_transcript_failed', event.payload.error);
 
             setIsProcessing(false);
-            setError(event.payload.error);
+            setError(sanitizeDescription(event.payload.error, 'error'));
           }
         }
       );
@@ -224,7 +245,7 @@ export function RetranscribeDialog({
     } catch (err: any) {
       setIsProcessing(false);
       const errorMsg = typeof err === 'string' ? err : (err?.message || String(err));
-      setError(errorMsg);
+      setError(sanitizeDescription(errorMsg, 'error'));
 
       await Analytics.trackError('enhance_transcript_failed', errorMsg);
     }
@@ -236,7 +257,7 @@ export function RetranscribeDialog({
         await invoke('cancel_retranscription_command');
         setIsProcessing(false);
         setProgress(null);
-        toast.info('Retranscription cancelled');
+        safeToast.info(t('meeting_details.retranscription_cancelled'));
       } catch (err) {
         console.error('Failed to cancel retranscription:', err);
       }
@@ -267,7 +288,7 @@ export function RetranscribeDialog({
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
-        className="sm:max-w-[450px]"
+        className="sm:max-w-[560px]"
         onEscapeKeyDown={handleEscapeKeyDown}
         onInteractOutside={handleInteractOutside}
       >
@@ -276,26 +297,26 @@ export function RetranscribeDialog({
             {isProcessing ? (
               <>
                 <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-                Retranscribing...
+                {t('meeting_details.retranscribing')}
               </>
             ) : error ? (
               <>
                 <AlertCircle className="h-5 w-5 text-red-600" />
-                Retranscription Failed
+                {t('meeting_details.retranscription_failed')}
               </>
             ) : (
               <>
                 <RefreshCw className="h-5 w-5 text-blue-600" />
-                Retranscribe Meeting
+                {t('meeting_details.retranscribe_meeting')}
               </>
             )}
           </DialogTitle>
           <DialogDescription>
             {isProcessing
-              ? progress?.message || 'Processing audio...'
+              ? progress?.message || t('meeting_details.processing_audio')
               : error
-                ? 'An error occurred during retranscription'
-                : 'Re-process the audio with different language settings'}
+                ? t('meeting_details.retranscription_error')
+                : t('meeting_details.retranscribe_description')}
           </DialogDescription>
         </DialogHeader>
 
@@ -305,32 +326,32 @@ export function RetranscribeDialog({
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <Globe className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">Language</span>
+                  <span className="text-sm font-medium">{t('meeting_details.language_label')}</span>
                 </div>
                 <Select value={selectedLang} onValueChange={setSelectedLang}>
                   <SelectTrigger className="w-full">
-                    <SelectValue placeholder="Select language" />
+                  <SelectValue placeholder={t('meeting_details.select_language')} />
                   </SelectTrigger>
                   <SelectContent className="max-h-60">
                     {LANGUAGES.map((lang) => (
                       <SelectItem key={lang.code} value={lang.code}>
-                        {lang.name}
+                        {lang.nameZh} · <span className="opacity-60">{lang.name}</span>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
                 <p className="text-xs text-muted-foreground">
-                  Select a specific language to improve accuracy, or use auto-detect
+                  {t('meeting_details.language_hint')}
                 </p>
               </div>
             ) : (
               <div className="space-y-3">
                 <div className="flex items-center gap-2">
                   <Globe className="h-4 w-4 text-muted-foreground" />
-                  <span className="text-sm font-medium">Language</span>
+                  <span className="text-sm font-medium">{t('meeting_details.language_label')}</span>
                 </div>
                 <p className="text-xs text-muted-foreground">
-                  Language selection isn't supported for Parakeet. It always uses automatic detection.
+                  {t('meeting_details.parakeet_language_hint')}
                 </p>
               </div>
             )
@@ -340,11 +361,11 @@ export function RetranscribeDialog({
             <div className="space-y-3">
               <div className="flex items-center gap-2">
                 <Cpu className="h-4 w-4 text-muted-foreground" />
-                <span className="text-sm font-medium">Model</span>
+                <span className="text-sm font-medium">{t('meeting_details.model_label')}</span>
               </div>
               <Select value={selectedModelKey} onValueChange={setSelectedModelKey} disabled={loadingModels}>
                 <SelectTrigger className="w-full">
-                  <SelectValue placeholder={loadingModels ? "Loading models..." : "Select model"} />
+                  <SelectValue placeholder={loadingModels ? t('meeting_details.loading_models') : t('meeting_details.select_model')} />
                 </SelectTrigger>
                 <SelectContent>
                   {availableModels.map((model) => (
@@ -355,7 +376,7 @@ export function RetranscribeDialog({
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                Choose a transcription model
+                {t('meeting_details.model_hint')}
               </p>
             </div>
           )}
@@ -391,7 +412,7 @@ export function RetranscribeDialog({
           {!isProcessing && !error && (
             <>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Cancel
+                {t('meeting_details.cancel')}
               </Button>
               <Button
                 onClick={handleStartRetranscription}
@@ -399,20 +420,20 @@ export function RetranscribeDialog({
                 disabled={!meetingFolderPath}
               >
                 <RefreshCw className="h-4 w-4 mr-2" />
-                Start Retranscription
+                {t('meeting_details.start_retranscription')}
               </Button>
             </>
           )}
           {isProcessing && (
             <Button variant="outline" onClick={handleCancel}>
               <X className="h-4 w-4 mr-2" />
-              Cancel
+              {t('meeting_details.cancel')}
             </Button>
           )}
           {error && (
             <>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Close
+                {t('meeting_details.close')}
               </Button>
               <Button
                 onClick={() => {
@@ -421,7 +442,7 @@ export function RetranscribeDialog({
                 }}
                 variant="outline"
               >
-                Try Again
+                {t('meeting_details.try_again')}
               </Button>
             </>
           )}

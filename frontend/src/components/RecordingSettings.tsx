@@ -1,12 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from '@/i18n';
 import { Switch } from '@/components/ui/switch';
+import { useConfig } from '@/contexts/ConfigContext';
 import { FolderOpen } from 'lucide-react';
 import { invoke } from '@tauri-apps/api/core';
 import { DeviceSelection, SelectedDevices } from '@/components/DeviceSelection';
 import Analytics from '@/lib/analytics';
 import { toast } from 'sonner';
+import { safeToast } from '@/lib/safeToast';
 
-export interface RecordingPreferences {
+export interface Recording偏好设置 {
   save_folder: string;
   auto_save: boolean;
   file_format: string;
@@ -15,11 +18,13 @@ export interface RecordingPreferences {
 }
 
 interface RecordingSettingsProps {
-  onSave?: (preferences: RecordingPreferences) => void;
+  onSave?: (preferences: Recording偏好设置) => void;
 }
 
 export function RecordingSettings({ onSave }: RecordingSettingsProps) {
-  const [preferences, setPreferences] = useState<RecordingPreferences>({
+  const { t } = useTranslation();
+  const { isAutoRetranscribe, toggleIsAutoRetranscribe } = useConfig();
+  const [preferences, set偏好设置] = useState<Recording偏好设置>({
     save_folder: '',
     auto_save: true,
     file_format: 'mp4',
@@ -29,19 +34,29 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [showRecordingNotification, setShowRecordingNotification] = useState(true);
+  // 离线会记 v0.6.9: 实时字幕预览开关 (关闭后只录音, 录音结束再一次性离线识别)
+  const [realtimePreview, setRealtimePreviewState] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return true;
+    const saved = window.localStorage.getItem('realtimePreview');
+    return saved === null ? true : saved === 'true';
+  });
+  const setRealtimePreview = (v: boolean) => {
+    setRealtimePreviewState(v);
+    try { window.localStorage.setItem('realtimePreview', String(v)); } catch {}
+  };
 
   // Load recording preferences on component mount
   useEffect(() => {
     const loadPreferences = async () => {
       try {
-        const prefs = await invoke<RecordingPreferences>('get_recording_preferences');
-        setPreferences(prefs);
+        const prefs = await invoke<Recording偏好设置>('get_recording_preferences');
+        set偏好设置(prefs);
       } catch (error) {
         console.error('Failed to load recording preferences:', error);
         // If loading fails, get default folder path
         try {
           const defaultPath = await invoke<string>('get_default_recordings_folder_path');
-          setPreferences(prev => ({ ...prev, save_folder: defaultPath }));
+          set偏好设置(prev => ({ ...prev, save_folder: defaultPath }));
         } catch (defaultError) {
           console.error('Failed to get default folder path:', defaultError);
         }
@@ -69,9 +84,9 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
   }, []);
 
   const handleAutoSaveToggle = async (enabled: boolean) => {
-    const newPreferences = { ...preferences, auto_save: enabled };
-    setPreferences(newPreferences);
-    await savePreferences(newPreferences);
+    const new偏好设置 = { ...preferences, auto_save: enabled };
+    set偏好设置(new偏好设置);
+    await save偏好设置(new偏好设置);
 
     // Track auto-save setting change
     await Analytics.track('auto_save_recording_toggled', {
@@ -80,13 +95,13 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
   };
 
   const handleDeviceChange = async (devices: SelectedDevices) => {
-    const newPreferences = {
+    const new偏好设置 = {
       ...preferences,
       preferred_mic_device: devices.micDevice,
       preferred_system_device: devices.systemDevice
     };
-    setPreferences(newPreferences);
-    await savePreferences(newPreferences);
+    set偏好设置(new偏好设置);
+    await save偏好设置(new偏好设置);
 
     // Track default device preference changes
     // Note: Individual device selection analytics are tracked in DeviceSelection component
@@ -111,17 +126,17 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
       const store = await Store.load('preferences.json');
       await store.set('show_recording_notification', enabled);
       await store.save();
-      toast.success('Preference saved');
+      safeToast.success('偏好已保存');
       await Analytics.track('recording_notification_preference_changed', {
         enabled: enabled.toString()
       });
     } catch (error) {
       console.error('Failed to save notification preference:', error);
-      toast.error('Failed to save preference');
+      safeToast.error(t('errors.save_preference_failed'));
     }
   };
 
-  const savePreferences = async (prefs: RecordingPreferences) => {
+  const save偏好设置 = async (prefs: Recording偏好设置) => {
     setSaving(true);
     try {
       await invoke('set_recording_preferences', { preferences: prefs });
@@ -130,12 +145,12 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
       // Show success toast with device details
       const micDevice = prefs.preferred_mic_device || 'Default';
       const systemDevice = prefs.preferred_system_device || 'Default';
-      toast.success("Device preferences saved", {
-        description: `Microphone: ${micDevice}, System Audio: ${systemDevice}`
+      safeToast.success("设备 preferences saved", {
+        description: `麦克风: ${micDevice}, System Audio: ${systemDevice}`
       });
     } catch (error) {
       console.error('Failed to save recording preferences:', error);
-      toast.error("Failed to save device preferences", {
+      safeToast.error("保存设备偏好失败", {
         description: error instanceof Error ? error.message : String(error)
       });
     } finally {
@@ -155,16 +170,16 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold mb-4">Recording Settings</h3>
+        <h3 className="text-lg font-semibold mb-4">{t('settings.recordings.title')}</h3>
         <p className="text-sm text-gray-600 mb-6">
-          Configure how your audio recordings are saved during meetings.
+          {t('settings.recordings.title_desc')}
         </p>
       </div>
 
       {/* Auto Save Toggle */}
       <div className="flex items-center justify-between p-4 border rounded-lg">
         <div className="flex-1">
-          <div className="font-medium">Save Audio Recordings</div>
+          <div className="font-medium">{t('settings.recordings.save')}</div>
           <div className="text-sm text-gray-600">
             Automatically save audio files when recording stops
           </div>
@@ -180,25 +195,25 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
       {preferences.auto_save && (
         <div className="space-y-4">
           <div className="p-4 border rounded-lg bg-gray-50">
-            <div className="font-medium mb-2">Save Location</div>
+            <div className="font-medium mb-2">{t('settings.recordings.save_location')}</div>
             <div className="text-sm text-gray-600 mb-3 break-all">
-              {preferences.save_folder || 'Default folder'}
+              {preferences.save_folder || t('settings.recordings.default_folder')}
             </div>
             <button
               onClick={handleOpenFolder}
               className="flex items-center gap-2 px-3 py-2 text-sm border border-gray-300 rounded-md hover:bg-gray-50 transition-colors"
             >
               <FolderOpen className="w-4 h-4" />
-              Open Folder
+              {t('settings.recordings.open_folder')}
             </button>
           </div>
 
           <div className="p-4 border rounded-lg bg-blue-50">
             <div className="text-sm text-blue-800">
-              <strong>File Format:</strong> {preferences.file_format.toUpperCase()} files
+              <strong>{t('settings.recordings.file_format_label')}:</strong> {preferences.file_format.toUpperCase()} {t('settings.recordings.file_format_unit')}
             </div>
             <div className="text-xs text-blue-600 mt-1">
-              Recordings are saved with timestamp: recording_YYYYMMDD_HHMMSS.{preferences.file_format}
+              {t('settings.recordings.saved_with_timestamp')}: recording_YYYYMMDD_HHMMSS.{preferences.file_format}
             </div>
           </div>
         </div>
@@ -208,7 +223,7 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
       {!preferences.auto_save && (
         <div className="p-4 border rounded-lg bg-yellow-50">
           <div className="text-sm text-yellow-800">
-            Audio recording is disabled. Enable "Save Audio Recordings" to automatically save your meeting audio.
+            {t('settings.recordings.disabled_hint')}
           </div>
         </div>
       )}
@@ -216,9 +231,9 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
       {/* Recording Notification Toggle */}
       <div className="flex items-center justify-between p-4 border rounded-lg">
         <div className="flex-1">
-          <div className="font-medium">Recording Start Notification</div>
+          <div className="font-medium">{t('settings.recordings.start_notification')}</div>
           <div className="text-sm text-gray-600">
-            Show reminder to inform participants when recording starts
+            {t('settings.recordings.start_notification_desc')}
           </div>
         </div>
         <Switch
@@ -227,12 +242,40 @@ export function RecordingSettings({ onSave }: RecordingSettingsProps) {
         />
       </div>
 
-      {/* Device Preferences */}
+      {/* 离线会记 v0.6.9: 实时字幕预览开关 (方案 4.A) */}
+      <div className="flex items-center justify-between p-4 border rounded-lg">
+        <div className="flex-1">
+          <div className="font-medium">{t('settings.recordings.realtime_preview')}</div>
+          <div className="text-sm text-gray-600">
+            {t('settings.recordings.realtime_preview_desc')}
+          </div>
+        </div>
+        <Switch
+          checked={realtimePreview}
+          onCheckedChange={setRealtimePreview}
+        />
+      </div>
+
+      {/* v0.7.0+: 录音停止后自动重新转录 (优化结果). 默认开. */}
+      <div className="flex items-center justify-between p-4 border rounded-lg">
+        <div className="flex-1">
+          <div className="font-medium">自动重新转录 (优化)</div>
+          <div className="text-sm text-gray-600">
+            录音停止后, 后台整段上下文重新跑一次, 字幕更准 (10-30 秒)。关闭后保留流式初步识别结果。
+          </div>
+        </div>
+        <Switch
+          checked={isAutoRetranscribe}
+          onCheckedChange={toggleIsAutoRetranscribe}
+        />
+      </div>
+
+      {/* Device 偏好设置 */}
       <div className="space-y-4">
         <div className="border-t pt-6">
-          <h4 className="text-base font-medium text-gray-900 mb-4">Default Audio Devices</h4>
+          <h4 className="text-base font-medium text-gray-900 mb-4">{t('settings.recordings.audio_devices')}</h4>
           <p className="text-sm text-gray-600 mb-4">
-            Set your preferred microphone and system audio devices for recording. These will be automatically selected when starting new recordings.
+            设置录音时优先使用的麦克风和系统音频设备。开始新录音时, 系统会自动选用这些设备。
           </p>
 
           <div className="border rounded-lg p-4 bg-gray-50">

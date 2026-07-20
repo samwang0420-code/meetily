@@ -15,11 +15,11 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
 // Tabs configuration (constant)
 const TABS = [
-  { value: 'general', label: 'General', icon: Settings2 },
-  { value: 'recording', label: 'Recordings', icon: Mic },
-  { value: 'Transcriptionmodels', label: 'Transcription', icon: DatabaseIcon },
-  { value: 'summaryModels', label: 'Summary', icon: SparkleIcon },
-  { value: 'beta', label: 'Beta', icon: FlaskConical }
+  { value: 'general', label: '通用', icon: Settings2 },
+  { value: 'recording', label: '录音', icon: Mic },
+  { value: 'Transcriptionmodels', label: '转录', icon: DatabaseIcon },
+  { value: 'summaryModels', label: '摘要', icon: SparkleIcon },
+  { value: 'beta', label: '试用', icon: FlaskConical }
 ] as const;
 
 export default function SettingsPage() {
@@ -49,7 +49,7 @@ export default function SettingsPage() {
       }
     };
     loadTranscriptConfig();
-  }, [setTranscriptModelConfig]);
+  }, []);  // v0.6.22: 不要 [setTranscriptModelConfig] - ConfigContext value 每次 render 都 new, setter 引用变化触发 useEffect 死循环 (#321)
 
   // Update underline position when active tab changes
   useLayoutEffect(() => {
@@ -73,9 +73,9 @@ export default function SettingsPage() {
               className="flex items-center gap-2 text-gray-600 hover:text-gray-900 transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
-              <span>Back</span>
+              <span>返回</span>
             </button>
-            <h1 className="text-3xl font-bold">Settings</h1>
+            <h1 className="text-3xl font-bold">设置</h1>
           </div>
         </div>
       </div>

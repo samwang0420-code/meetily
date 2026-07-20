@@ -8,6 +8,7 @@ import MainContent from '@/components/MainContent'
 import AnalyticsProvider from '@/components/AnalyticsProvider'
 import { Toaster, toast } from 'sonner'
 import "sonner/dist/styles.css"
+import { bindSonner, safeToast } from '@/lib/safeToast'
 import { useState, useEffect, useCallback } from 'react'
 import { listen, UnlistenFn } from '@tauri-apps/api/event'
 import { invoke } from '@tauri-apps/api/core'
@@ -25,6 +26,9 @@ import { RecordingPostProcessingProvider } from '@/contexts/RecordingPostProcess
 import { ImportAudioDialog, ImportDropOverlay } from '@/components/ImportAudio'
 import { ImportDialogProvider } from '@/contexts/ImportDialogContext'
 import { isAudioExtension, getAudioFormatsDisplayList } from '@/constants/audioFormats'
+import { I18nProvider, useTranslation } from '@/i18n'
+import { AuthProvider } from '@/contexts/AuthContext'
+import ErrorBoundary from '@/components/ErrorBoundary'
 
 
 const sourceSans3 = Source_Sans_3({
@@ -62,6 +66,16 @@ function ConditionalImportDialog({
 }
 
 // export { metadata } from './metadata'
+
+
+function I18nHtmlWrapper({ children }: { children: React.ReactNode }) {
+  const { locale } = useTranslation();
+  return (
+    <html lang={locale === "zh" ? "zh-CN" : "en"} suppressHydrationWarning>
+      {children}
+    </html>
+  );
+}
 
 export default function RootLayout({
   children,
@@ -112,8 +126,8 @@ export default function RootLayout({
       console.log('[Layout] Received request-recording-toggle from tray');
 
       if (showOnboarding) {
-        toast.error("Please complete setup first", {
-          description: "You need to finish onboarding before you can start recording."
+        safeToast.error("请先完成初始设置", {
+          description: "开始录音前,请先完成初始设置。"
         });
       } else {
         // If in main app, forward to useRecordingStart via window event
@@ -133,8 +147,8 @@ export default function RootLayout({
     const betaFeatures = loadBetaFeatures();
 
     if (!betaFeatures.importAndRetranscribe) {
-      toast.error('Beta feature disabled', {
-        description: 'Enable "Import Audio & Retranscribe" in Settings > Beta to use this feature.'
+      safeToast.error('Beta 功能未启用', {
+        description: '请先在「设置 > Beta」中开启「导入音频 → 重新转录」功能'
       });
       return;
     }
@@ -150,7 +164,7 @@ export default function RootLayout({
       setImportFilePath(audioFile);
       setShowImportDialog(true);
     } else if (paths.length > 0) {
-      toast.error('Please drop an audio file', {
+      safeToast.error('请拖入音频文件', {
         description: `Supported formats: ${getAudioFormatsDisplayList()}`
       });
     }
@@ -231,9 +245,11 @@ export default function RootLayout({
   }
 
   return (
-    <html lang="en">
-      <body className={`${sourceSans3.variable} font-sans antialiased`}>
-        <AnalyticsProvider>
+    <I18nHtmlWrapper>
+      <I18nProvider>
+        <body className={`${sourceSans3.variable} font-sans antialiased`}>
+            <AuthProvider>
+          <AnalyticsProvider>
           <RecordingStateProvider>
             <TranscriptProvider>
               <ConfigProvider>
@@ -253,7 +269,7 @@ export default function RootLayout({
                               ) : (
                                 <div className="flex">
                                   <Sidebar />
-                                  <MainContent>{children}</MainContent>
+                                  <MainContent><ErrorBoundary>{children}</ErrorBoundary></MainContent>
                                 </div>
                               )}
                               {/* Import audio overlay and dialog */}
@@ -276,8 +292,26 @@ export default function RootLayout({
           </RecordingStateProvider>
         </AnalyticsProvider>
 
-        <Toaster position="bottom-center" richColors closeButton />
-      </body>
-    </html>
+      <SafeToastBinder />
+
+          <Toaster position="bottom-center" richColors closeButton />
+          </AuthProvider>
+        </body>
+      </I18nProvider>
+    </I18nHtmlWrapper>
   )
+}
+
+function SafeToastBinder() {
+  useEffect(() => {
+    // 全局防御: 即便调用方仍直接 safeToast.error(msg, { description: err }),
+    // 也走我们的 sanitize (强制把 React internal error 降级).
+    bindSonner({
+      error: toast.error as unknown as ReturnType<typeof bindSonner> extends infer _ ? never : never,
+      success: toast.success as unknown as never,
+      warning: toast.warning as unknown as never,
+      info: toast.info as unknown as never,
+    });
+  }, []);
+  return null;
 }

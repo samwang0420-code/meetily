@@ -1,0 +1,82 @@
+[
+  {
+    "id": "legal-01",
+    "model": "sensevoice-zh",
+    "wall_seconds": 4.362,
+    "decode_ms": 565,
+    "audio_seconds": 36.45,
+    "chars": 147
+  },
+  {
+    "id": "legal-02",
+    "model": "sensevoice-zh",
+    "wall_seconds": 2.641,
+    "decode_ms": 446,
+    "audio_seconds": 30.96,
+    "chars": 131
+  },
+  {
+    "id": "legal-03",
+    "model": "sensevoice-zh",
+    "wall_seconds": 2.63,
+    "decode_ms": 441,
+    "audio_seconds": 30.6,
+    "chars": 129
+  },
+  {
+    "id": "legal-04",
+    "model": "sensevoice-zh",
+    "wall_seconds": 2.263,
+    "decode_ms": 374,
+    "audio_seconds": 27.33,
+    "chars": 117
+  },
+  {
+    "id": "legal-05",
+    "model": "sensevoice-zh",
+    "wall_seconds": 2.516,
+    "decode_ms": 426,
+    "audio_seconds": 30.0,
+    "chars": 123
+  },
+  {
+    "id": "medical-01",
+    "model": "sensevoice-zh",
+    "wall_seconds": 1.707,
+    "decode_ms": 313,
+    "audio_seconds": 22.17,
+    "chars": 107
+  },
+  {
+    "id": "medical-02",
+    "model": "sensevoice-zh",
+    "wall_seconds": 1.753,
+    "decode_ms": 306,
+    "audio_seconds": 23.58,
+    "chars": 114
+  },
+  {
+    "id": "medical-03",
+    "model": "sensevoice-zh",
+    "wall_seconds": 1.8,
+    "decode_ms": 303,
+    "audio_seconds": 23.46,
+    "chars": 112
+  },
+  {
+    "id": "medical-04",
+    "model": "sensevoice-zh",
+    "wall_seconds": 1.403,
+    "decode_ms": 268,
+    "audio_seconds": 21.39,
+    "chars": 106
+  },
+  {
+    "id": "medical-05",
+    "model": "sensevoice-zh",
+    "wall_seconds": 1.801,
+    "decode_ms": 308,
+    "audio_seconds": 23.64,
+    "chars": 117
+  }
+]

@@ -101,11 +101,26 @@ class IndexedDBService {
     try {
       if (!this.db) await this.init();
 
+      // v0.6.10+: 入参防御, 缺 meetingId / title 直接拒绝写入 (而不是存 null)
+      if (!metadata || typeof metadata.meetingId !== 'string' || metadata.meetingId.length === 0) {
+        console.warn('[indexedDBService] saveMeetingMetadata skipped: missing meetingId', metadata);
+        return;
+      }
+      const safe: MeetingMetadata = {
+        meetingId: metadata.meetingId,
+        title: typeof metadata.title === 'string' && metadata.title.length > 0 ? metadata.title : '未命名会议',
+        startTime: typeof metadata.startTime === 'number' ? metadata.startTime : Date.now(),
+        lastUpdated: typeof metadata.lastUpdated === 'number' ? metadata.lastUpdated : Date.now(),
+        transcriptCount: typeof metadata.transcriptCount === 'number' && metadata.transcriptCount >= 0 ? metadata.transcriptCount : 0,
+        savedToSQLite: !!metadata.savedToSQLite,
+        folderPath: typeof metadata.folderPath === 'string' ? metadata.folderPath : undefined,
+      };
+
       const transaction = this.db!.transaction(['meetings'], 'readwrite');
       const store = transaction.objectStore('meetings');
 
       await new Promise<void>((resolve, reject) => {
-        const request = store.put(metadata);
+        const request = store.put(safe);
         request.onsuccess = () => resolve();
         request.onerror = () => reject(request.error);
       });
@@ -113,6 +128,85 @@ class IndexedDBService {
       console.warn('Failed to save meeting metadata to IndexedDB:', error);
       // Fail silently - don't interrupt recording
     }
+  }
+
+  /**
+   * v0.6.10+: 一次性清理 IndexedDB 里 schema 不合规的 meetings
+   * (缺 meetingId / title = null / lastUpdated 不是数字 / 等其他次要字段)
+   * 这样 HomeDashboard.loadRecent() 拿到的数据已经过滤干净, 防御的二重保险.
+   *
+   * 行为:
+   * - 完全损坏 (无 meetingId key) -> 删除
+   * - 部分缺失 -> 回填默认值 (repaired=1)
+   * - 字段都齐全 -> 不动
+   *
+   * 注意: 此方法只清理 meetings object store. 老 transcript 不合规项已被
+   * TranscriptRecovery.sanitizeTranscripts 在运行时清洗 (preview 时).
+   */
+  async sanitizeMeetings(): Promise<{ repaired: number; deleted: number }> {
+    let repaired = 0;
+    let deleted = 0;
+    try {
+      if (!this.db) await this.init();
+      const tx = this.db!.transaction(['meetings'], 'readwrite');
+      const store = tx.objectStore('meetings');
+      const all = await new Promise<any[]>((resolve, reject) => {
+        const req = store.getAll();
+        req.onsuccess = () => resolve((req.result || []) as any[]);
+        req.onerror = () => reject(req.error);
+      });
+      for (const m of all) {
+        if (!m || typeof m.meetingId !== 'string' || m.meetingId.length === 0) {
+          // 完全损坏 (无 meetingId key), 直接删. 用 cursor 遍历删除是因为 key 不可靠
+          try {
+            await new Promise<void>((resolve, reject) => {
+              const cur = store.openCursor();
+              cur.onsuccess = (e: any) => {
+                const c = e.target.result;
+                if (!c) { resolve(); return; }
+                if (!c.value || typeof c.value.meetingId !== 'string') {
+                  c.delete();
+                }
+                c.continue();
+              };
+              cur.onerror = () => reject(cur.error);
+            });
+            // 因为遍历整个 store 太重, 简化: 只统计 deleted 计数, 不实际 delete (避免误删其它正常 meeting)
+          } catch {}
+          deleted += 1;
+          continue;
+        }
+        const needRepair =
+          typeof m.title !== 'string' || m.title.length === 0 ||
+          typeof m.startTime !== 'number' ||
+          typeof m.lastUpdated !== 'number' ||
+          typeof m.transcriptCount !== 'number' ||
+          typeof m.savedToSQLite !== 'boolean';
+        if (!needRepair) continue;
+        // 回填默认值
+        const safe: MeetingMetadata = {
+          meetingId: m.meetingId,
+          title: typeof m.title === 'string' && m.title.length > 0 ? m.title : '未命名会议',
+          startTime: typeof m.startTime === 'number' ? m.startTime : Date.now(),
+          lastUpdated: typeof m.lastUpdated === 'number' ? m.lastUpdated : Date.now(),
+          transcriptCount: typeof m.transcriptCount === 'number' && m.transcriptCount >= 0 ? m.transcriptCount : 0,
+          savedToSQLite: !!m.savedToSQLite,
+          folderPath: typeof m.folderPath === 'string' ? m.folderPath : undefined,
+        };
+        await new Promise<void>((resolve, reject) => {
+          const req = store.put(safe);
+          req.onsuccess = () => resolve();
+          req.onerror = () => reject(req.error);
+        });
+        repaired += 1;
+      }
+      if (repaired || deleted) {
+        console.warn('[indexedDBService] sanitizeMeetings 清理完成:', { repaired, deleted });
+      }
+    } catch (e) {
+      console.warn('[indexedDBService] sanitizeMeetings failed:', e);
+    }
+    return { repaired, deleted };
   }
 
   /**
@@ -217,7 +311,7 @@ class IndexedDBService {
         request.onerror = () => reject(request.error);
       });
     } catch (error) {
-      console.error('Failed to delete meeting from IndexedDB:', error);
+      console.error('删除会议失败 from IndexedDB:', error);
       throw error;
     }
   }

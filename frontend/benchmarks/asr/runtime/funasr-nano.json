@@ -1,0 +1,82 @@
+[
+  {
+    "id": "legal-01",
+    "model": "funasr-nano-zh",
+    "wall_seconds": 8.803,
+    "decode_ms": 2927,
+    "audio_seconds": 36.45,
+    "chars": 149
+  },
+  {
+    "id": "legal-02",
+    "model": "funasr-nano-zh",
+    "wall_seconds": 4.555,
+    "decode_ms": 2431,
+    "audio_seconds": 30.96,
+    "chars": 132
+  },
+  {
+    "id": "legal-03",
+    "model": "funasr-nano-zh",
+    "wall_seconds": 4.359,
+    "decode_ms": 2225,
+    "audio_seconds": 30.6,
+    "chars": 128
+  },
+  {
+    "id": "legal-04",
+    "model": "funasr-nano-zh",
+    "wall_seconds": 3.82,
+    "decode_ms": 1960,
+    "audio_seconds": 27.33,
+    "chars": 117
+  },
+  {
+    "id": "legal-05",
+    "model": "funasr-nano-zh",
+    "wall_seconds": 4.275,
+    "decode_ms": 2173,
+    "audio_seconds": 30.0,
+    "chars": 124
+  },
+  {
+    "id": "medical-01",
+    "model": "funasr-nano-zh",
+    "wall_seconds": 3.391,
+    "decode_ms": 1985,
+    "audio_seconds": 22.17,
+    "chars": 110
+  },
+  {
+    "id": "medical-02",
+    "model": "funasr-nano-zh",
+    "wall_seconds": 3.885,
+    "decode_ms": 2409,
+    "audio_seconds": 23.58,
+    "chars": 118
+  },
+  {
+    "id": "medical-03",
+    "model": "funasr-nano-zh",
+    "wall_seconds": 3.686,
+    "decode_ms": 2164,
+    "audio_seconds": 23.46,
+    "chars": 111
+  },
+  {
+    "id": "medical-04",
+    "model": "funasr-nano-zh",
+    "wall_seconds": 3.217,
+    "decode_ms": 2064,
+    "audio_seconds": 21.39,
+    "chars": 109
+  },
+  {
+    "id": "medical-05",
+    "model": "funasr-nano-zh",
+    "wall_seconds": 3.854,
+    "decode_ms": 2308,
+    "audio_seconds": 23.64,
+    "chars": 118
+  }
+]

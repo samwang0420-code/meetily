@@ -9,6 +9,10 @@ pub const DAILY_STANDUP: &str = include_str!("../../../templates/daily_standup.j
 /// Standard meeting notes template
 pub const STANDARD_MEETING: &str = include_str!("../../../templates/standard_meeting.json");
 
+/// Industry-specific templates shipped with the application.
+pub const LEGAL_CONSULTATION: &str = include_str!("../../../templates/legal_consultation.json");
+pub const MEDICAL_CONSULTATION: &str = include_str!("../../../templates/medical_consultation.json");
+
 /// Registry of all built-in templates
 ///
 /// Maps template identifiers to their embedded JSON content
@@ -16,6 +20,8 @@ pub fn get_builtin_templates() -> Vec<(&'static str, &'static str)> {
     vec![
         ("daily_standup", DAILY_STANDUP),
         ("standard_meeting", STANDARD_MEETING),
+        ("legal_consultation", LEGAL_CONSULTATION),
+        ("medical_consultation", MEDICAL_CONSULTATION),
     ]
 }
 
@@ -30,13 +36,20 @@ pub fn get_builtin_template(id: &str) -> Option<&'static str> {
     match id {
         "daily_standup" => Some(DAILY_STANDUP),
         "standard_meeting" => Some(STANDARD_MEETING),
+        "legal_consultation" => Some(LEGAL_CONSULTATION),
+        "medical_consultation" => Some(MEDICAL_CONSULTATION),
         _ => None,
     }
 }
 
 /// List all built-in template identifiers
 pub fn list_builtin_template_ids() -> Vec<&'static str> {
-    vec!["daily_standup", "standard_meeting"]
+    vec![
+        "daily_standup",
+        "standard_meeting",
+        "legal_consultation",
+        "medical_consultation",
+    ]
 }
 
 #[cfg(test)]
@@ -60,6 +73,19 @@ mod tests {
     fn test_get_builtin_template() {
         assert!(get_builtin_template("daily_standup").is_some());
         assert!(get_builtin_template("standard_meeting").is_some());
+        assert!(get_builtin_template("legal_consultation").is_some());
+        assert!(get_builtin_template("medical_consultation").is_some());
         assert!(get_builtin_template("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_all_builtin_templates_validate() {
+        for (id, content) in get_builtin_templates() {
+            let template = serde_json::from_str::<crate::summary::templates::Template>(content)
+                .unwrap_or_else(|error| panic!("template '{}' failed to parse: {}", id, error));
+            template
+                .validate()
+                .unwrap_or_else(|error| panic!("template '{}' failed validation: {}", id, error));
+        }
     }
 }

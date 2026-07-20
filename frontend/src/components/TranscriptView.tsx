@@ -2,6 +2,7 @@
 
 import { Transcript } from '@/types';
 import { useEffect, useRef, useState } from 'react';
+import { useTranscripts } from '@/contexts/TranscriptContext';
 import { ConfidenceIndicator } from './ConfidenceIndicator';
 import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { RecordingStatusBar } from './RecordingStatusBar';
@@ -11,7 +12,7 @@ interface TranscriptViewProps {
   transcripts: Transcript[];
   isRecording?: boolean;
   isPaused?: boolean; // Is recording paused (affects UI indicators)
-  isProcessing?: boolean; // Is processing/finalizing transcription (hides "Listening..." indicator)
+  isProcessing?: boolean; // Is processing/finalizing transcription (hides "正在聆听..." indicator)
   isStopping?: boolean; // Is recording being stopped (provides immediate UI feedback)
   enableStreaming?: boolean; // Enable streaming effect for live transcription UX
 }
@@ -117,7 +118,10 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({ transcripts, isR
     shouldShowListening: !isStopping && isRecording && !isPaused && !isProcessing && transcripts.length > 0
   });
 
-  // Streaming effect state
+  // v0.6.11+ bug fix: 读 livePartialText (灰色 preview 流式显示)
+  const { livePartialText, isPartialEndpoint, lastDecodeMs, lastBufferAgeMs } = useTranscripts();
+
+    // Streaming effect state
   const [streamingTranscript, setStreamingTranscript] = useState<{
     id: string;
     visibleText: string;
@@ -334,6 +338,52 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({ transcripts, isR
         );
       })}
 
+      {/* v0.6.11+ bug fix: 灰色 partial 实时浮现 (解决 27s 空白问题) */}
+      {/* v0.6.12+: 右侧加 decode_ms / buffer_age 灰字 chip, 让你直观看到延迟 */}
+      {isRecording && !isStopping && !isPaused && !isProcessing && livePartialText && (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          exit={{ opacity: 0 }}
+          transition={{ duration: 0.15 }}
+          className="mb-3 ml-12"
+        >
+          <p className="text-sm text-gray-400 italic leading-relaxed">
+            {livePartialText}
+            <span className="inline-block w-1.5 h-3.5 bg-gray-400 ml-0.5 align-middle animate-pulse" />
+          </p>
+          <div className="flex items-center gap-2 mt-1">
+            {typeof lastDecodeMs === 'number' && (
+              <span
+                data-testid="transcript-decode-ms"
+                className={
+                  "text-[10px] font-mono px-1.5 py-0.5 rounded " +
+                  (lastDecodeMs > 200
+                    ? "text-orange-700 bg-orange-100"
+                    : lastDecodeMs > 100
+                      ? "text-amber-700 bg-amber-50"
+                      : "text-gray-400 bg-gray-100")
+                }
+                title="sherpa-onnx 本次 decode 耗时"
+              >
+                decode {lastDecodeMs}ms
+              </span>
+            )}
+            {typeof lastBufferAgeMs === 'number' && lastBufferAgeMs > 100 && (
+              <span
+                className="text-[10px] font-mono text-gray-400"
+                title="音频 buffer 已积累多久"
+              >
+                buf {lastBufferAgeMs}ms
+              </span>
+            )}
+            {isPartialEndpoint && (
+              <span className="text-xs text-gray-300">正在切句…</span>
+            )}
+          </div>
+        </motion.div>
+      )}
+
       {/* Show listening indicator when recording and has transcripts */}
       {!isStopping && isRecording && !isPaused && !isProcessing && transcripts.length > 0 && (
         <motion.div
@@ -343,7 +393,7 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({ transcripts, isR
           className="flex items-center gap-2 mt-4 text-gray-500"
         >
           <div className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></div>
-          <span className="text-sm">Listening...</span>
+          <span className="text-sm">正在聆听...</span>
         </motion.div>
       )}
 
@@ -360,18 +410,18 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({ transcripts, isR
                 <div className={`w-3 h-3 rounded-full ${isPaused ? 'bg-orange-500' : 'bg-blue-500 animate-pulse'}`}></div>
               </div>
               <p className="text-sm text-gray-600">
-                {isPaused ? 'Recording paused' : 'Listening for speech...'}
+                {isPaused ? '录音已暂停' : '正在聆听语音...'}
               </p>
               <p className="text-xs mt-1 text-gray-400">
                 {isPaused
-                  ? 'Click resume to continue recording'
-                  : 'Speak to see live transcription'}
+                  ? '点击继续录音'
+                  : '点击开始录音, 即可看到实时转录文字'}
               </p>
             </>
           ) : (
             <>
-              <p className="text-lg font-semibold">Welcome to meetily!</p>
-              <p className="text-xs mt-1">Start recording to see live transcription</p>
+              <p className="text-lg font-semibold">欢迎使用离线会记!</p>
+              <p className="text-xs mt-1">开始录音, 即可看到实时转录文字</p>
             </>
           )}
         </motion.div>

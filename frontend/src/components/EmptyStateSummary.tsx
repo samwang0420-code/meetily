@@ -1,5 +1,7 @@
 'use client';
 
+import { useTranslation } from '@/i18n';
+
 import { motion } from 'framer-motion';
 import { FileQuestion, Sparkles } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -17,6 +19,7 @@ interface EmptyStateSummaryProps {
 }
 
 export function EmptyStateSummary({ onGenerate, hasModel, isGenerating = false }: EmptyStateSummaryProps) {
+  const { t } = useTranslation();
   return (
     <motion.div
       initial={{ opacity: 0, scale: 0.95 }}
@@ -26,10 +29,10 @@ export function EmptyStateSummary({ onGenerate, hasModel, isGenerating = false }
     >
       <FileQuestion className="w-16 h-16 text-gray-300 mb-4" />
       <h3 className="text-lg font-semibold text-gray-900 mb-2">
-        No Summary Generated Yet
+        尚未生成摘要
       </h3>
       <p className="text-sm text-gray-500 mb-6 max-w-md">
-        Generate an AI-powered summary of your meeting transcript to get key points, action items, and decisions.
+        生成 AI 智能会议摘要, 自动提取关键要点、行动项和决议。
       </p>
 
       <TooltipProvider>
@@ -42,13 +45,13 @@ export function EmptyStateSummary({ onGenerate, hasModel, isGenerating = false }
                 className="gap-2"
               >
                 <Sparkles className="w-4 h-4" />
-                {isGenerating ? 'Generating...' : 'Generate Summary'}
+                {isGenerating ? 'Generating...' : '生成摘要'}
               </Button>
             </div>
           </TooltipTrigger>
           {!hasModel && (
             <TooltipContent>
-              <p>Please select a model in Settings first</p>
+              <p>{t('summary.no_model')}</p>
             </TooltipContent>
           )}
         </Tooltip>

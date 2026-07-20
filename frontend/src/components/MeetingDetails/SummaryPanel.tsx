@@ -1,6 +1,7 @@
 "use client";
 
 import { Summary, SummaryResponse, Transcript } from '@/types';
+import { useTranslation } from '@/i18n';
 import { EditableTitle } from '@/components/EditableTitle';
 import { BlockNoteSummaryView, BlockNoteSummaryViewRef } from '@/components/AISummary/BlockNoteSummaryView';
 import { EmptyStateSummary } from '@/components/EmptyStateSummary';
@@ -10,6 +11,7 @@ import { SummaryUpdaterButtonGroup } from './SummaryUpdaterButtonGroup';
 import Analytics from '@/lib/analytics';
 import { useEffect, useRef, useState, RefObject } from 'react';
 import { toast } from 'sonner';
+import { safeToast } from '@/lib/safeToast';
 import { Languages, ChevronDown } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
@@ -38,6 +40,8 @@ interface SummaryPanelProps {
   isSaving: boolean;
   onSaveAll: () => Promise<void>;
   onCopySummary: () => Promise<void>;
+  onExportSummaryMarkdown?: () => void;
+  onExportSummaryTxt?: () => void;
   onOpenFolder: () => Promise<void>;
   aiSummary: Summary | null;
   summaryStatus: 'idle' | 'processing' | 'summarizing' | 'regenerating' | 'completed' | 'error';
@@ -74,6 +78,8 @@ export function SummaryPanel({
   isSaving,
   onSaveAll,
   onCopySummary,
+  onExportSummaryMarkdown,
+  onExportSummaryTxt,
   onOpenFolder,
   aiSummary,
   summaryStatus,
@@ -97,6 +103,7 @@ export function SummaryPanel({
   isModelConfigLoading = false,
   onOpenModelSettings
 }: SummaryPanelProps) {
+  const { t, locale } = useTranslation();
   const [summaryLang, setSummaryLang] = useState<string | null>(null);
   const [summaryLangStorage, setSummaryLangStorage] = useState<SummaryLanguageStorage>('metadata');
   const [langPickerOpen, setLangPickerOpen] = useState(false);
@@ -116,11 +123,13 @@ export function SummaryPanel({
   activeMeetingIdRef.current = meeting.id;
   const { addRecent } = useRecentLanguages();
 
-  const effectiveLangLabel = summaryLang ? labelForCode(summaryLang) : 'Auto';
+  const effectiveLangLabel = summaryLang
+    ? (locale === 'zh' && summaryLang === 'zh' ? '中文' : labelForCode(summaryLang))
+    : t('language_picker.auto_detect');
   const isLocalFallbackLanguage = summaryLangStorage === 'local_fallback';
   const autoSubtitle = isLocalFallbackLanguage
-    ? 'Saved on this device for folderless meetings'
-    : 'Uses dominant transcript language';
+    ? t('language_picker.auto_saved_local')
+    : t('language_picker.auto_dominant_transcript');
 
   useEffect(() => {
     let cancelled = false;
@@ -136,7 +145,7 @@ export function SummaryPanel({
         }
       } catch (err) {
         console.error('Failed to load summary language:', err);
-        toast.warning('Could not load saved summary language', {
+        safeToast.warning('Could not load saved summary language', {
           description: 'Using Auto until meeting metadata can be read.',
         });
         if (!cancelled && languageLoadVersionRef.current === loadVersion) setSummaryLang(null);
@@ -169,8 +178,8 @@ export function SummaryPanel({
             setSummaryLang(saved.language);
             setSummaryLangStorage(saved.storage);
             if (saved.storage === 'local_fallback') {
-              toast.info('Summary language saved on this device', {
-                description: 'This meeting has no recording folder, so the preference cannot be written to meeting metadata.',
+              safeToast.info(t('language_picker.saved_local'), {
+                description: t('language_picker.saved_local_desc'),
               });
             }
             if (request.language) {
@@ -187,7 +196,7 @@ export function SummaryPanel({
             activeMeetingIdRef.current === request.meetingId
           ) {
             console.error('Failed to persist summary language:', err);
-            toast.error('Failed to save summary language');
+            safeToast.error(t('language_picker.save_failed'));
             setSummaryLang(request.rollback.language);
             setSummaryLangStorage(request.rollback.storage);
             return;
@@ -230,8 +239,8 @@ export function SummaryPanel({
         <Button
           variant="outline"
           size="sm"
-          title={`Summary language: ${effectiveLangLabel}${isLocalFallbackLanguage ? ' (saved on this device)' : ''}`}
-          aria-label="Set summary language"
+          title={t('language_picker.summary_language_title', { language: effectiveLangLabel })}
+          aria-label={t('language_picker.aria_label')}
         >
           <Languages size={18} />
           <span className="hidden lg:inline">{effectiveLangLabel}</span>
@@ -295,6 +304,8 @@ export function SummaryPanel({
                 isDirty={isTitleDirty || (summaryRef.current?.isDirty || false)}
                 onSave={onSaveAll}
                 onCopy={onCopySummary}
+                onExportMarkdown={onExportSummaryMarkdown}
+                onExportTxt={onExportSummaryTxt}
                 onFind={() => {
                   // TODO: Implement find in summary functionality
                   console.log('Find in summary clicked');
@@ -331,7 +342,7 @@ export function SummaryPanel({
           <div className="flex items-center justify-center flex-1">
             <div className="text-center">
               <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
-              <p className="text-gray-600">Generating AI Summary...</p>
+              <p className="text-gray-600">{t('summary.generating')}</p>
             </div>
           </div>
         </div>
@@ -368,10 +379,10 @@ export function SummaryPanel({
         <div className="flex-1 overflow-y-auto min-h-0">
           {summaryResponse && (
             <div className="fixed bottom-0 left-0 right-0 bg-white shadow-lg p-4 max-h-1/3 overflow-y-auto">
-              <h3 className="text-lg font-semibold mb-2">Meeting Summary</h3>
+              <h3 className="text-lg font-semibold mb-2">{t('summary.title')}</h3>
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-white p-4 rounded-lg shadow-sm">
-                  <h4 className="font-medium mb-1">Key Points</h4>
+                  <h4 className="font-medium mb-1">{t('summary.key_points')}</h4>
                   <ul className="list-disc pl-4">
                     {summaryResponse.summary.key_points.blocks.map((block, i) => (
                       <li key={i} className="text-sm">{block.content}</li>
@@ -379,7 +390,7 @@ export function SummaryPanel({
                   </ul>
                 </div>
                 <div className="bg-white p-4 rounded-lg shadow-sm mt-4">
-                  <h4 className="font-medium mb-1">Action Items</h4>
+                  <h4 className="font-medium mb-1">{t('summary.action_items')}</h4>
                   <ul className="list-disc pl-4">
                     {summaryResponse.summary.action_items.blocks.map((block, i) => (
                       <li key={i} className="text-sm">{block.content}</li>
@@ -387,7 +398,7 @@ export function SummaryPanel({
                   </ul>
                 </div>
                 <div className="bg-white p-4 rounded-lg shadow-sm mt-4">
-                  <h4 className="font-medium mb-1">Decisions</h4>
+                  <h4 className="font-medium mb-1">{t('summary.decisions')}</h4>
                   <ul className="list-disc pl-4">
                     {summaryResponse.summary.decisions.blocks.map((block, i) => (
                       <li key={i} className="text-sm">{block.content}</li>
@@ -395,7 +406,7 @@ export function SummaryPanel({
                   </ul>
                 </div>
                 <div className="bg-white p-4 rounded-lg shadow-sm mt-4">
-                  <h4 className="font-medium mb-1">Main Topics</h4>
+                  <h4 className="font-medium mb-1">{t('summary.topics')}</h4>
                   <ul className="list-disc pl-4">
                     {summaryResponse.summary.main_topics.blocks.map((block, i) => (
                       <li key={i} className="text-sm">{block.content}</li>
@@ -405,7 +416,7 @@ export function SummaryPanel({
               </div>
               {summaryResponse.raw_summary ? (
                 <div className="mt-4">
-                  <h4 className="font-medium mb-1">Full Summary</h4>
+                  <h4 className="font-medium mb-1">{t('summary.full_summary')}</h4>
                   <p className="text-sm whitespace-pre-wrap">{summaryResponse.raw_summary}</p>
                 </div>
               ) : null}

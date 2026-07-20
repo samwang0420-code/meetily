@@ -1,0 +1,23 @@
+{
+  "criteria": {
+    "minimum_relative_cer_gain": 0.1,
+    "minimum_term_recall": 0.9,
+    "maximum_decode_slowdown": 3
+  },
+  "metrics": {
+    "nano_cer": 0.05538025082955959,
+    "sensevoice_cer": 0.05672066576290437,
+    "relative_cer_gain": 0.02363186177940493,
+    "nano_term_recall": 0.8946428571428571,
+    "sensevoice_term_recall": 0.8142857142857143,
+    "nano_avg_decode_ms": 2264.6,
+    "sensevoice_avg_decode_ms": 375,
+    "decode_slowdown": 6.0389333333333335
+  },
+  "decision": "keep_sensevoice_default",
+  "reasons": [
+    "Nano CER 相对改善不足 10%",
+    "Nano 术语召回低于 90%",
+    "Nano 解码耗时超过 SenseVoice 3 倍"
+  ]
+}

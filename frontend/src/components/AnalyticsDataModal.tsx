@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { useTranslation } from '@/i18n';
 import { X, Info, Shield } from 'lucide-react';
 
 interface AnalyticsDataModalProps {
@@ -9,7 +10,9 @@ interface AnalyticsDataModalProps {
   onConfirmDisable: () => void;
 }
 
-export default function AnalyticsDataModal({ isOpen, onClose, onConfirmDisable }: AnalyticsDataModalProps) {
+export default function AnalyticsDataModal({
+ isOpen, onClose, onConfirmDisable }: AnalyticsDataModalProps) {
+  const { t } = useTranslation();
   if (!isOpen) return null;
 
   return (
@@ -19,7 +22,7 @@ export default function AnalyticsDataModal({ isOpen, onClose, onConfirmDisable }
         <div className="flex items-center justify-between p-6 border-b border-gray-200">
           <div className="flex items-center gap-3">
             <Shield className="w-6 h-6 text-blue-600" />
-            <h2 className="text-xl font-semibold text-gray-900">What Analytics Collects</h2>
+            <h2 className="text-xl font-semibold text-gray-900">{t('analytics.what_we_collect')}</h2>
           </div>
           <button
             onClick={onClose}
@@ -36,8 +39,8 @@ export default function AnalyticsDataModal({ isOpen, onClose, onConfirmDisable }
             <div className="flex items-start gap-3">
               <Info className="w-5 h-5 text-green-600 mt-0.5 flex-shrink-0" />
               <div className="text-sm text-green-800">
-                <p className="font-semibold mb-1">Your Privacy is Protected</p>
-                <p>Analytics is off by default. If you enable it, we collect <strong>anonymous usage data only</strong>. No meeting content, names, file paths, or personal information is ever collected.</p>
+                <p className="font-semibold mb-1">{t('analytics.privacy_protected')}</p>
+                <p>{t('analytics.intro')} <strong>{t('analytics.anonymous_only')}</strong> {t('analytics.no_personal_data')}</p>
               </div>
             </div>
           </div>
@@ -46,15 +49,15 @@ export default function AnalyticsDataModal({ isOpen, onClose, onConfirmDisable }
           <div className="space-y-4">
             <h3 className="text-lg font-semibold text-gray-900">Data We Collect When Enabled:</h3>
 
-            {/* Model Preferences */}
+            {/* Model 偏好设置 */}
             <div className="border border-gray-200 rounded-lg p-4">
-              <h4 className="font-semibold text-gray-900 mb-2">1. Model Preferences</h4>
+              <h4 className="font-semibold text-gray-900 mb-2">1. Model 偏好设置</h4>
               <ul className="text-sm text-gray-700 space-y-1 ml-4">
                 <li>• Transcription model (e.g., "Whisper large-v3", "Parakeet")</li>
-                <li>• Summary model (e.g., "Llama 3.2", "Claude Sonnet")</li>
+                <li>• {t('analytics.summary_model_example')}</li>
                 <li>• Model provider (e.g., "Local", "Ollama", "OpenRouter")</li>
               </ul>
-              <p className="text-xs text-gray-500 mt-2 italic">Helps us understand which models users prefer</p>
+              <p className="text-xs text-gray-500 mt-2 italic">{t('analytics.helps_model_preference')}</p>
             </div>
 
             {/* Meeting Metrics */}
@@ -66,7 +69,7 @@ export default function AnalyticsDataModal({ isOpen, onClose, onConfirmDisable }
                 <li>• Number of transcript segments</li>
                 <li>• Number of audio chunks processed</li>
               </ul>
-              <p className="text-xs text-gray-500 mt-2 italic">Helps us optimize performance and understand usage patterns</p>
+              <p className="text-xs text-gray-500 mt-2 italic">{t('analytics.helps_optimize')}</p>
             </div>
 
             {/* Device Types */}
@@ -76,7 +79,7 @@ export default function AnalyticsDataModal({ isOpen, onClose, onConfirmDisable }
                 <li>• Microphone type: "Bluetooth" or "Wired" or "Unknown"</li>
                 <li>• System audio type: "Bluetooth" or "Wired" or "Unknown"</li>
               </ul>
-              <p className="text-xs text-gray-500 mt-2 italic">Helps us improve compatibility, NOT the actual device names</p>
+              <p className="text-xs text-gray-500 mt-2 italic">帮助我们提升兼容性,不会记录真实设备名</p>
             </div>
 
             {/* Usage Patterns */}
@@ -88,7 +91,7 @@ export default function AnalyticsDataModal({ isOpen, onClose, onConfirmDisable }
                 <li>• Feature usage (e.g., "settings changed")</li>
                 <li>• Error occurrences (helps us fix bugs)</li>
               </ul>
-              <p className="text-xs text-gray-500 mt-2 italic">Helps us improve user experience</p>
+              <p className="text-xs text-gray-500 mt-2 italic">{t('analytics.helps_experience')}</p>
             </div>
 
             {/* Platform Info */}
@@ -99,7 +102,7 @@ export default function AnalyticsDataModal({ isOpen, onClose, onConfirmDisable }
                 <li>• App version (automatically included in all events)</li>
                 <li>• Architecture (e.g., "x86_64", "aarch64")</li>
               </ul>
-              <p className="text-xs text-gray-500 mt-2 italic">Helps us prioritize platform support</p>
+              <p className="text-xs text-gray-500 mt-2 italic">{t('analytics.helps_platform')}</p>
             </div>
           </div>
 

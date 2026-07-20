@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
+import { safeToast } from '@/lib/safeToast';
 import { ModelConfig, ModelSettingsModal } from '@/components/ModelSettingsModal';
 import { SummaryLanguageSettings } from '@/components/SummaryLanguageSettings';
 import { Switch } from './ui/switch';
@@ -62,7 +63,7 @@ export function SummaryModelSettings({ refetchTrigger }: SummaryModelSettingsPro
       }
     } catch (error) {
       console.error('Failed to fetch model config:', error);
-      toast.error('Failed to load model settings');
+      safeToast.error('Failed to load model settings');
     }
   }, []);
 
@@ -115,10 +116,10 @@ export function SummaryModelSettings({ refetchTrigger }: SummaryModelSettingsPro
       const { emit } = await import('@tauri-apps/api/event');
       await emit('model-config-updated', config);
 
-      toast.success('Model settings saved successfully');
+      safeToast.success('模型设置已保存');
     } catch (error) {
       console.error('Error saving model config:', error);
-      toast.error('Failed to save model settings');
+      safeToast.error('保存模型设置失败');
     }
   };
 
@@ -133,6 +134,7 @@ export function SummaryModelSettings({ refetchTrigger }: SummaryModelSettingsPro
           <Switch checked={isAutoSummary} onCheckedChange={toggleIsAutoSummary} />
         </div>
       </div>
+
 
       <SummaryLanguageSettings />
 

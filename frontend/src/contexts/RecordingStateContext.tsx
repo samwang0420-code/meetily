@@ -179,9 +179,9 @@ export function RecordingStateProvider({ children }: { children: React.ReactNode
         });
         unsubscribers.push(unlistenStopped);
 
-        // Recording paused
+        // 录音已暂停
         const unlistenPaused = await recordingService.onRecordingPaused(() => {
-          console.log('[RecordingStateContext] Recording paused event');
+          console.log('[RecordingStateContext] 录音已暂停 event');
           setState(prev => ({
             ...prev,
             isPaused: true,

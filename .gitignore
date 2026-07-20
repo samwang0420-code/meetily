@@ -72,6 +72,10 @@ node_modules/
 *.njsproj
 *.sln
 *.sw?
+*.bak
+*.bak[0-9]*
+__pycache__/
+*.py[cod]
 experiments/
 .cursor/
 target/

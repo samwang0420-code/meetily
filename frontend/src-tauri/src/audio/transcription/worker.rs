@@ -3,24 +3,72 @@
 // Parallel transcription worker pool and chunk processing logic.
 
 use super::engine::TranscriptionEngine;
-use super::provider::TranscriptionError;
+use super::provider::{TranscriptionError, TranscriptionProvider};
+use super::sherpa_stream::{SherpaStreamSession, StreamChunkResult, streaming_enabled};
 use crate::audio::AudioChunk;
 use log::{error, info, warn};
+use std::sync::Arc;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::Arc;
-use tauri::{AppHandle, Emitter, Runtime};
+use std::sync::Mutex;
+use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 // Sequence counter for transcript updates
 static SEQUENCE_COUNTER: AtomicU64 = AtomicU64::new(0);
+static LAST_AUDIO_END_TIME_BITS: AtomicU64 = AtomicU64::new(0);
 
 // Speech detection flag - reset per recording session
 static SPEECH_DETECTED_EMITTED: AtomicBool = AtomicBool::new(false);
 
+// v0.6.12+: 实时识别 latency 滚动采样 (50 样本 ring buffer)
+// 用 Mutex<[i64; 50]> 因为 std::sync::atomic::AtomicI64 数组 const init 没稳定 API
+static TIMING_LAST_EMIT_MS: AtomicU64 = AtomicU64::new(0);
+static TIMING_RING_HEAD: AtomicU64 = AtomicU64::new(0);  // 0..50 滚动索引
+static TIMING_RING_FILLS: AtomicU64 = AtomicU64::new(0); // 总填充数
+static TIMING_RING_DECODE: Mutex<[i64; 50]> = Mutex::new([0i64; 50]);
+static TIMING_RING_BUFFER_MS: Mutex<[i64; 50]> = Mutex::new([0i64; 50]);
+
 /// Reset the speech detected flag for a new recording session
 pub fn reset_speech_detected_flag() {
     SPEECH_DETECTED_EMITTED.store(false, Ordering::SeqCst);
+    LAST_AUDIO_END_TIME_BITS.store(0.0f64.to_bits(), Ordering::SeqCst);
     info!("🔍 SPEECH_DETECTED_EMITTED reset to: {}", SPEECH_DETECTED_EMITTED.load(Ordering::SeqCst));
+}
+
+/// v0.6.12+: 返回实时识别 streaming 延迟滚动统计 (50 样本 ring buffer)
+///   decode_avg_ms / p95 / max  = sherpa-onnx decode 耗时 (ms)
+///   buffer_avg_ms / p95 / max  = buffer 缓存时长
+///   samples                    = 已填充样本数 (最多 50)
+#[tauri::command]
+pub fn get_streaming_timing_stats() -> serde_json::Value {
+    let fills = TIMING_RING_FILLS.load(Ordering::SeqCst).min(50) as usize;
+    let ring_decode = TIMING_RING_DECODE.lock().map(|g| *g).unwrap_or([0i64; 50]);
+    let ring_buffer = TIMING_RING_BUFFER_MS.lock().map(|g| *g).unwrap_or([0i64; 50]);
+    let mut decode_samples: Vec<i64> = Vec::with_capacity(fills);
+    let mut buffer_samples: Vec<i64> = Vec::with_capacity(fills);
+    for i in 0..fills {
+        decode_samples.push(ring_decode[i]);
+        buffer_samples.push(ring_buffer[i]);
+    }
+    fn percentile(v: &[i64], p: f64) -> i64 {
+        if v.is_empty() { return 0; }
+        let mut s = v.to_vec(); s.sort_unstable();
+        let idx = ((p / 100.0) * (s.len() - 1) as f64) as usize;
+        s[idx]
+    }
+    fn avg(v: &[i64]) -> i64 {
+        if v.is_empty() { return 0; }
+        v.iter().sum::<i64>() / v.len() as i64
+    }
+    serde_json::json!({
+        "samples": fills,
+        "decode_avg_ms": avg(&decode_samples),
+        "decode_p95_ms": percentile(&decode_samples, 95.0),
+        "decode_max_ms": *decode_samples.iter().max().unwrap_or(&0),
+        "buffer_avg_ms": avg(&buffer_samples),
+        "buffer_p95_ms": percentile(&buffer_samples, 95.0),
+        "buffer_max_ms": *buffer_samples.iter().max().unwrap_or(&0),
+    })
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -63,6 +111,47 @@ pub fn start_transcription_task<R: Runtime>(
             }
         };
 
+        // v0.6.14+: 起 streaming session (如果开了 OFFLINE_HUIJI_STREAMING + Sherpa engine)
+        //   - 默认 false → streaming_session = None → 走原 transcribe_blocking (完全等价 v0.6.13)
+        //   - 开启 + Sherpa → 起 daemon stream_begin, 拿 session 给所有 worker
+        //   - 失败 fallback 到 None (不阻塞录音)
+        let streaming_session: Option<Arc<tokio::sync::Mutex<SherpaStreamSession>>> =
+            if streaming_enabled() && matches!(transcription_engine, TranscriptionEngine::Sherpa) {
+                let model_name = crate::api::api::api_get_transcript_config(
+                    app.clone(),
+                    app.clone().state(),
+                    None,
+                )
+                .await
+                .ok()
+                .flatten()
+                .map(|c| c.model)
+                .unwrap_or_else(crate::config::pick_default_sherpa_model);
+                // v0.6.15: 从 hotwords_globals 拿当前用户配置(避免 streaming 没接热词导致识别不准)
+                let hw_pack = crate::audio::hotwords_globals::current_pack();
+                let hw_custom_owned = crate::audio::hotwords_globals::current_custom_with_product_terms();
+                let hw_custom = hw_custom_owned.as_str();
+                if !hw_pack.is_empty() || !hw_custom.is_empty() {
+                    info!("🔥 streaming session 接热词: pack='{}' custom='{}'", hw_pack, hw_custom);
+                }
+                match SherpaStreamSession::begin(&model_name, hw_pack, hw_custom).await {
+                    Ok(sess) => {
+                        info!("🎙️ streaming session active: {} (model={})", sess.session_id(), model_name);
+                        let _ = app.emit("transcript-session-started", serde_json::json!({
+                            "session_id": sess.session_id(),
+                            "model": model_name,
+                        }));
+                        Some(Arc::new(tokio::sync::Mutex::new(sess)))
+                    }
+                    Err(e) => {
+                        warn!("⚠️ streaming session begin failed, fallback to blocking: {}", e);
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
         // Create parallel workers for faster processing while preserving ALL chunks
         const NUM_WORKERS: usize = 1; // Serial processing ensures transcripts emit in chronological order
         let (work_sender, work_receiver) = tokio::sync::mpsc::unbounded_channel::<AudioChunk>();
@@ -82,12 +171,15 @@ pub fn start_transcription_task<R: Runtime>(
                 TranscriptionEngine::Whisper(e) => TranscriptionEngine::Whisper(e.clone()),
                 TranscriptionEngine::Parakeet(e) => TranscriptionEngine::Parakeet(e.clone()),
                 TranscriptionEngine::Provider(p) => TranscriptionEngine::Provider(p.clone()),
+                // v0.6.12+: Sherpa 是全局 daemon, variant 只用于标识, 此处直接透传
+                TranscriptionEngine::Sherpa => TranscriptionEngine::Sherpa,
             };
             let app_clone = app.clone();
             let work_receiver_clone = work_receiver.clone();
             let chunks_completed_clone = chunks_completed.clone();
             let input_finished_clone = input_finished.clone();
             let chunks_queued_clone = chunks_queued.clone();
+            let streaming_session_clone = streaming_session.clone();  // v0.6.14+: 给每个 worker 持一份
 
             let worker_handle = tokio::spawn(async move {
                 info!("👷 Worker {} started", worker_id);
@@ -144,10 +236,12 @@ pub fn start_transcription_task<R: Runtime>(
                             let chunk_duration = chunk.data.len() as f64 / chunk.sample_rate as f64;
 
                             // Transcribe with provider-agnostic approach
+                            // v0.6.14+: 传 streaming_session_clone (默认 None = 原 blocking 路径)
                             match transcribe_chunk_with_provider(
                                 &engine_clone,
                                 chunk,
                                 &app_clone,
+                                streaming_session_clone.clone(),
                             )
                             .await
                             {
@@ -155,7 +249,8 @@ pub fn start_transcription_task<R: Runtime>(
                                     // Provider-aware confidence threshold
                                     let confidence_threshold = match &engine_clone {
                                         TranscriptionEngine::Whisper(_) | TranscriptionEngine::Provider(_) => 0.3,
-                                        TranscriptionEngine::Parakeet(_) => 0.0, // Parakeet has no confidence, accept all
+                                        // v0.6.12+: Sherpa + Parakeet 都无 confidence 输出, accept all
+                                        TranscriptionEngine::Parakeet(_) | TranscriptionEngine::Sherpa => 0.0,
                                     };
 
                                     let confidence_str = match confidence_opt {
@@ -193,8 +288,9 @@ pub fn start_transcription_task<R: Runtime>(
 
                                         // Generate sequence ID and calculate timestamps FIRST
                                         let sequence_id = SEQUENCE_COUNTER.fetch_add(1, Ordering::SeqCst);
-                                        let audio_start_time = chunk_timestamp; // Already in seconds from recording start
-                                        let audio_end_time = chunk_timestamp + chunk_duration;
+                            let audio_start_time = chunk_timestamp; // Already in seconds from recording start
+                            let audio_end_time = chunk_timestamp + chunk_duration;
+                            LAST_AUDIO_END_TIME_BITS.store(audio_end_time.to_bits(), Ordering::SeqCst);
 
                                         // Save structured transcript segment to recording manager (only final results)
                                         // Save ALL segments (partial and final) to ensure complete JSON
@@ -358,6 +454,59 @@ pub fn start_transcription_task<R: Runtime>(
             }
         }
 
+        // v0.6.14+: finalize streaming session
+        //   - workers 可能还持着 Arc clone, 所以 try_unwrap 大概率失败
+        //   - 实际设计: 让 workers 闭包在跑完 chunk 循环后自动释放 Arc clone
+        //   - 这里只 best-effort: 拿 Arc 强引用数, 等 1 后 finalize
+        if let Some(sess_arc) = streaming_session {
+            // 等最多 5 秒, 让 worker 闭包释放 Arc clone
+            let mut unique = false;
+            for _ in 0..50 {
+                let count = Arc::strong_count(&sess_arc);
+                if count == 1 { unique = true; break; }
+                drop(count);
+                tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            }
+            // 此时只有 sess_arc 一个持有者, 拿 session
+            if unique {
+            if let Ok(sess_mutex) = Arc::try_unwrap(sess_arc) {
+                let sess = sess_mutex.into_inner();
+                match sess.finalize().await {
+                    Ok(final_res) => {
+                        info!("🏁 streaming session finalized: delta='{}', segments={}",
+                              final_res.delta, final_res.segments_emitted);
+                        if !final_res.delta.trim().is_empty() {
+                            let sequence_id = SEQUENCE_COUNTER.fetch_add(1, Ordering::SeqCst);
+                            let audio_end_time = f64::from_bits(
+                                LAST_AUDIO_END_TIME_BITS.load(Ordering::SeqCst),
+                            );
+                            let audio_start_time = (audio_end_time - 1.0).max(0.0);
+                            let _ = app.emit("transcript-update", &TranscriptUpdate {
+                                text: final_res.delta.trim().to_string(),
+                                timestamp: format_current_timestamp(),
+                                source: "AudioStreaming".to_string(),
+                                sequence_id,
+                                chunk_start_time: audio_start_time,
+                                is_partial: false,
+                                confidence: 0.85,
+                                audio_start_time,
+                                audio_end_time,
+                                duration: audio_end_time - audio_start_time,
+                            });
+                        }
+                        let _ = app.emit("transcript-session-ended", serde_json::json!({
+                            "session_id": "finalized",
+                            "segments_emitted": final_res.segments_emitted,
+                        }));
+                    }
+                    Err(e) => warn!("⚠️ streaming finalize failed: {}", e),
+                }
+            } else {
+                warn!("⚠️ streaming session still held by worker, daemon will clean up on next stream_begin");
+            }
+            }  // 闭合 if unique
+        }  // 闭合 if let Some(sess_arc)
+
         // Final verification with retry logic to catch any stragglers
         let mut verification_attempts = 0;
         const MAX_VERIFICATION_ATTEMPTS: u32 = 10;
@@ -405,11 +554,19 @@ pub fn start_transcription_task<R: Runtime>(
 
 /// Transcribe audio chunk using the appropriate provider (Whisper, Parakeet, or trait-based)
 /// Returns: (text, confidence Option, is_partial)
+///
+/// v0.6.14+: `streaming_session` 可选 — Some 时走 streaming 路径(partial/delta emit),
+///           None 时走原 transcribe_blocking 路径(完全等价 v0.6.13)
 async fn transcribe_chunk_with_provider<R: Runtime>(
     engine: &TranscriptionEngine,
     chunk: AudioChunk,
     app: &AppHandle<R>,
+    streaming_session: Option<Arc<tokio::sync::Mutex<SherpaStreamSession>>>,
 ) -> std::result::Result<(String, Option<f32>, bool), TranscriptionError> {
+    // v0.6.14+: 提前抓 timestamp/duration(chunk.data 后面会被 move)
+    let chunk_timestamp = chunk.timestamp;
+    let chunk_duration = chunk.data.len() as f64 / chunk.sample_rate as f64;
+    let chunk_id = chunk.chunk_id;
     // Convert to 16kHz mono for transcription
     let transcription_data = if chunk.sample_rate != 16000 {
         crate::audio::audio_processing::resample_audio(&chunk.data, chunk.sample_rate, 16000)
@@ -444,6 +601,100 @@ async fn transcribe_chunk_with_provider<R: Runtime>(
 
     // Transcribe using the appropriate engine (with improved error handling)
     match engine {
+        // 离线会记 W2.5: sherpa-onnx daemon (subprocess), 走 SherpaProvider.transcribe
+        // v0.6.14+: 如果传了 streaming_session, 走 streaming 路径; 否则走原 blocking 路径
+        // streaming 路径特性:
+        //   - 每个 chunk push 后立即拿 partial/delta
+        //   - partial → emit "transcript-partial" event (UI 显示灰色预览)
+        //   - delta → 作为 final 段 emit "transcript-update" event
+        //   - 任何错误立即 fallback 到 blocking 路径(不影响录音)
+        TranscriptionEngine::Sherpa => {
+            // v0.6.14+: streaming 路径
+            if let Some(sess_arc) = &streaming_session {
+                let sess_arc = sess_arc.clone();
+                let audio_for_stream = speech_samples.clone();
+                let stream_result: Result<StreamChunkResult, String> = async {
+                    let sess = sess_arc.lock().await;
+                    sess.push(audio_for_stream).await
+                }.await;
+                match stream_result {
+                    Ok(streamed) => {
+                        // partial: emit "transcript-partial" event 给 UI(灰色预览, 流式)
+                        // 字段名跟 transcriptService.onTranscriptPartial 契约一致
+                        if !streamed.partial.is_empty() {
+                            let _ = app.emit("transcript-partial", &serde_json::json!({
+                                "chunk_id": chunk_id,
+                                "text": streamed.partial,
+                                "delta": streamed.delta,  // v0.6.14+: 让前端能用 delta 触发 final flush
+                                "is_endpoint": streamed.is_endpoint,
+                                "is_partial": true,
+                                "audio_start_time": chunk_timestamp,
+                                "audio_end_time": chunk_timestamp + chunk_duration,
+                            }));
+                        }
+                        // delta: 当作 final 段 emit transcript-update
+                        let cleaned = streamed.delta.trim().to_string();
+                        if !cleaned.is_empty() {
+                            info!(
+                                "Sherpa streaming delta for chunk {}: '{}'",
+                                chunk.chunk_id, cleaned
+                            );
+                            return Ok((cleaned, Some(0.85), false));
+                        }
+                        // 没 delta 但也没报错 → 跳过(下个 chunk 再出)
+                        return Ok((String::new(), Some(0.85), streamed.is_endpoint));
+                    }
+                    Err(e) => {
+                        warn!(
+                            "Sherpa streaming failed for chunk {}: {}, fallback to blocking",
+                            chunk.chunk_id, e
+                        );
+                        // fallthrough 到 blocking 路径
+                    }
+                }
+            }
+            // 离线会记 W2.5 blocking 路径 (默认 / streaming fallback)
+            let language = crate::get_language_preference_internal();
+            let model_name = crate::api::api::api_get_transcript_config(
+                app.clone(),
+                app.clone().state(),
+                None,
+            )
+            .await
+            .ok()
+            .flatten()
+            .map(|c| c.model)
+            .unwrap_or_else(crate::config::pick_default_sherpa_model);
+            let provider = crate::audio::transcription::SherpaProvider::new(model_name);
+            match provider.transcribe(speech_samples, language.clone()).await {
+                Ok(result) => {
+                    let cleaned_text = result.text.trim().to_string();
+                    if cleaned_text.is_empty() {
+                        return Ok((String::new(), result.confidence, result.is_partial));
+                    }
+                    info!(
+                        "Sherpa transcription complete for chunk {}: '{}'",
+                        chunk.chunk_id, cleaned_text
+                    );
+                    Ok((cleaned_text, result.confidence, result.is_partial))
+                }
+                Err(e) => {
+                    error!(
+                        "Sherpa transcription failed for chunk {}: {}",
+                        chunk.chunk_id, e
+                    );
+                    let _ = app.emit(
+                        "transcription-error",
+                        &serde_json::json!({
+                            "error": e.to_string(),
+                            "userMessage": format!("Transcription failed: {}", e),
+                            "actionable": false
+                        }),
+                    );
+                    Err(e)
+                }
+            }
+        }
         TranscriptionEngine::Whisper(whisper_engine) => {
             // Get language preference from global state
             let language = crate::get_language_preference_internal();

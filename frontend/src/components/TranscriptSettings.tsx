@@ -5,12 +5,17 @@ import { Input } from './ui/input';
 import { Button } from './ui/button';
 import { Label } from './ui/label';
 import { Eye, EyeOff, Lock, Unlock } from 'lucide-react';
-import { ModelManager } from './WhisperModelManager';
+import { useTranslation } from '@/i18n';
+import { toast } from 'sonner';
+import { safeToast } from '@/lib/safeToast';
+
+// W2.5: WhisperModelManager 已不需要 — Whisper 完全删除
+// import { ModelManager } from './WhisperModelManager';
 import { ParakeetModelManager } from './ParakeetModelManager';
 
 
 export interface TranscriptModelProps {
-    provider: 'localWhisper' | 'parakeet' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai';
+    provider: 'localWhisper' | 'parakeet' | 'deepgram' | 'elevenLabs' | 'groq' | 'openai' | 'sherpa_paraformer' | 'sherpa_funasr_nano';  // 离线会记 W2.5: 加 sherpa
     model: string;
     apiKey?: string | null;
 }
@@ -21,7 +26,12 @@ export interface TranscriptSettingsProps {
     onModelSelect?: () => void;
 }
 
-export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelConfig, onModelSelect }: TranscriptSettingsProps) {
+export function TranscriptSettings({
+    transcriptModelConfig,
+    setTranscriptModelConfig,
+    onModelSelect,
+  }: TranscriptSettingsProps) {
+  const { t } = useTranslation();
     const [apiKey, setApiKey] = useState<string | null>(transcriptModelConfig.apiKey || null);
     const [showApiKey, setShowApiKey] = useState<boolean>(false);
     const [isApiKeyLocked, setIsApiKeyLocked] = useState<boolean>(true);
@@ -50,13 +60,17 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
             setApiKey(null);
         }
     };
-    const modelOptions = {
+    const modelOptions: Record<string, string[]> = {
         localWhisper: [], // Model selection handled by ModelManager component
         parakeet: [], // Model selection handled by ParakeetModelManager component
         deepgram: ['nova-2-phonecall'],
         elevenLabs: ['eleven_multilingual_v2'],
         groq: ['llama-3.3-70b-versatile'],
         openai: ['gpt-4o'],
+        // W2.5: sherpa 模型选择由 WhisperModelManager / sherpa daemon 处理, 不需要这里列
+        sherpa_paraformer: [],
+        // v0.6.10+: 加 funasr-nano-zh 作为可选 (实验性), 用户切时弹窗告知评测数据不达标
+        sherpa_funasr_nano: ['sense-voice-zh-int8', 'funasr-nano-zh'],
     };
     const requiresApiKey = transcriptModelConfig.provider === 'deepgram' || transcriptModelConfig.provider === 'elevenLabs' || transcriptModelConfig.provider === 'openai' || transcriptModelConfig.provider === 'groq';
 
@@ -99,7 +113,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
         <div>
             <div>
                 {/* <div className="flex justify-between items-center mb-4">
-                    <h3 className="text-lg font-semibold text-gray-900">Transcript Settings</h3>
+                    <h3 className="text-lg font-semibold text-gray-900">转录设置</h3>
                 </div> */}
                 <div className="space-y-4 pb-6">
                     <div>
@@ -118,11 +132,14 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                 }}
                             >
                                 <SelectTrigger className='focus:ring-1 focus:ring-blue-500 focus:border-blue-500'>
-                                    <SelectValue placeholder="Select provider" />
+                                    <SelectValue placeholder="选择 provider" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="parakeet">⚡ Parakeet (Recommended - Real-time / Accurate)</SelectItem>
-                                    <SelectItem value="localWhisper">🏠 Local Whisper (High Accuracy)</SelectItem>
+                                    {/* 离线会记 W2.5: 默认推荐 SenseVoice, Whisper 已删除 */}
+                                    <SelectItem value="sherpa_funasr_nano">✨ SenseVoice-zh (推荐 · 23 段)</SelectItem>
+                                    <SelectItem value="sherpa_paraformer">🐉 Paraformer-zh (备选 · 10 段)</SelectItem>
+                                    <SelectItem value="parakeet">⚡ Parakeet (旧推荐 · 实测不如 SenseVoice)</SelectItem>
+                                    {/* Whisper 已删除 (W2.5) */}
                                     {/* <SelectItem value="deepgram">☁️ Deepgram (Backup)</SelectItem>
                                     <SelectItem value="elevenLabs">☁️ ElevenLabs</SelectItem>
                                     <SelectItem value="groq">☁️ Groq</SelectItem>
@@ -130,16 +147,36 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                 </SelectContent>
                             </Select>
 
-                            {uiProvider !== 'localWhisper' && uiProvider !== 'parakeet' && (
+                            {/* model list 为空时 (sherpa/无 cloud key) 不渲染空 select, 改用提示卡片 */}
+                            {uiProvider !== 'localWhisper' && uiProvider !== 'parakeet' && modelOptions[uiProvider]?.length > 0 && (
                                 <Select
                                     value={transcriptModelConfig.model}
                                     onValueChange={(value) => {
+                                        // v0.6.10+: 切到 FunASR-Nano (实验性) 时弹窗告知评测数据
+                                        if (value === 'funasr-nano-zh') {
+                                            // 来自 /benchmarks/asr/reports/model-decision.json (5 段法律 + 5 段医疗标准文本)
+                                            safeToast.warning('切换到 FunASR-Nano (实验性)?', {
+                                                description: '我们的内部评测显示: Nano CER 相对 +2.36% (不达 10% 准入), 术语召回 89.46% (低于 90% 门槛), 解码慢 6.04 倍 (远超 3 倍门槛). 切到这个模型不会让识别更好, 反而更慢, 仅供你技术验证.',
+                                                duration: 10000,
+                                                action: {
+                                                    label: '我已知晓, 切到 Nano',
+                                                    onClick: () => {
+                                                        setTranscriptModelConfig({ ...transcriptModelConfig, provider: uiProvider, model: 'funasr-nano-zh' });
+                                                    }
+                                                },
+                                                cancel: {
+                                                    label: '取消',
+                                                    onClick: () => {}
+                                                }
+                                            });
+                                            return;
+                                        }
                                         const model = value as TranscriptModelProps['model'];
                                         setTranscriptModelConfig({ ...transcriptModelConfig, provider: uiProvider, model });
                                     }}
                                 >
                                     <SelectTrigger className='focus:ring-1 focus:ring-blue-500 focus:border-blue-500'>
-                                        <SelectValue placeholder="Select model" />
+                                        <SelectValue placeholder="选择 model" />
                                     </SelectTrigger>
                                     <SelectContent>
                                         {modelOptions[uiProvider].map((model) => (
@@ -152,14 +189,66 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                         </div>
                     </div>
 
+                    {/* W2.5: Whisper 已删除, WhisperModelManager 不再渲染 */}
                     {uiProvider === 'localWhisper' && (
-                        <div className="mt-6">
-                            <ModelManager
-                                selectedModel={transcriptModelConfig.provider === 'localWhisper' ? transcriptModelConfig.model : undefined}
-                                onModelSelect={handleWhisperModelSelect}
-                                autoSave={true}
-                            />
+                        <div className="mt-6 p-4 bg-gray-50 rounded-lg">
+                            <p className="text-sm text-gray-700">
+                                ⚠️ Whisper 已在 v0.5 中移除, 完全被 SenseVoice-zh INT8 替代 (23 段按句切, 中文 SOTA)。
+                                请切换到 ✨ SenseVoice-zh INT8 (上方选项)。
+                            </p>
                         </div>
+                    )}
+
+                    {(uiProvider === 'sherpa_funasr_nano' || uiProvider === 'sherpa_paraformer') && (
+                        <div className="mt-6 p-4 bg-blue-50 rounded-lg">
+                            <p className="text-sm text-blue-900">
+                                ✅ sherpa-onnx 模型自动从 <code className="bg-white px-1 rounded">~/Library/Application Support/cn.lixianhuiji.app/models/sherpa/</code> 加载,
+                                无需额外下载。当前已安装: SenseVoice-zh INT8 (228MB) + Paraformer-zh INT8 (217MB)。
+                            </p>
+                            <p className="text-xs text-blue-700 mt-2">
+                                模型由 daemon 自动发现, 切到 ✨ SenseVoice-zh 立即可用。
+                            </p>
+                        </div>
+                    )}
+
+                    {/* v0.6.10+: FunASR-Nano 评测数据透明化 - 让用户知道为什么 Nano 不是默认 */}
+                    {uiProvider === 'sherpa_funasr_nano' && (
+                        <details className="mt-4 text-xs">
+                            <summary className="cursor-pointer text-neutral-600 hover:text-neutral-900 font-medium">
+                                📊 FunASR-Nano 评测数据 (5 段法律 + 5 段医疗标准文本)
+                            </summary>
+                            <div className="mt-3 p-3 bg-neutral-50 rounded-lg border border-neutral-200 space-y-2 text-neutral-700">
+                                <div className="flex items-center justify-between">
+                                    <span>CER (字错率):</span>
+                                    <span className="font-mono">
+                                        <span className="text-blue-700">SenseVoice 5.67%</span>
+                                        {' vs '}
+                                        <span className="text-neutral-500">Nano 5.54% (+2.36%)</span>
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span>行业术语召回:</span>
+                                    <span className="font-mono">
+                                        <span className="text-blue-700">SenseVoice 81.4%</span>
+                                        {' vs '}
+                                        <span className="text-amber-700">Nano 89.5% (↑但低于 90% 门槛)</span>
+                                    </span>
+                                </div>
+                                <div className="flex items-center justify-between">
+                                    <span>解码耗时 (avg):</span>
+                                    <span className="font-mono">
+                                        <span className="text-blue-700">SenseVoice 375ms</span>
+                                        {' vs '}
+                                        <span className="text-red-700">Nano 2264ms (6.04x ↑)</span>
+                                    </span>
+                                </div>
+                                <p className="pt-2 border-t border-neutral-200 text-neutral-600">
+                                    准入门槛: CER ≥10% 改善, 术语召回 ≥90%, 解码 ≤3x 慢。
+                                    三个指标 Nano <strong>均未达标</strong>, 故保持 SenseVoice 默认。
+                                    评测脚本: <code>node benchmarks/asr/compare.mjs</code>。
+                                </p>
+                            </div>
+                        </details>
                     )}
 
                     {uiProvider === 'parakeet' && (
@@ -187,7 +276,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                     onChange={(e) => setApiKey(e.target.value)}
                                     disabled={isApiKeyLocked}
                                     onClick={handleInputClick}
-                                    placeholder="Enter your API key"
+                                    placeholder={t('settings.api_key_placeholder')}
                                 />
                                 {isApiKeyLocked && (
                                     <div
@@ -203,7 +292,7 @@ export function TranscriptSettings({ transcriptModelConfig, setTranscriptModelCo
                                         onClick={() => setIsApiKeyLocked(!isApiKeyLocked)}
                                         className={`transition-colors duration-200 ${isLockButtonVibrating ? 'animate-vibrate text-red-500' : ''
                                             }`}
-                                        title={isApiKeyLocked ? "Unlock to edit" : "Lock to prevent editing"}
+                                        title={isApiKeyLocked ? t('settings.unlock_to_edit') : t('settings.lock_to_edit')}
                                     >
                                         {isApiKeyLocked ? <Lock className="h-4 w-4" /> : <Unlock className="h-4 w-4" />}
                                     </Button>

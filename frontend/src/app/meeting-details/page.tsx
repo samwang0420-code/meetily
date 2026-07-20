@@ -6,6 +6,7 @@ import PageContent from "./page-content";
 import { useRouter, useSearchParams } from "next/navigation";
 import Analytics from "@/lib/analytics";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 import { LoaderIcon } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import { usePaginatedTranscripts } from "@/hooks/usePaginatedTranscripts";
@@ -181,12 +182,35 @@ function MeetingDetailsContent() {
     };
   }, [meetingId, stopSummaryPolling]);
 
+  // A recording first produces a live draft, then replaces it with the
+  // file-based retranscription. Refresh the visible source of truth when the
+  // final pass completes instead of leaving the meeting on the draft text.
+  useEffect(() => {
+    if (!meetingId) return;
+    let unlisten: (() => void) | undefined;
+    let active = true;
+
+    listen<{ meeting_id: string }>('retranscription-complete', async (event) => {
+      if (active && event.payload.meeting_id === meetingId) {
+        await refetch();
+      }
+    }).then(fn => {
+      if (active) unlisten = fn;
+      else fn();
+    });
+
+    return () => {
+      active = false;
+      unlisten?.();
+    };
+  }, [meetingId, refetch]);
+
   useEffect(() => {
     console.log('MeetingDetails useEffect triggered - meetingId:', meetingId);
 
     if (!meetingId || meetingId === 'intro-call') {
       console.warn('No valid meeting ID in URL - meetingId:', meetingId);
-      setError("No meeting selected");
+      setError("否 meeting selected");
       setIsLoading(false);
       Analytics.trackPageView('meeting_details');
       return;

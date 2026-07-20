@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useTranslation } from '@/i18n';
 import { Globe, Pin } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { LanguagePickerPopover } from '@/components/LanguagePickerPopover';
@@ -8,6 +9,7 @@ import { useRecentLanguages } from '@/hooks/useRecentLanguages';
 import { labelForCode } from '@/lib/summary-languages';
 
 export function SummaryLanguageSettings() {
+  const { t } = useTranslation();
   const { recents, pinned, addRecent, removeRecent, setPinned } = useRecentLanguages();
   const [pickerOpen, setPickerOpen] = useState(false);
 
@@ -19,7 +21,7 @@ export function SummaryLanguageSettings() {
     <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm relative">
       <div className="flex items-center gap-2 mb-2">
         <Globe size={18} className="text-gray-500" />
-        <h3 className="text-lg font-semibold text-gray-900">Summary Language</h3>
+        <h3 className="text-lg font-semibold text-gray-900">摘要语言</h3>
       </div>
       <p className="text-sm text-gray-600 mb-4">
         Pin one language as the default for new meetings. Unpinned languages remain as
@@ -42,7 +44,7 @@ export function SummaryLanguageSettings() {
                 type="button"
                 aria-label={isPinned ? `Unpin ${labelForCode(code)} as default` : `Pin ${labelForCode(code)} as default`}
                 aria-pressed={isPinned}
-                title={isPinned ? 'Click to unset as default' : 'Click to set as default'}
+                title={isPinned ? t('language_picker.unset_default') : t('language_picker.set_default')}
                 onClick={() => togglePin(code)}
                 className={`flex items-center gap-1.5 pl-3 pr-2 py-1 hover:brightness-95 active:brightness-90 ${
                   isPinned ? 'text-blue-800' : 'text-gray-800'
@@ -57,7 +59,7 @@ export function SummaryLanguageSettings() {
               </button>
               <button
                 type="button"
-                aria-label={`Remove ${labelForCode(code)}`}
+                aria-label={`移除 ${labelForCode(code)}`}
                 onClick={() => removeRecent(code)}
                 className={`pr-2.5 pl-0.5 py-1 leading-none ${isPinned ? 'text-blue-400 hover:text-blue-700' : 'text-gray-400 hover:text-gray-700'}`}
               >

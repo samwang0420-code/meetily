@@ -1,8 +1,10 @@
+import { useTranslation } from '@/i18n';
 'use client';
 
 import { useEffect, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { toast } from 'sonner';
+import { safeToast } from '@/lib/safeToast';
 import { Database, AlertCircle, Loader2, CheckCircle2 } from 'lucide-react';
 
 interface HomebrewDatabaseDetectorProps {
@@ -12,14 +14,15 @@ interface HomebrewDatabaseDetectorProps {
 
 // Homebrew paths differ between Intel and Apple Silicon Macs
 const HOMEBREW_PATHS = [
-  '/opt/homebrew/var/meetily/meeting_minutes.db',  // Apple Silicon (M1/M2/M3)
+  '/opt/Homebrew/var/meetily/meeting_minutes.db',  // Apple Silicon (M1/M2/M3)
   '/usr/local/var/meetily/meeting_minutes.db',      // Intel Macs
 ];
 
 export function HomebrewDatabaseDetector({ onImportSuccess, onDecline }: HomebrewDatabaseDetectorProps) {
+  const { t } = useTranslation();
   const [isChecking, setIsChecking] = useState(true);
   const [isImporting, setIsImporting] = useState(false);
-  const [homebrewDbExists, setHomebrewDbExists] = useState(false);
+  const [HomebrewDbExists, setHomebrewDbExists] = useState(false);
   const [dbSize, setDbSize] = useState<number>(0);
   const [detectedPath, setDetectedPath] = useState<string>('');
   const [isDismissed, setIsDismissed] = useState(false);
@@ -34,7 +37,7 @@ export function HomebrewDatabaseDetector({ onImportSuccess, onDecline }: Homebre
 
       // Check all possible Homebrew locations
       for (const path of HOMEBREW_PATHS) {
-        const result = await invoke<{ exists: boolean; size: number } | null>('check_homebrew_database', {
+        const result = await invoke<{ exists: boolean; size: number } | null>('check_Homebrew_database', {
           path,
         });
 
@@ -46,7 +49,7 @@ export function HomebrewDatabaseDetector({ onImportSuccess, onDecline }: Homebre
         }
       }
     } catch (error) {
-      console.error('Error checking homebrew database:', error);
+      console.error('Error checking Homebrew database:', error);
       // Silently fail - this is just auto-detection
     } finally {
       setIsChecking(false);
@@ -61,7 +64,7 @@ export function HomebrewDatabaseDetector({ onImportSuccess, onDecline }: Homebre
         legacyDbPath: detectedPath,
       });
 
-      toast.success('Database imported successfully! Reloading...');
+      safeToast.success('Database imported successfully! Reloading...');
 
       // Wait 1 second for user to see success, then reload window to refresh all data
       setTimeout(() => {
@@ -69,7 +72,7 @@ export function HomebrewDatabaseDetector({ onImportSuccess, onDecline }: Homebre
       }, 1000);
     } catch (error) {
       console.error('Error importing database:', error);
-      toast.error(`Import failed: ${error}`);
+      safeToast.error(`导入 failed: ${error}`);
       setIsImporting(false);
     }
   };
@@ -79,7 +82,7 @@ export function HomebrewDatabaseDetector({ onImportSuccess, onDecline }: Homebre
     onDecline();
   };
 
-  if (isChecking || !homebrewDbExists || isDismissed) {
+  if (isChecking || !HomebrewDbExists || isDismissed) {
     return null;
   }
 
@@ -125,12 +128,12 @@ export function HomebrewDatabaseDetector({ onImportSuccess, onDecline }: Homebre
               {isImporting ? (
                 <>
                   <Loader2 className="h-4 w-4 animate-spin" />
-                  <span>Importing...</span>
+                  <span>{t('common.importing')}</span>
                 </>
               ) : (
                 <>
                   <CheckCircle2 className="h-4 w-4" />
-                  <span>Yes, Import</span>
+                  <span>{t('common.yes_import')}</span>
                 </>
               )}
             </button>

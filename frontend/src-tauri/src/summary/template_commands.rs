@@ -14,6 +14,9 @@ pub struct TemplateInfo {
 
     /// Brief description of the template's purpose
     pub description: String,
+
+    /// v0.7.0+: "free" / "member" — 告诉前端此模板是否需要 Pro
+    pub required_tier: String,
 }
 
 /// Detailed template structure for preview/debugging
@@ -42,21 +45,25 @@ pub struct TemplateDetails {
 #[tauri::command]
 pub async fn api_list_templates<R: Runtime>(
     _app: tauri::AppHandle<R>,
+    user_tier: Option<String>,
 ) -> Result<Vec<TemplateInfo>, String> {
-    info!("api_list_templates called");
+    info!("api_list_templates called, user_tier={:?}", user_tier);
 
-    let templates = templates::list_templates();
+    let tier = user_tier.as_deref().unwrap_or("free");
+    // v0.7.0+: 按 tier 过滤, free 用户看不到 member 模板
+    let templates = templates::list_templates_for_tier(tier);
 
     let template_infos: Vec<TemplateInfo> = templates
         .into_iter()
-        .map(|(id, name, description)| TemplateInfo {
+        .map(|(id, name, description, required_tier)| TemplateInfo {
             id,
             name,
             description,
+            required_tier,
         })
         .collect();
 
-    info!("Found {} available templates", template_infos.len());
+    info!("Found {} templates for tier={}", template_infos.len(), tier);
 
     Ok(template_infos)
 }
@@ -72,10 +79,16 @@ pub async fn api_list_templates<R: Runtime>(
 pub async fn api_get_template_details<R: Runtime>(
     _app: tauri::AppHandle<R>,
     template_id: String,
+    user_tier: Option<String>,
 ) -> Result<TemplateDetails, String> {
     info!("api_get_template_details called for template_id: {}", template_id);
 
+    // v0.7.0+: member 模板对 free 用户返 forbidden
     let template = templates::get_template(&template_id)?;
+    let tier = user_tier.as_deref().unwrap_or("free");
+    if !template.is_available_for(tier) {
+        return Err(format!("template_requires_member: {}", template_id));
+    }
 
     let section_titles: Vec<String> = template
         .sections
@@ -89,6 +102,7 @@ pub async fn api_get_template_details<R: Runtime>(
         description: template.description,
         sections: section_titles,
     };
+    let _ = template.required_tier; // 未来可在 TemplateDetails 加 required_tier 字段
 
     info!("Retrieved template details for '{}'", details.name);
 

@@ -1,7 +1,7 @@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ModelConfig, ModelSettingsModal } from "./ModelSettingsModal"
 import { TranscriptModelProps, TranscriptSettings } from "./TranscriptSettings"
-import { RecordingSettings, RecordingPreferences } from "./RecordingSettings"
+import { RecordingSettings, Recording偏好设置 } from "./RecordingSettings"
 import { About } from "./About";
 
 interface SettingTabsProps {
@@ -33,11 +33,20 @@ export function SettingTabs({
     return (
         <Tabs defaultValue={defaultTab} className="w-full max-h-[calc(100vh-10rem)] overflow-y-auto" onValueChange={handleTabChange}>
   <TabsList>
-    <TabsTrigger value="transcriptSettings">Transcript</TabsTrigger>
-    <TabsTrigger value="modelSettings">Ai Summary</TabsTrigger>
-    <TabsTrigger value="recordingSettings">Preferences</TabsTrigger>
-    <TabsTrigger value="about">About</TabsTrigger>
+    <TabsTrigger value="transcriptSettings">转录文本</TabsTrigger>
+    <TabsTrigger value="modelSettings">AI 总结</TabsTrigger>
+    <TabsTrigger value="recordingSettings">偏好设置</TabsTrigger>
+    <TabsTrigger value="hotwords">热词</TabsTrigger>
+    <TabsTrigger value="about">关于</TabsTrigger>
   </TabsList>
+
+  <TabsContent value="hotwords">
+    <div className="p-4 bg-white border border-gray-200 rounded-lg">
+      <p className="text-sm text-gray-700 mb-3">启用热词词库, 让 ASR 更准确识别专业术语。</p>
+      <a href="/settings/hotwords" className="text-blue-600 hover:underline text-sm">打开热词设置 →</a>
+    </div>
+  </TabsContent>
+
   <TabsContent value="modelSettings">
     <ModelSettingsModal
 

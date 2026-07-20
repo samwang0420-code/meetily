@@ -96,6 +96,46 @@ pub fn normalize_v2(audio: &[f32]) -> Vec<f32> {
         .collect()
 }
 
+/// Prepare decoded mono audio for offline speech recognition.
+///
+/// This deliberately stays conservative: it removes DC/low-frequency rumble
+/// and raises quiet recordings without hard clipping, but does not apply an
+/// aggressive denoiser that could erase consonants or short words.
+pub fn prepare_for_asr_16k(samples: &[f32]) -> Vec<f32> {
+    if samples.is_empty() {
+        return Vec::new();
+    }
+
+    let mut high_pass = HighPassFilter::new(16_000, 80.0);
+    let filtered = high_pass.process(samples);
+    let peak = filtered
+        .iter()
+        .filter(|sample| sample.is_finite())
+        .map(|sample| sample.abs())
+        .fold(0.0f32, f32::max);
+    let rms = (filtered.iter().map(|sample| sample * sample).sum::<f32>()
+        / filtered.len() as f32)
+        .sqrt();
+
+    if peak <= f32::EPSILON || rms <= f32::EPSILON {
+        return filtered;
+    }
+
+    // Only boost genuinely quiet recordings; never amplify normal/noisy audio.
+    let gain = if rms < 0.035 {
+        (0.12 / rms).min(3.0)
+    } else {
+        1.0
+    };
+    let peak_gain = 0.92 / peak;
+    let gain = gain.min(peak_gain).max(0.25);
+
+    filtered
+        .into_iter()
+        .map(|sample| (sample * gain).clamp(-0.98, 0.98))
+        .collect()
+}
+
 /// True peak limiter with lookahead buffer (prevents clipping)
 struct TruePeakLimiter {
     lookahead_samples: usize,
@@ -305,9 +345,12 @@ impl NoiseSuppressionProcessor {
             output.extend_from_slice(&denoised_frame);
         }
 
-        // Return processed output without forcing length matching
-        // Frame-based processing naturally creates variable-length output
-        // Downstream pipeline handles this correctly via ring buffer
+        // Preserve input length. Dropping a partial frame here shifts timestamps
+        // and loses the tail of every live chunk that is not frame-aligned.
+        if output.len() < input_len {
+            let remaining = self.frame_buffer.clone();
+            output.extend_from_slice(&remaining[..remaining.len().min(input_len - output.len())]);
+        }
         output
     }
 

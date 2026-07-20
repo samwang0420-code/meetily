@@ -62,7 +62,7 @@ export function TranscriptPanel({
                     variant="outline"
                     size="sm"
                     onClick={copyTranscript}
-                    title="Copy Transcript"
+                    title="Copy 转录文本"
                   >
                     <Copy />
                     <span className='hidden md:inline'>
@@ -75,7 +75,7 @@ export function TranscriptPanel({
                     variant="outline"
                     size="sm"
                     onClick={() => showModal('languageSettings')}
-                    title="Language"
+                    title="语言"
                   >
                     <GlobeIcon />
                     <span className='hidden md:inline'>

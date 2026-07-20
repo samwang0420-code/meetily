@@ -38,7 +38,7 @@ export const ConfidenceIndicator: React.FC<ConfidenceIndicatorProps> = ({
     <div
       className="flex items-center gap-1"
       title={`${confidencePercent}% confidence - ${label}`}
-      aria-label={`Transcription confidence: ${confidencePercent}%`}
+      aria-label={`转录文本ion confidence: ${confidencePercent}%`}
     >
       <div
         className={`w-2 h-2 rounded-full ${colorClass} transition-colors duration-200`}

@@ -95,11 +95,27 @@ impl RecordingSaver {
     /// Also saves incrementally to disk
     pub fn add_transcript_segment(&self, segment: TranscriptSegment) {
         if let Ok(mut segments) = self.transcript_segments.lock() {
-            // Check if segment with same sequence_id exists (update it)
-            if let Some(existing) = segments.iter_mut().find(|s| s.sequence_id == segment.sequence_id) {
-                *existing = segment.clone();
+            // v0.6.11+ bug fix: 双层去重 (sequence_id OR audio time range)
+            // - sequence_id 主: 同一段文本被重发时 update
+            // - (start, end) 副: 多次录音累积的泄漏 listener 推送, 同一时间范围只保留第一次
+            let dup_by_seq = segments.iter().position(|s| s.sequence_id == segment.sequence_id);
+            let dup_by_time = if dup_by_seq.is_none() {
+                segments.iter().position(|s| {
+                    (s.audio_start_time - segment.audio_start_time).abs() < 0.05
+                        && (s.audio_end_time - segment.audio_end_time).abs() < 0.05
+                })
+            } else {
+                None
+            };
+
+            if let Some(idx) = dup_by_seq {
+                segments[idx] = segment.clone();
                 info!("Updated transcript segment {} (seq: {}) - total segments: {}",
                       segment.id, segment.sequence_id, segments.len());
+            } else if let Some(idx) = dup_by_time {
+                warn!("DEDUP-time: skipping transcript {} ({:.2}-{:.2}s), existing seq={}",
+                      segment.id, segment.audio_start_time, segment.audio_end_time,
+                      segments[idx].sequence_id);
             } else {
                 // New segment, add it
                 segments.push(segment.clone());
@@ -481,5 +497,55 @@ impl RecordingSaver {
 impl Default for RecordingSaver {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+
+#[cfg(test)]
+mod dedup_tests {
+    use super::*;
+
+    fn make_saver() -> RecordingSaver {
+        RecordingSaver::new()
+    }
+
+    fn make_seg(id: &str, seq: u64, start: f64, end: f64) -> TranscriptSegment {
+        TranscriptSegment {
+            id: id.to_string(),
+            text: format!("text-{}", id),
+            audio_start_time: start,
+            audio_end_time: end,
+            duration: end - start,
+            display_time: "[00:00]".to_string(),
+            confidence: 0.85,
+            sequence_id: seq,
+        }
+    }
+
+    #[test]
+    fn test_dedup_by_sequence_id() {
+        let saver = make_saver();
+        saver.add_transcript_segment(make_seg("seg_0", 0, 1.0, 5.0));
+        saver.add_transcript_segment(make_seg("seg_0", 0, 1.0, 5.0));
+        let count = saver.transcript_segments.lock().unwrap().len();
+        assert_eq!(count, 1, "should dedup by sequence_id");
+    }
+
+    #[test]
+    fn test_dedup_by_time_range_50ms() {
+        let saver = make_saver();
+        saver.add_transcript_segment(make_seg("seg_0", 0, 1.0, 5.0));
+        saver.add_transcript_segment(make_seg("seg_1", 1, 1.01, 5.02));
+        let count = saver.transcript_segments.lock().unwrap().len();
+        assert_eq!(count, 1, "should dedup by time range < 50ms tolerance");
+    }
+
+    #[test]
+    fn test_allow_different_time_ranges() {
+        let saver = make_saver();
+        saver.add_transcript_segment(make_seg("seg_0", 0, 1.0, 5.0));
+        saver.add_transcript_segment(make_seg("seg_1", 1, 5.0, 10.0));
+        let count = saver.transcript_segments.lock().unwrap().len();
+        assert_eq!(count, 2, "should allow non-overlapping segments");
     }
 }

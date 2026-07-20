@@ -13,9 +13,10 @@ use tauri::{AppHandle, Manager, Runtime};
 
 // Transcription engine abstraction to support multiple providers
 pub enum TranscriptionEngine {
-    Whisper(Arc<crate::whisper_engine::WhisperEngine>),  // Direct access (backward compat)
-    Parakeet(Arc<crate::parakeet_engine::ParakeetEngine>), // Direct access (backward compat)
-    Provider(Arc<dyn TranscriptionProvider>),  // Trait-based (preferred for new code)
+    Whisper(Arc<crate::whisper_engine::WhisperEngine>),
+    Parakeet(Arc<crate::parakeet_engine::ParakeetEngine>),
+    Sherpa,  // 离线会记 W2.5: sherpa-onnx daemon (subprocess), 单例全局
+    Provider(Arc<dyn TranscriptionProvider>),
 }
 
 impl TranscriptionEngine {
@@ -24,6 +25,7 @@ impl TranscriptionEngine {
         match self {
             Self::Whisper(engine) => engine.is_model_loaded().await,
             Self::Parakeet(engine) => engine.is_model_loaded().await,
+            Self::Sherpa => true,  // sherpa daemon 是 lazy-start, 永远 ready
             Self::Provider(provider) => provider.is_model_loaded().await,
         }
     }
@@ -33,6 +35,7 @@ impl TranscriptionEngine {
         match self {
             Self::Whisper(engine) => engine.get_current_model().await,
             Self::Parakeet(engine) => engine.get_current_model().await,
+            Self::Sherpa => Some("sherpa-onnx (daemon)".to_string()),
             Self::Provider(provider) => provider.get_current_model().await,
         }
     }
@@ -42,6 +45,7 @@ impl TranscriptionEngine {
         match self {
             Self::Whisper(_) => "Whisper (direct)",
             Self::Parakeet(_) => "Parakeet (direct)",
+            Self::Sherpa => "Sherpa-onnx (daemon)",
             Self::Provider(provider) => provider.provider_name(),
         }
     }
@@ -135,10 +139,32 @@ pub async fn validate_transcription_model_ready<R: Runtime>(app: &AppHandle<R>) 
                 }
             }
         }
+        provider @ ("sherpa_paraformer" | "sherpa_funasr_nano") => {
+            info!("🔍 Validating sherpa-onnx daemon (provider: {})...", provider);
+            // sherpa daemon 是 lazy-start, 录音时它会自动启动
+            // 验证 daemon 状态: ensure_started 后看 process 是否存活
+            // 这里只看 daemon 进程是否在跑, 模型由 daemon 自动从 ~/Library/.../models/sherpa/ 加载
+            match std::process::Command::new("pgrep")
+                .arg("-f")
+                .arg("sherpa_asr.py")
+                .output()
+            {
+                Ok(out) if !out.stdout.is_empty() => {
+                    info!("✅ sherpa daemon running, models auto-discovered from ~/Library/.../models/sherpa/");
+                    Ok(())
+                }
+                _ => {
+                    // 启动 daemon (lazy), 转录时才 spawn, 这里只 record warning
+                    // 实际第一次 transcribe_blocking() 会触发 spawn
+                    warn!("⚠️ sherpa daemon not yet started, will be lazy-spawned on first transcription");
+                    Ok(())
+                }
+            }
+        }
         other => {
             warn!("❌ Unsupported transcription provider for local recording: {}", other);
             Err(format!(
-                "Provider '{}' is not supported for local transcription. Please select 'localWhisper' or 'parakeet'.",
+                "Provider '{}' is not supported for local transcription. Please select 'localWhisper', 'parakeet', 'sherpa_paraformer' or 'sherpa_funasr_nano'.",
                 other
             ))
         }
@@ -197,20 +223,26 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
 
             match engine {
                 Some(engine) => {
-                    // Check if model is loaded
                     if engine.is_model_loaded().await {
                         let model_name = engine.get_current_model().await
                             .unwrap_or_else(|| "unknown".to_string());
                         info!("✅ Parakeet model '{}' already loaded", model_name);
                         Ok(TranscriptionEngine::Parakeet(engine))
                     } else {
-                        Err("Parakeet engine initialized but no model loaded. This should not happen after validation.".to_string())
+                        Err("Parakeet engine initialized but no model loaded.".to_string())
                     }
                 }
                 None => {
-                    Err("Parakeet engine not initialized. This should not happen after validation.".to_string())
+                    Err("Parakeet engine not initialized.".to_string())
                 }
             }
+        }
+        "sherpa_paraformer" | "sherpa_funasr_nano" => {
+            // 离线会记 W2.5: sherpa-onnx daemon 是单例 subprocess, 不用 init
+            // validate_transcription_model_ready 已经 check 过 daemon 状态
+            // v0.6.12 回滚: 改回 unit variant, worker.rs 真分支接 Sherpa + SherpaProvider::new(model_name)
+            info!("🦜 Initializing Sherpa transcription engine (singleton daemon)");
+            Ok(TranscriptionEngine::Sherpa)
         }
         "localWhisper" | _ => {
             info!("🎤 Initializing Whisper transcription engine");

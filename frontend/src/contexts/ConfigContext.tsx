@@ -76,6 +76,10 @@ interface ConfigContextType {
   isAutoSummary: boolean;
   toggleIsAutoSummary: (checked: boolean) => void;
 
+  // v0.7.0+: Stop recording 后是否自动重新转录 (优化效果)
+  isAutoRetranscribe: boolean;
+  toggleIsAutoRetranscribe: (checked: boolean) => void;
+
   // Provider-specific API keys
   providerApiKeys: {
     claude: string | null;
@@ -106,9 +110,10 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   });
 
   // Transcript model configuration state
+  // 离线会记 W2.5: 默认 SenseVoice-zh INT8 (23 段按句切 / 中文 SOTA / 比 Whisper 强)
   const [transcriptModelConfig, setTranscriptModelConfig] = useState<TranscriptModelProps>({
-    provider: 'parakeet',
-    model: 'parakeet-tdt-0.6b-v3-int8',
+    provider: 'sherpa_funasr_nano',
+    model: 'sense-voice-zh-int8',
     apiKey: null
   });
 
@@ -168,6 +173,22 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     return false;
   });
 
+  // v0.7.0+: 自动重新转录. 默认开启 (因为整段上下文模型效果显著优于流式).
+  const [isAutoRetranscribe, setIsAutoRetranscribe] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem('isAutoRetranscribe');
+      return saved !== null ? saved === 'true' : true;  // 默认开 (TRUE)
+    }
+    return true;
+  });
+
+  const toggleIsAutoRetranscribe = useCallback((checked: boolean) => {
+    setIsAutoRetranscribe(checked);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('isAutoRetranscribe', checked.toString());
+    }
+  }, []);
+
   // Beta features state (localStorage)
   const [betaFeatures, setBetaFeatures] = useState<BetaFeatures>(() => {
     return loadBetaFeatures();
@@ -176,7 +197,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   // Preference settings state (lazy loaded)
   const [notificationSettings, setNotificationSettings] = useState<NotificationSettings | null>(null);
   const [storageLocations, setStorageLocations] = useState<StorageLocations | null>(null);
-  const [isLoadingPreferences, setIsLoadingPreferences] = useState(false);
+  const [isLoadingPreferences, setIsLoading偏好设置] = useState(false);
   const preferencesLoadedRef = useRef(false);
   const isLoadingRef = useRef(false);
 
@@ -203,9 +224,16 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         const config = await configService.getTranscriptConfig();
         if (config) {
           console.log('[ConfigContext] Loaded saved transcript config:', config);
+          // 兼容老数据: 如果 DB 里是 localWhisper / parakeet, 重置为 SenseVoice
+          const provider = (config.provider === 'localWhisper' || config.provider === 'parakeet')
+            ? 'sherpa_funasr_nano'
+            : (config.provider || 'sherpa_funasr_nano');
+          const model = (provider === 'sherpa_funasr_nano')
+            ? 'sense-voice-zh-int8'
+            : (config.model || 'paraformer-zh-int8');
           setTranscriptModelConfig({
-            provider: config.provider || 'parakeet',
-            model: config.model || 'parakeet-tdt-0.6b-v3-int8',
+            provider,
+            model,
             apiKey: config.apiKey || null
           });
         }
@@ -349,9 +377,9 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
 
   // Load device preferences on mount
   useEffect(() => {
-    const loadDevicePreferences = async () => {
+    const loadDevice偏好设置 = async () => {
       try {
-        const prefs = await configService.getRecordingPreferences();
+        const prefs = await configService.getRecording偏好设置();
         if (prefs && (prefs.preferred_mic_device || prefs.preferred_system_device)) {
           setSelectedDevices({
             micDevice: prefs.preferred_mic_device,
@@ -363,7 +391,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         console.log('No device preferences found or failed to load:', error);
       }
     };
-    loadDevicePreferences();
+    loadDevice偏好设置();
   }, []);
 
   // Calculate model options based on available models
@@ -428,7 +456,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     }
 
     isLoadingRef.current = true;
-    setIsLoadingPreferences(true);
+    setIsLoading偏好设置(true);
     try {
       // Load notification settings from backend
       let settings: NotificationSettings | null = null;
@@ -460,7 +488,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       console.error('[ConfigContext] Failed to load preferences:', error);
     } finally {
       isLoadingRef.current = false;
-      setIsLoadingPreferences(false);
+      setIsLoading偏好设置(false);
     }
   }, []);
 
@@ -492,6 +520,8 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
     setModelConfig,
     isAutoSummary,
     toggleIsAutoSummary,
+    isAutoRetranscribe,
+    toggleIsAutoRetranscribe,
     providerApiKeys,
     updateProviderApiKey,
     transcriptModelConfig,

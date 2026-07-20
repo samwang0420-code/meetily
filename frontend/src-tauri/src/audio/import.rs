@@ -18,6 +18,8 @@ use tauri_plugin_dialog::DialogExt;
 use uuid::Uuid;
 
 use super::audio_processing::create_meeting_folder;
+use super::audio_processing::prepare_for_asr_16k;
+use super::industry_terms::{correct_industry_terms, correct_industry_terms_with_known, runtime_hotword_terms, L3Config};
 use super::common::{create_transcript_segments, split_segment_at_silence, write_transcripts_json};
 use super::constants::AUDIO_EXTENSIONS;
 use super::recording_preferences::get_default_recordings_folder;
@@ -51,11 +53,13 @@ impl Drop for ImportGuard {
     }
 }
 
-/// VAD redemption time in milliseconds - bridges natural pauses in speech
-/// Batch processing needs longer redemption (2000ms) than live pipeline (400ms)
-/// because the entire file is processed at once by VAD, and 400ms fragments
-/// speech at every natural sentence/topic pause (500ms-2s)
-const VAD_REDEMPTION_TIME_MS: u32 = 2000;
+/// Use finer boundaries for short recordings so summary evidence keeps useful
+/// timestamps, while longer recordings still bridge ordinary pauses.
+fn vad_redemption_time_ms(duration_seconds: f64) -> u32 {
+    if duration_seconds <= 90.0 { 700 } else if duration_seconds <= 900.0 { 1200 } else { 1600 }
+}
+
+const MAX_EVIDENCE_SEGMENT_SECONDS: f64 = 12.0;
 
 /// Maximum file size: 20GB (prevents OOM and excessive processing time)
 const MAX_FILE_SIZE_BYTES: u64 = 20 * 1024 * 1024 * 1024; // 20GB
@@ -410,7 +414,8 @@ async fn run_import<R: Runtime>(
     });
 
     let audio_samples = tokio::task::spawn_blocking(move || {
-        decoded.to_whisper_format_with_progress(Some(resample_progress))
+        let samples = decoded.to_whisper_format_with_progress(Some(resample_progress));
+        prepare_for_asr_16k(&samples)
     })
     .await
     .map_err(|e| anyhow!("Resample task join error: {}", e))?;
@@ -430,10 +435,11 @@ async fn run_import<R: Runtime>(
     // Use VAD to find speech segments
     let app_for_vad = app.clone();
 
+    let vad_redemption_ms = vad_redemption_time_ms(duration_seconds);
     let speech_segments = tokio::task::spawn_blocking(move || {
         get_speech_chunks_with_progress(
             &audio_samples,
-            VAD_REDEMPTION_TIME_MS,
+            vad_redemption_ms,
             |vad_progress, segments_found| {
                 let overall_progress = 25 + (vad_progress as f32 * 0.05) as u32;
                 emit_progress(
@@ -454,7 +460,7 @@ async fn run_import<R: Runtime>(
     .map_err(|e| anyhow!("VAD processing failed: {}", e))?;
 
     let total_segments = speech_segments.len();
-    info!("VAD detected {} speech segments (redemption_time={}ms)", total_segments, VAD_REDEMPTION_TIME_MS);
+    info!("VAD detected {} speech segments (redemption_time={}ms)", total_segments, vad_redemption_ms);
 
     // Diagnostic: log segment duration distribution
     if !speech_segments.is_empty() {
@@ -522,7 +528,7 @@ async fn run_import<R: Runtime>(
     // Split very long segments at silence boundaries for better transcription quality.
     // Hard cuts at arbitrary sample positions lose words at boundaries. Instead, scan
     // for the lowest-energy window near the target split point and cut there.
-    const MAX_SEGMENT_SAMPLES: usize = 25 * 16000; // 25 seconds at 16kHz
+    const MAX_SEGMENT_SAMPLES: usize = (MAX_EVIDENCE_SEGMENT_SECONDS as usize) * 16000;
 
     let mut processable_segments: Vec<crate::audio::vad::SpeechSegment> = Vec::new();
     for segment in &speech_segments {
@@ -602,7 +608,7 @@ async fn run_import<R: Runtime>(
                 i + 1, processable_count, segment_duration_sec, conf,
                 if trimmed.len() > 80 { let mut end = 80; while !trimmed.is_char_boundary(end) { end -= 1; } &trimmed[..end] } else { trimmed }
             );
-            all_transcripts.push((text, segment.start_timestamp_ms, segment.end_timestamp_ms));
+            all_transcripts.push((correct_industry_terms_with_known(&text, &runtime_hotword_terms(), L3Config::default()), segment.start_timestamp_ms, segment.end_timestamp_ms));
             total_confidence += conf;
         } else {
             debug!("Segment {}/{}: {:.1}s — empty transcription", i + 1, processable_count, segment_duration_sec);
@@ -719,7 +725,7 @@ async fn create_meeting_with_transcripts(
     // Insert transcripts
     for segment in segments {
         sqlx::query(
-            "INSERT INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration)
+            "INSERT OR IGNORE INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration)
              VALUES (?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&segment.id)

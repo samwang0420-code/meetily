@@ -7,7 +7,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
 
 
-interface SidebarItem {
+export interface SidebarItem {
   id: string;
   title: string;
   type: 'folder' | 'file';
@@ -66,7 +66,7 @@ export const useSidebar = () => {
 
 export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const [currentMeeting, setCurrentMeeting] = useState<CurrentMeeting | null>({ id: 'intro-call', title: '+ New Call' });
-  const [isCollapsed, setIsCollapsed] = useState(true);
+  const [isCollapsed, setIsCollapsed] = useState(false);  // v0.6.7: 默认展开, 看到 nav label
   const [meetings, setMeetings] = useState<CurrentMeeting[]>([]);
   const [sidebarItems, setSidebarItems] = useState<SidebarItem[]>([]);
   const [isMeetingActive, setIsMeetingActive] = useState(false);
@@ -129,7 +129,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     setIsCollapsed(!isCollapsed);
   };
 
-  // Update current meeting when on home page
+  // Update current meeting when on Home page
   useEffect(() => {
     if (pathname === '/') {
       setCurrentMeeting({ id: 'intro-call', title: '+ New Call' });
@@ -145,14 +145,14 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   // Function to handle recording toggle from sidebar
   const handleRecordingToggle = () => {
     if (!isRecording) {
-      // Check if already on home page
+      // Check if already on Home page
       if (pathname === '/') {
-        // Already on home - trigger recording directly via custom event
-        console.log('Triggering recording from sidebar (already on home page)');
+        // Already on Home - trigger recording directly via custom event
+        console.log('Triggering recording from sidebar (already on Home page)');
         window.dispatchEvent(new CustomEvent('start-recording-from-sidebar'));
       } else {
-        // Not on home - navigate and use auto-start mechanism
-        console.log('Navigating to home page with auto-start flag');
+        // Not on Home - navigate and use auto-start mechanism
+        console.log('Navigating to Home page with auto-start flag');
         sessionStorage.setItem('autoStartRecording', 'true');
         router.push('/');
       }
@@ -198,7 +198,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     console.log(`📊 Starting polling for meeting ${meetingId}, process ${processId}`);
 
     let pollCount = 0;
-    const MAX_POLLS = 200; // ~16.5 minutes at 5-second intervals (slightly longer than backend's 15-min timeout to avoid race conditions)
+    const MAX_POLLS = 300; // 10 minutes at 2-second intervals
 
     const pollInterval = setInterval(async () => {
       pollCount++;
@@ -228,8 +228,8 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
         // Call the update callback with result
         onUpdate(result);
 
-        // Stop polling if completed, error, failed, cancelled, or idle (after initial processing)
-        if (result.status === 'completed' || result.status === 'error' || result.status === 'failed' || result.status === 'cancelled') {
+        // Stop polling on every terminal state. Unknown states must not leave the UI spinning forever.
+        if (['completed', 'error', 'failed', 'cancelled'].includes(result.status)) {
           console.log(`Polling completed for ${meetingId}, status: ${result.status}`);
           clearInterval(pollInterval);
           setActiveSummaryPolls(prev => {
@@ -246,6 +246,15 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
             next.delete(meetingId);
             return next;
           });
+        } else if (!['pending', 'processing'].includes(result.status)) {
+          console.warn(`Unknown summary status for ${meetingId}:`, result.status);
+          clearInterval(pollInterval);
+          setActiveSummaryPolls(prev => {
+            const next = new Map(prev);
+            next.delete(meetingId);
+            return next;
+          });
+          onUpdate({ status: 'error', error: `Unknown summary status: ${result.status}` });
         }
       } catch (error) {
         console.error(`Polling error for ${meetingId}:`, error);
@@ -261,7 +270,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
           return next;
         });
       }
-    }, 5000); // Poll every 5 seconds
+    }, 2000); // Poll every 2 seconds
 
     setActiveSummaryPolls(prev => new Map(prev).set(meetingId, pollInterval));
   }, [activeSummaryPolls]);

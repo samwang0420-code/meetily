@@ -1,0 +1,14 @@
+{
+  "audio_seconds": 3619.23,
+  "expected_speakers": 4,
+  "actual_speakers": 5,
+  "segments": 848,
+  "windows": 17,
+  "wall_seconds": 446.87,
+  "maximum_resident_bytes": 360136704,
+  "decision": "disable_over_300_seconds",
+  "reasons": [
+    "跨窗口声纹对齐将同一人拆成额外 speaker",
+    "一小时处理耗时约 7.45 分钟，不满足当前交互要求"
+  ]
+}

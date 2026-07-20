@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from '@/i18n';
 import { invoke } from '@tauri-apps/api/core';
 import { Info } from 'lucide-react';
 
@@ -21,6 +22,7 @@ export function AudioBackendSelector({
 }: AudioBackendSelectorProps) {
   const [backends, setBackends] = useState<BackendInfo[]>([]);
   const [currentBackend, setCurrentBackend] = useState<string>('coreaudio');
+  const { t } = useTranslation();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [showTooltip, setShowTooltip] = useState(false);
@@ -45,7 +47,7 @@ export function AudioBackendSelector({
         }
       } catch (err) {
         console.error('Failed to load audio backends:', err);
-        setError('Failed to load backend options');
+        setError(t('errors.load_backend_failed'));
       } finally {
         setLoading(false);
       }
@@ -66,7 +68,7 @@ export function AudioBackendSelector({
         onBackendChange(backendId);
       }
 
-      console.log(`Audio backend changed to: ${backendId}`);
+      console.log(`音频 backend changed to: ${backendId}`);
     } catch (err) {
       console.error('Failed to set audio backend:', err);
       setError('Failed to change backend. Please try again.');

@@ -1,0 +1,78 @@
+// Context-aware corrections for high-value product and engineering terms.
+// Keep this list intentionally small: broad fuzzy replacement can corrupt
+// ordinary meeting language and is harder to audit than ASR mistakes.
+
+const TECH_CONTEXT: &[&str] = &[
+    "模型", "识别", "转录", "语音", "编辑器", "桌面", "本地", "离线", "ASR", "api", "API",
+];
+
+fn has_tech_context(text: &str) -> bool {
+    TECH_CONTEXT.iter().any(|term| text.contains(term))
+}
+
+pub fn correct_industry_terms(text: &str) -> String {
+    let mut corrected = text.trim().to_string();
+    if corrected.is_empty() {
+        return corrected;
+    }
+
+    let lower = corrected.to_ascii_lowercase();
+    let technical = has_tech_context(&corrected)
+        || ["sense voice", "ss voice", "paraformer", "poweraform", "block note"]
+            .iter()
+            .any(|alias| lower.contains(alias));
+
+    if technical {
+        let replacements = [
+            ("sense voice", "SenseVoice"),
+            ("ss voice", "SenseVoice"),
+            ("s voice", "SenseVoice"),
+            ("poweraformer", "Paraformer"),
+            ("poweraform", "Paraformer"),
+            ("para former", "Paraformer"),
+            ("black note", "BlockNote"),
+            ("block note", "BlockNote"),
+            ("fun asr", "FunASR"),
+            ("sherpa onnx", "sherpa-onnx"),
+        ];
+        for (alias, canonical) in replacements {
+            corrected = replace_ascii_case_insensitive(&corrected, alias, canonical);
+        }
+    }
+
+    corrected
+}
+
+fn replace_ascii_case_insensitive(text: &str, needle: &str, replacement: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut rest = text;
+    let needle_lower = needle.to_ascii_lowercase();
+
+    while !rest.is_empty() {
+        let rest_lower = rest.to_ascii_lowercase();
+        let Some(byte_index) = rest_lower.find(&needle_lower) else {
+            output.push_str(rest);
+            break;
+        };
+        output.push_str(&rest[..byte_index]);
+        output.push_str(replacement);
+        rest = &rest[byte_index + needle.len()..];
+    }
+    output
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn corrects_known_asr_product_aliases() {
+        assert_eq!(correct_industry_terms("模型使用 ss voice 和 poweraform"), "模型使用 SenseVoice 和 Paraformer");
+        assert_eq!(correct_industry_terms("编辑器使用 black note"), "编辑器使用 BlockNote");
+    }
+
+    #[test]
+    fn preserves_unrelated_plain_language() {
+        assert_eq!(correct_industry_terms("Please write a black note"), "Please write a black note");
+    }
+}

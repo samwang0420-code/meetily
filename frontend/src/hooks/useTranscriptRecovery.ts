@@ -11,6 +11,7 @@ import { indexedDBService, MeetingMetadata, StoredTranscript } from '@/services/
 import { storageService } from '@/services/storageService';
 import { applyPinnedSummaryLanguageToMeeting } from '@/lib/summary-language-preferences';
 import { toast } from 'sonner';
+import { safeToast } from '@/lib/safeToast';
 
 interface AudioRecoveryStatus {
   status: string; // "success" | "partial" | "failed" | "none"
@@ -64,7 +65,7 @@ export function useTranscriptRecovery(): UseTranscriptRecoveryReturn {
                 meetingFolder: meeting.folderPath
               });
 
-              // If no audio files, clear folderPath to show "No audio" in UI
+              // If no audio files, clear folderPath to show "否 audio" in UI
               return {
                 ...meeting,
                 folderPath: hasAudio ? meeting.folderPath : undefined
@@ -188,7 +189,7 @@ export function useTranscriptRecovery(): UseTranscriptRecoveryReturn {
         await applyPinnedSummaryLanguageToMeeting(savedMeetingId);
       } catch (error) {
         console.warn('Failed to apply pinned summary language to recovered meeting:', error);
-        toast.warning('Could not apply default summary language', {
+        safeToast.warning('Could not apply default summary language', {
           description: 'The recovered meeting was saved, but the default summary language was not applied.',
         });
       }
@@ -231,7 +232,7 @@ export function useTranscriptRecovery(): UseTranscriptRecoveryReturn {
       await indexedDBService.deleteMeeting(meetingId);
       setRecoverableMeetings(prev => prev.filter(m => m.meetingId !== meetingId));
     } catch (error) {
-      console.error('Failed to delete meeting:', error);
+      console.error('删除会议失败:', error);
       throw error;
     }
   }, []);
