@@ -992,7 +992,7 @@ pub async fn api_save_transcript<R: Runtime>(
             // v0.7.1+: 长会议 diar pickup 自动回填 — sherpa_asr 后台线程可能
             // 在 transcripts INSERT 之前/之后完成, 任何一种情况都需要扫一次 pickup dir
             // 把这个 meeting 的 segments 标到新插入的 transcripts.speaker 行.
-            if let Err(e) = apply_diar_pickup_to_meeting(&meeting_id).await {
+            if let Err(e) = apply_diar_pickup_to_meeting(&meeting_id, true).await {
                 log_warn!("diar pickup apply failed (non-fatal) for {}: {}", meeting_id, e);
             }
             Ok(serde_json::json!({
@@ -1392,9 +1392,10 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
 }
 
 
-/// v0.7.1+: 长会议 diar pickup 自动回填. 调 Python stdlib 扫 /tmp/lixianhuiji_diar/<meeting_id>*.json
+/// v0.7.0+ P0-2: 长会议 diar pickup 自动回填. 调 Python stdlib 扫 /tmp/lixianhuiji_diar/<meeting_id>*.json
 /// 然后 UPDATE transcripts.speaker. 失败不抛 (non-fatal, 不阻塞 save_transcript 主流程).
-async fn apply_diar_pickup_to_meeting(meeting_id: &str) -> Result<(), String> {
+/// `archive`: true 时把处理的 json rename 成 `.applied.{ts}.json`, 避免重复回填
+async fn apply_diar_pickup_to_meeting(meeting_id: &str, archive: bool) -> Result<(), String> {
     use std::path::Path;
     let pickup_dir = "/tmp/lixianhuiji_diar";
     if !Path::new(pickup_dir).exists() {
@@ -1403,8 +1404,9 @@ async fn apply_diar_pickup_to_meeting(meeting_id: &str) -> Result<(), String> {
     // 用 Python 一次性脚本: 扫 dir, 找到 payload 含 meeting_id 的 json,
     // 用 sqlite3 UPDATE transcripts.speaker overlap 算法
     let script = r#"
-import os, sqlite3, json, sys, glob
+import os, sqlite3, json, sys, glob, time
 meeting_id = sys.argv[1]
+archive_mode = sys.argv[2] == "1"
 db_path = os.environ.get("LIXIANHUIJI_DIAR_DB_PATH") or os.path.expanduser(
     "~/Library/Application Support/cn.lixianhuiji.app/meeting_minutes.sqlite"
 )
@@ -1413,8 +1415,9 @@ if not os.path.exists(db_path):
 conn = sqlite3.connect(db_path, timeout=5.0)
 try:
     cur = conn.cursor()
-    files = glob.glob(f"/tmp/lixianhuiji_diar/*.json")
+    files = sorted(glob.glob(f"/tmp/lixianhuiji_diar/*.json"))
     updated_total = 0
+    ts = int(time.time())
     for path in files:
         try:
             with open(path) as f: payload = json.load(f)
@@ -1434,6 +1437,7 @@ try:
             (meeting_id,),
         )
         rows = cur.fetchall()
+        local_updated = 0
         for row_id, t_start, t_end in rows:
             if t_start is None or t_end is None: continue
             best_ov, best_sp = 0.0, None
@@ -1445,7 +1449,15 @@ try:
             label = f"speaker_{best_sp:02d}"
             cur.execute("UPDATE transcripts SET speaker = ? WHERE id = ? AND speaker IS NULL",
                         (label, row_id))
-            updated_total += cur.rowcount
+            local_updated += cur.rowcount
+        if local_updated > 0 and archive_mode:
+            # 归档: rename .json -> .applied.{ts}.json, 防止定时 loop 重复回填
+            applied = path.replace(".json", f".applied.{ts}.json")
+            try:
+                os.rename(path, applied)
+            except Exception:
+                pass
+        updated_total += local_updated
     conn.commit()
     if updated_total > 0:
         sys.stderr.write(f"[diar_pickup_apply] meeting={meeting_id} updated={updated_total}\n")
@@ -1456,6 +1468,7 @@ finally:
         .arg("-c")
         .arg(script)
         .arg(meeting_id)
+        .arg(if archive { "1" } else { "0" })
         .output()
         .map_err(|e| format!("python3 spawn failed: {}", e))?;
     if !output.status.success() {

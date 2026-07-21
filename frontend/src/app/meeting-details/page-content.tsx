@@ -187,6 +187,31 @@ export default function PageContent({
     return () => { if (unlistenFn) unlistenFn(); };
   }, [meeting.id, onRefetchTranscripts]);
 
+  // v0.7.0+ P0-2: 听 transcripts-updated 事件 (diar_pickup_loop 后台定时触发).
+  // 当回填了当前 meeting 的 speaker 字段时, 自动 refetch transcripts 让 UI 立刻更新.
+  useEffect(() => {
+    let unlistenFn: (() => void) | undefined;
+    const setup = async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event');
+        unlistenFn = await listen<{ meeting_ids: string[]; source: string }>(
+          'transcripts-updated',
+          (event) => {
+            if (event.payload.meeting_ids && event.payload.meeting_ids.includes(meeting.id)) {
+              if (onRefetchTranscripts) {
+                void onRefetchTranscripts();
+              }
+            }
+          }
+        );
+      } catch (e) {
+        console.warn('注册 transcripts-updated 监听失败 (非阻塞):', e);
+      }
+    };
+    setup();
+    return () => { if (unlistenFn) unlistenFn(); };
+  }, [meeting.id, onRefetchTranscripts]);
+
   // Auto-generate summary when flag is set
   useEffect(() => {
     let cancelled = false;

@@ -470,6 +470,12 @@ pub fn run() {
                     log::error!("Failed to initialize Parakeet engine on startup: {}", e);
                 }
             });
+            // v0.7.0+ P0-2: 后台定时扫描 /tmp/lixianhuiji_diar/ 把后台计算的 diar segments
+            // 兜底回填到 transcripts.speaker. 兜底 save_transcript 即时回填,
+            // 覆盖 30-90 分钟长会议场景 (diar 后台线程耗时可能 > save_transcript).
+            let app_for_pickup = _app.handle().clone();
+            api::diar_pickup_loop::spawn_diar_pickup_loop(app_for_pickup);
+            log::info!("Diar pickup background loop started (interval=30s)");
 
             // Initialize ModelManager for summary engine (async, non-blocking)
             let app_handle_for_model_manager = _app.handle().clone();
