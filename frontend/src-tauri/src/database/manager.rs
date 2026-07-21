@@ -32,15 +32,11 @@ impl DatabaseManager {
 
         let pool = SqlitePool::connect(tauri_db_path).await?;
 
-        // v0.7.0+ rc6: 顺序调整 - 先 DROP _sqlx_migrations, 再 sqlx::migrate, 最后 ensure_activation_codes_bound_machine_id
-        // (ensure 必须在 sqlx 跑完之后, 此时 activation_codes 表已存在).
-        if let Err(e) = sqlx::query("DROP TABLE IF EXISTS _sqlx_migrations")
-            .execute(&pool)
-            .await
-        {
-            log::warn!("DROP _sqlx_migrations failed (non-fatal): {}", e);
-        }
-
+        // v0.7.0+ rc7: 直接跑 sqlx::migrate!.
+        // _sqlx_migrations 表和 16 条记录已在外部脚本中正确初始化 (含 SHA-384 checksum),
+        // sqlx 启动时会校验 checksum 与 migration 文件一致, 全部跳过, 不会重跑.
+        // ensure_activation_codes_bound_machine_id 仍然 idempotent (PRAGMA 检查 + ALTER),
+        // 老库有 bound_machine_id 跳过, 新库会补.
         sqlx::migrate!("./migrations").run(&pool).await?;
 
         // v0.7.0+ rc4: idempotent ALTER bound_machine_id (老库兼容).
