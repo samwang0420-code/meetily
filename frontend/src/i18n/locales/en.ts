@@ -627,6 +627,7 @@ export const en: Record<string, unknown> = {
     all_languages: 'All languages',
     no_matches: 'No matches',
     set_default: 'Click to set as default',
+    remove: 'Remove {label}',
     unset_default: 'Click to unset as default',
     auto_saved_local: 'Saved on this device only',
     auto_dominant_transcript: 'Uses the dominant transcript language',

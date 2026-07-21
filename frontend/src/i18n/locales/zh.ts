@@ -629,6 +629,7 @@ export const zh: Record<string, unknown> = {
     all_languages: '全部语言',
     no_matches: '无匹配结果',
     set_default: '点击设为默认',
+    remove: '移除 {label}',
     unset_default: '点击取消默认',
     auto_saved_local: '仅保存在本机',
     auto_dominant_transcript: '使用转录文本的主要语言',

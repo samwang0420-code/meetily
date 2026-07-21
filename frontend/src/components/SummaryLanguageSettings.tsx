@@ -21,11 +21,10 @@ export function SummaryLanguageSettings() {
     <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm relative">
       <div className="flex items-center gap-2 mb-2">
         <Globe size={18} className="text-gray-500" />
-        <h3 className="text-lg font-semibold text-gray-900">摘要语言</h3>
+        <h3 className="text-lg font-semibold text-gray-900">{t('summary.summary_language_title')}</h3>
       </div>
       <p className="text-sm text-gray-600 mb-4">
-        Pin one language as the default for new meetings. Unpinned languages remain as
-        quick-switch options in the summary generator. Auto uses the dominant transcript language.
+        {t('summary.summary_language_desc')}
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -42,7 +41,7 @@ export function SummaryLanguageSettings() {
             >
               <button
                 type="button"
-                aria-label={isPinned ? `Unpin ${labelForCode(code)} as default` : `Pin ${labelForCode(code)} as default`}
+                aria-label={isPinned ? `${t('language_picker.unset_default')}: ${labelForCode(code)}` : `${t('language_picker.set_default')}: ${labelForCode(code)}`}
                 aria-pressed={isPinned}
                 title={isPinned ? t('language_picker.unset_default') : t('language_picker.set_default')}
                 onClick={() => togglePin(code)}
@@ -59,7 +58,7 @@ export function SummaryLanguageSettings() {
               </button>
               <button
                 type="button"
-                aria-label={`移除 ${labelForCode(code)}`}
+                aria-label={`${t('language_picker.remove', { label: labelForCode(code) })}`}
                 onClick={() => removeRecent(code)}
                 className={`pr-2.5 pl-0.5 py-1 leading-none ${isPinned ? 'text-blue-400 hover:text-blue-700' : 'text-gray-400 hover:text-gray-700'}`}
               >
@@ -76,7 +75,7 @@ export function SummaryLanguageSettings() {
               disabled={recents.length >= 5}
               className="inline-flex items-center gap-1 rounded-full border border-dashed border-gray-300 px-3 py-1 text-sm text-gray-600 hover:border-gray-400 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              ＋ Add language
+              {t('summary.summary_language_add')}
             </button>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-auto p-0 border-0 shadow-none bg-transparent">
@@ -95,8 +94,8 @@ export function SummaryLanguageSettings() {
 
       <p className="text-xs text-gray-400 mt-3">
         {pinned
-          ? `Default: ${labelForCode(pinned)} - click it again to unset. Max 5 quick-switch options.`
-          : 'Click any language to set it as your default. Max 5 quick-switch options.'}
+          ? t('summary.summary_language_pinned_hint', { label: labelForCode(pinned) })
+          : t('summary.summary_language_unpinned_hint')}
       </p>
     </div>
   );
