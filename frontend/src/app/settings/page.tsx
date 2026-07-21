@@ -10,6 +10,8 @@ import { RecordingSettings } from '@/components/RecordingSettings';
 import { PreferenceSettings } from '@/components/PreferenceSettings';
 import { SummaryModelSettings } from '@/components/SummaryModelSettings';
 import { BetaSettings } from '@/components/BetaSettings';
+import { HardwareStatusBadge } from '@/components/HardwareProfile/HardwareStatusBadge';
+import { HardwareOnboardingModal, resetHardwareOnboardingSeen } from '@/components/HardwareProfile/HardwareOnboardingModal';
 import { useConfig } from '@/contexts/ConfigContext';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 
@@ -25,6 +27,12 @@ const TABS = [
 export default function SettingsPage() {
   const router = useRouter();
   const { transcriptModelConfig, setTranscriptModelConfig } = useConfig();
+  // v0.7.0+ P0-4: 硬件检测弹窗
+  const [hardwareModalOpen, setHardwareModalOpen] = useState(false);
+  function openHardwareModal() {
+    resetHardwareOnboardingSeen();
+    setHardwareModalOpen(true);
+  }
 
   // Animation state for tabs
   const [activeTab, setActiveTab] = useState('general');
@@ -83,6 +91,20 @@ export default function SettingsPage() {
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto">
         <div className="max-w-6xl mx-auto p-8 pt-6">
+          {/* v0.7.0+ P0-4: 硬件档位状态徽章 + 重看弹窗入口 */}
+          <div className="mb-4 flex items-center justify-between bg-slate-50 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-lg p-3">
+            <div>
+              <div className="text-xs text-slate-500 mb-1">硬件档位 / Hardware Tier</div>
+              <HardwareStatusBadge />
+            </div>
+            <button
+              type="button"
+              onClick={openHardwareModal}
+              className="text-xs text-blue-600 hover:underline"
+            >
+              重新查看硬件检测
+            </button>
+          </div>
           {/* Tabs */}
           <Tabs value={activeTab} onValueChange={setActiveTab}>
             <TabsList className="bg-transparent relative rounded-none border-b border-gray-200 p-0 h-auto">
@@ -130,6 +152,9 @@ export default function SettingsPage() {
           </Tabs>
         </div>
       </div>
+
+      {/* v0.7.0+ P0-4: 硬件检测弹窗 (设置页手动重看) */}
+      <HardwareOnboardingModal open={hardwareModalOpen} onOpenChange={setHardwareModalOpen} />
     </div>
   );
 };

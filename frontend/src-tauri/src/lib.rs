@@ -57,6 +57,8 @@ pub mod utils;
 pub mod user;
 pub mod whisper_engine;
 
+pub mod hardware;
+
 use audio::{list_audio_devices, AudioDevice, trigger_audio_permission};
 use log::{error as log_error, info as log_info};
 use notifications::commands::NotificationManagerState;
@@ -561,6 +563,11 @@ pub fn run() {
             analytics::commands::track_analytics_enabled,
             analytics::commands::track_analytics_disabled,
             analytics::commands::track_analytics_transparency_viewed,
+
+            // v0.7.0+ P0-4: 硬件检测
+            hardware::device_detect_profile,
+            hardware::device_current_memory_mb,
+            hardware::device_memory_pressure,
 
             // 离线会记 v0.5.0: 用户/会员管理
             user::commands::user_register,

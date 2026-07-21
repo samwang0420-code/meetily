@@ -29,6 +29,7 @@ import { isAudioExtension, getAudioFormatsDisplayList } from '@/constants/audioF
 import { I18nProvider, useTranslation } from '@/i18n'
 import { AuthProvider } from '@/contexts/AuthContext'
 import ErrorBoundary from '@/components/ErrorBoundary'
+import { HardwareOnboardingModal, shouldShowHardwareOnboarding } from '@/components/HardwareProfile/HardwareOnboardingModal'
 
 
 const sourceSans3 = Source_Sans_3({
@@ -84,6 +85,12 @@ export default function RootLayout({
 }) {
   const [showOnboarding, setShowOnboarding] = useState(false)
   const [onboardingCompleted, setOnboardingCompleted] = useState(false)
+
+  // v0.7.0+ P0-4: 硬件检测首次启动强制展示弹窗
+  const [showHardwareOnboarding, setShowHardwareOnboarding] = useState(false);
+  useEffect(() => {
+    setShowHardwareOnboarding(shouldShowHardwareOnboarding());
+  }, []);
 
   // Import audio state
   const [showDropOverlay, setShowDropOverlay] = useState(false)
@@ -279,6 +286,12 @@ export default function RootLayout({
                                 handleImportDialogClose={handleImportDialogClose}
                                 importFilePath={importFilePath}
                               />
+
+                            {/* v0.7.0+ P0-4: 首次启动硬件检测弹窗 */}
+                            <HardwareOnboardingModal
+                              open={showHardwareOnboarding}
+                              onOpenChange={setShowHardwareOnboarding}
+                            />
                             </ImportDialogProvider>
                           </RecordingPostProcessingProvider>
                         </TooltipProvider>
