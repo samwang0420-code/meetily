@@ -32,18 +32,22 @@ impl DatabaseManager {
 
         let pool = SqlitePool::connect(tauri_db_path).await?;
 
-        // v0.7.0+ rc3: 在 sqlx::migrate! 之前手工跑 idempotent ALTER,
-        // 修复 migration 20260719000000 的 bound_machine_id 列兼容问题.
-        // 原因: SQLite ALTER TABLE ADD COLUMN 不支持 IF NOT EXISTS,
-        // 老库 (C4 部署过) 已有 bound_machine_id 列, 重跑 ALTER 会 duplicate column panic.
+        // v0.7.0+ rc5: DROP 并重建 _sqlx_migrations 表, 解决 sqlx 0.8 解码 panic.
+        // 老表 schema 数据兼容性: BOOLEAN schema 但实际 INTEGER, sqlx 0.8 检查失败报
+        // 'Vec<u8> (BLOB) is not compatible with SQL type INTEGER'. 重建表彻底绕开.
+        if let Err(e) = sqlx::query("DROP TABLE IF EXISTS _sqlx_migrations")
+            .execute(&pool)
+            .await
+        {
+            log::warn!("DROP _sqlx_migrations failed (non-fatal): {}", e);
+        }
+
+        // v0.7.0+ rc4: idempotent ALTER bound_machine_id (老库兼容).
         if let Err(e) = Self::ensure_activation_codes_bound_machine_id(&pool).await {
             log::error!("ensure_activation_codes_bound_machine_id failed: {}", e);
             return Err(e);
         }
-        // 标记 migration 20260719000000 为已跑 (它的 SQL 内容已经被手动处理)
-        // 20260719000000 不在 _sqlx_migrations 表 (之前一直 panic 失败),
-        // sqlx::migrate! 会重跑这条 migration, 但里面只剩 IF NOT EXISTS 的 CREATE TABLE/INDEX,
-        // 不会 panic. bound_machine_id ALTER 已在 ensure_activation_codes_bound_machine_id 处理.
+
         sqlx::migrate!("./migrations").run(&pool).await?;
 
         Ok(DatabaseManager { pool })
