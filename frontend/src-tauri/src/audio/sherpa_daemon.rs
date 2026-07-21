@@ -387,6 +387,8 @@ mod tests {
             timestamps: false,
             hotwords_pack: "tech",
             hotwords_custom: "Meetily,SenseVoice,Paraformer",
+            meeting_id: Some("meeting-ut"),
+            audio_start_offset_seconds: Some(12.5),
         };
         let v = serde_json::to_value(&req).expect("serialize");
         assert_eq!(v.get("model").and_then(|x| x.as_str()), Some("paraformer-zh"));

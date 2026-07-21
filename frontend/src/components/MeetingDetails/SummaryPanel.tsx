@@ -109,6 +109,8 @@ export function SummaryPanel({
   const [summaryLangStorage, setSummaryLangStorage] = useState<SummaryLanguageStorage>('metadata');
   const [langPickerOpen, setLangPickerOpen] = useState(false);
   const [streamedMarkdown, setStreamedMarkdown] = useState('');
+  // v0.7.0+ P0-1: Map-Reduce 阶段显示
+  const [summaryPhase, setSummaryPhase] = useState<'idle'|'single'|'map'|'reduce'|'final'>('idle');
   const languageLoadVersionRef = useRef(0);
   const activeMeetingIdRef = useRef(meeting.id);
   const languageSaveVersionRef = useRef(0);
@@ -127,8 +129,28 @@ export function SummaryPanel({
   }, [meeting.id]);
 
   useEffect(() => {
+    setSummaryPhase('idle');
+    let unlisten: (() => void) | undefined;
+    void listen<{ meeting_id: string; phase: 'single'|'map'|'reduce'|'final'; progress: number }>('summary-phase', (event) => {
+      if (event.payload.meeting_id !== meeting.id) return;
+      setSummaryPhase(event.payload.phase);
+    }).then((dispose) => {
+      unlisten = dispose;
+    });
+    return () => unlisten?.();
+  }, [meeting.id]);
+
+  useEffect(() => {
     if (summaryStatus === 'processing' || summaryStatus === 'regenerating') {
       setStreamedMarkdown('');
+    }
+  }, [summaryStatus]);
+
+  useEffect(() => {
+    if (summaryStatus === 'processing' || summaryStatus === 'regenerating') {
+      setSummaryPhase('single');
+    } else if (summaryStatus === 'idle' || summaryStatus === 'completed') {
+      setSummaryPhase('idle');
     }
   }, [summaryStatus]);
   const latestLanguageSaveRequestRef = useRef<{
@@ -314,7 +336,7 @@ export function SummaryPanel({
                 isModelConfigLoading={isModelConfigLoading}
                 onOpenModelSettings={onOpenModelSettings}
                 languageSlot={languageSlot}
-              />
+               summaryPhase={summaryPhase} />
             </div>
 
             {/* Right-aligned: Summary Updater Button Group */}
@@ -356,7 +378,7 @@ export function SummaryPanel({
               hasTranscripts={transcripts.length > 0}
               isModelConfigLoading={isModelConfigLoading}
               onOpenModelSettings={onOpenModelSettings}
-            />
+             summaryPhase={summaryPhase} />
           </div>
           <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
             {streamedMarkdown ? (
@@ -397,7 +419,7 @@ export function SummaryPanel({
               isModelConfigLoading={isModelConfigLoading}
               onOpenModelSettings={onOpenModelSettings}
               languageSlot={transcripts.length > 0 ? languageSlot : undefined}
-            />
+             summaryPhase={summaryPhase} />
           </div>
           {/* Empty state message */}
           <EmptyStateSummary

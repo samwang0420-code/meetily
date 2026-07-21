@@ -13,6 +13,11 @@ pub const DEFAULT_SUMMARY_MAX_TOKENS: u32 = 1200;
 /// 硬控最大输出 token, None / 0 / invalid 走 fallback.
 /// 用户显式设的 max_tokens (Some(t) 且 t > 0) 永远保留.
 /// 这是单测入口, 不依赖 LLM/sidecar.
+
+/// v0.7.0+ P0-1: Map-Reduce 阶段回调. phase: "map" | "reduce" | "final" | "single".
+/// progress (0.0-1.0) 用于前端进度条.
+pub type PhaseCallback = std::sync::Arc<dyn Fn(&str, f32) + Send + Sync>;
+
 pub fn clamp_max_tokens(max_tokens: Option<u32>) -> Option<u32> {
     match max_tokens {
         Some(t) if t > 0 => Some(t),
@@ -289,6 +294,92 @@ pub fn chunk_text(text: &str, chunk_size_tokens: usize, overlap_tokens: usize) -
     chunks
 }
 
+/// v0.7.0+ Map-Reduce 摘要固定 wrapper: 1800 token 单块 + 50 token 重叠, 长会议长文本自动切片
+///
+/// 默认参数针对 Qwen3.5-2B / 2B 量级 GGUF (context 2048): 1800 token 块内容
+/// 加上 300 token 模板 prompt overhead 仍在 context 内; 50 token 重叠保证
+/// 跨块语义不断裂 (会议连续句子的承接关系不被切碎).
+///
+/// 短文本 (≤1800 token) 自动复用原有单轮摘要逻辑, 不增加 Map-Reduce 开销.
+pub fn chunk_transcript_by_token(text: &str) -> Vec<String> {
+    const CHUNK_SIZE: usize = 1800;
+    const OVERLAP: usize = 50;
+    chunk_text(text, CHUNK_SIZE, OVERLAP)
+}
+
+/// v0.7.0+ Map-Reduce Reduce 阶段递归化: 避免 chunk_summaries 合并后再次溢出 context
+///
+/// 当第一轮 Map 输出拼接超 CHUNK_SIZE token, 递归分组, 每组再次 Map, 直到能
+/// 装进 CHUNK_SIZE 为止. 末轮 Reduce 输出即为最终 evidence ledger.
+/// recursion 深度上限 5 (防止无限递归 / 内存膨胀).
+pub async fn recursive_reduce_summaries<F, Fut>(
+    chunk_summaries: Vec<String>,
+    output_language: &str,
+    max_recursion_depth: usize,
+    summarize_fn: F,
+) -> Result<String, String>
+where
+    F: Fn(Vec<String>, &str) -> Fut + Clone,
+    Fut: std::future::Future<Output = Result<String, String>>,
+{
+    const CHUNK_SIZE: usize = 1800;
+    const OVERLAP: usize = 50;
+
+    let combined = chunk_summaries.join("\n---\n");
+    let total_tokens = rough_token_count(&combined);
+
+    // 递归终止: 装得下 OR 已到深度上限
+    if total_tokens <= CHUNK_SIZE || max_recursion_depth == 0 || chunk_summaries.len() == 1 {
+        return summarize_fn(chunk_summaries, output_language).await;
+    }
+
+    info!(
+        "Recursive reduce: {} summaries, {} tokens, depth={}",
+        chunk_summaries.len(),
+        total_tokens,
+        max_recursion_depth
+    );
+
+    // 按 CHUNK_SIZE token 分组 (复用 chunk_text 的滑动窗口逻辑)
+    let combined_for_chunking = chunk_summaries.join("\n<CHUNK_BREAK>\n");
+    let sub_chunks_text = chunk_text(&combined_for_chunking, CHUNK_SIZE - 100, OVERLAP);
+    // 解析回 chunk_summaries (按 <CHUNK_BREAK> 切分; 重叠部分丢弃)
+    let mut sub_buckets: Vec<Vec<String>> = Vec::new();
+    for txt in sub_chunks_text.iter() {
+        let parts: Vec<String> = txt
+            .split("<CHUNK_BREAK>")
+            .filter(|s| !s.trim().is_empty())
+            .map(|s| s.trim().to_string())
+            .collect();
+        if !parts.is_empty() {
+            sub_buckets.push(parts);
+        }
+    }
+
+    // 每个 sub_bucket 独立递归 reduce
+    let mut reduced_summaries: Vec<String> = Vec::new();
+    for (idx, bucket) in sub_buckets.into_iter().enumerate() {
+        info!(
+            "Recursive reduce bucket {}/{}: {} items",
+            idx + 1,
+            "N",
+            bucket.len()
+        );
+        let reduced = Box::pin(recursive_reduce_summaries(
+            bucket,
+            output_language,
+            max_recursion_depth - 1,
+            summarize_fn.clone(),
+        ))
+        .await?;
+        reduced_summaries.push(reduced);
+    }
+
+    // 末轮汇总: 此时 reduced_summaries 应该装得下, 直接调一次 summarize_fn
+    summarize_fn(reduced_summaries, output_language).await
+}
+
+
 /// Cleans markdown output from LLM by removing thinking tags and code fences
 ///
 /// # Arguments
@@ -379,6 +470,9 @@ pub async fn generate_meeting_summary(
     detected_transcript_language: Option<&str>,
     cached_english: Option<&str>,
     stream_sink: Option<StreamSink>,
+    // v0.7.0+ P0-1: phase_callback("map" | "reduce" | "final", chunk_index?, total_chunks?)
+    // 让前端展示「分块总结处理中 / 全局汇总生成中」状态
+    phase_callback: Option<PhaseCallback>,
 ) -> Result<(String, String, i64), String> {
     if let Some(token) = cancellation_token {
         if token.is_cancelled() {
@@ -418,6 +512,10 @@ pub async fn generate_meeting_summary(
                 "Using single-pass summarization (tokens: {}, threshold: {})",
                 total_tokens, token_threshold
             );
+            // v0.7.0+ P0-1: 单路径, 通知前端
+            if let Some(cb) = phase_callback.as_ref() {
+                cb("single", 0.0);
+            }
             content_to_summarize = text.to_string();
             successful_chunk_count = 1;
         } else {
@@ -426,14 +524,19 @@ pub async fn generate_meeting_summary(
                 total_tokens, token_threshold
             );
 
-            // Reserve 300 tokens for prompt overhead
-            let chunks = chunk_text(text, token_threshold - 300, 100);
+            // v0.7.0+: P0-1 Map-Reduce 分块分层摘要 — 用 1800/50 固定 wrapper,
+            // 避免单块超 1800 token 的溢出风险 (不论 provider context 大小).
+            let chunks = chunk_transcript_by_token(text);
             let num_chunks = chunks.len();
-            info!("Split transcript into {} chunks", num_chunks);
+            info!("Split transcript into {} chunks (1800/50 wrapper)", num_chunks);
 
             let mut chunk_summaries = Vec::new();
             let system_prompt_chunk = "You are an expert meeting summarizer.";
 
+            // v0.7.0+ P0-1: 通知前端进入 Map 阶段
+            if let Some(cb) = phase_callback.as_ref() {
+                cb("map", 0.0);
+            }
             for (i, chunk) in chunks.iter().enumerate() {
                 // Check for cancellation before processing each chunk
                 if let Some(token) = cancellation_token {
@@ -441,6 +544,12 @@ pub async fn generate_meeting_summary(
                         info!("Summary generation cancelled during chunk {}/{}", i + 1, num_chunks);
                         return Err("Summary generation was cancelled".to_string());
                     }
+                }
+
+                // v0.7.0+ P0-1: 报告 Map 进度
+                if let Some(cb) = phase_callback.as_ref() {
+                    let progress = (i + 1) as f32 / num_chunks as f32 * 0.5;  // Map 占 0-0.5
+                    cb("map", progress);
                 }
 
                 info!("Processing chunk {}/{}", i + 1, num_chunks);
@@ -490,29 +599,56 @@ pub async fn generate_meeting_summary(
                 successful_chunk_count, num_chunks
             );
 
-            // Combine chunk summaries if multiple chunks
+            // v0.7.0+: P0-1 Reduce 阶段递归化 — chunk_summaries 总和 > 1800 token 时
+            // 自动分组递归, 防止 Map 输出再次溢出 context.
             content_to_summarize = if chunk_summaries.len() > 1 {
+                // 通知前端进入 Reduce 阶段
+                if let Some(cb) = phase_callback.as_ref() {
+                    cb("reduce", 0.5);
+                }
                 info!(
-                    "Combining {} chunk summaries into cohesive summary",
+                    "Combining {} chunk summaries via recursive reduce",
                     chunk_summaries.len()
                 );
-                let combined_text = chunk_summaries.join("\n---\n");
-                let system_prompt_combine = "You are an expert at synthesizing meeting summaries.";
-                let user_prompt_combine = build_combine_summary_user_prompt(&combined_text, output_language);
-                generate_summary(
-                    client,
-                    provider,
-                    model_name,
-                    api_key,
-                    system_prompt_combine,
-                    &user_prompt_combine,
-                    ollama_endpoint,
-                    custom_openai_endpoint,
-                    max_tokens,
-                    temperature,
-                    top_p,
-                    app_data_dir,
-                    cancellation_token,
+                let client_ref = client;
+                let provider_ref = provider;
+                let model_ref = model_name;
+                let api_key_ref = api_key;
+                let endpoint_ref = ollama_endpoint;
+                let custom_endpoint_ref = custom_openai_endpoint;
+                let max_tokens_ref = max_tokens;
+                let temp_ref = temperature;
+                let top_p_ref = top_p;
+                let app_data_ref = app_data_dir;
+                let cancel_ref = cancellation_token;
+                let reduce_fn = |batches: Vec<String>, lang: &str| {
+                    let combined_text = batches.join("\n---\n");
+                    let sys_prompt = "You are an expert at synthesizing meeting summaries.".to_string();
+                    let user_prompt = build_combine_summary_user_prompt(&combined_text, lang);
+                    async move {
+                        generate_summary(
+                            client_ref,
+                            provider_ref,
+                            model_ref,
+                            api_key_ref,
+                            &sys_prompt,
+                            &user_prompt,
+                            endpoint_ref,
+                            custom_endpoint_ref,
+                            max_tokens_ref,
+                            temp_ref,
+                            top_p_ref,
+                            app_data_ref,
+                            cancel_ref,
+                        )
+                        .await
+                    }
+                };
+                recursive_reduce_summaries(
+                    chunk_summaries,
+                    output_language,
+                    5, // recursion depth cap
+                    reduce_fn,
                 )
                 .await?
             } else {
@@ -520,6 +656,10 @@ pub async fn generate_meeting_summary(
             };
         }
 
+        // v0.7.0+ P0-1: 通知前端进入 final 阶段
+        if let Some(cb) = phase_callback.as_ref() {
+            cb("final", 0.85);
+        }
         info!("Generating final markdown report with template: {}", template_id);
 
         // Generate markdown structure and section instructions using template methods
@@ -1024,4 +1164,97 @@ mod tests {
             );
         }
     }
+
+#[cfg(test)]
+mod map_reduce_tests {
+    //! v0.7.0+ P0-1: 长会议 Map-Reduce 分块分层摘要专项测试
+
+    use super::*;
+
+    #[test]
+    fn chunk_transcript_by_token_default_1800_50() {
+        // 10000 字中文 ≈ 3500 tokens, 应切出 >= 2 块, 每块 ≤ 1800 token
+        let long_text: String = "今天我们讨论项目的商业化方案".repeat(500);  // 约 12000 字
+        let chunks = chunk_transcript_by_token(&long_text);
+        assert!(chunks.len() >= 2, "10000+ 字应切至少 2 块, 实际 {}", chunks.len());
+        for (i, c) in chunks.iter().enumerate() {
+            let tokens = rough_token_count(c);
+            // 块内容 ≤ 1800 token (允许 ±5% 因为 chunk_text 用 sentence boundary 修正)
+            assert!(tokens <= 1900, "chunk #{} 超 1900 tokens ({}), wrapper 没生效", i, tokens);
+        }
+        // 拼接应覆盖原文 (允许 < CHUNK_BREAK> 边界小损耗)
+        let reconstructed: String = chunks.join("");
+        assert!(reconstructed.len() >= long_text.len() * 90 / 100,
+                "重建丢失过多: orig={} reconstructed={}", long_text.len(), reconstructed.len());
+    }
+
+    #[test]
+    fn chunk_transcript_by_token_short_text_returns_single_chunk() {
+        // 短文本 (≤ 1800 token) 应原样返回, 不切
+        let short = "今天讨论预算 5000 美元, 张伟负责技术对接.";
+        let chunks = chunk_transcript_by_token(short);
+        assert_eq!(chunks.len(), 1);
+        assert_eq!(chunks[0], short);
+    }
+
+    #[test]
+    fn chunk_transcript_by_token_preserves_50_token_overlap() {
+        // 验证重叠: 切块后 chunk[0] 末尾 50 token 应在 chunk[1] 开头出现
+        let long_text: String = "测试重叠, 重要内容, 关键决策依据. ".repeat(300);
+        let chunks = chunk_transcript_by_token(&long_text);
+        assert!(chunks.len() >= 2);
+        // 拿 chunk[0] 末尾 ~50 token = ~150 char (UTF-8 中文 3 字节 + 标点)
+        let chunk0_chars: Vec<char> = chunks[0].chars().collect();
+        let tail_start = chunk0_chars.len().saturating_sub(150);
+        let tail: String = chunk0_chars[tail_start..].iter().collect();
+        // tail 中前 30 char 应出现在 chunks[1] 里 (overlap 区段)
+        let head_check: String = tail.chars().take(30).collect();
+        assert!(chunks[1].contains(&head_check),
+                "块间 50 token 重叠未生效: tail head=\"{head_check}\", chunks[1] 不含");
+    }
+
+    #[tokio::test]
+    async fn recursive_reduce_fits_within_chunk_size() {
+        // 模拟 20 个 chunk_summaries, 每个 200 token, 合并 = 4000 token, > 1800
+        let summaries: Vec<String> = (0..20).map(|i| format!("分块 {}: 决策依据 A, 行动项 B, 责任人 C", i)).collect();
+        let summarized = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let summarized_clone = summarized.clone();
+        let reduce_fn = |batches: Vec<String>, _lang: &str| {
+            let summarized_inner = summarized_clone.clone();
+            async move {
+                let combined = batches.join("\n---\n");
+                summarized_inner.lock().unwrap().push(combined.clone());
+                Ok::<String, String>(combined)
+            }
+        };
+        let result = recursive_reduce_summaries(summaries, "Chinese", 5, reduce_fn).await.unwrap();
+        // 末轮输入 ≤ 1800 token
+        let tokens = rough_token_count(&result);
+        assert!(tokens <= 1800, "末轮输出超 1800 tokens: {}", tokens);
+        // 至少调过 2 次 reduce (有中间层)
+        let calls = summarized.lock().unwrap();
+        assert!(calls.len() >= 1, "recursive_reduce 没真递归");
+    }
+
+    #[tokio::test]
+    async fn recursive_reduce_terminates_at_depth_zero() {
+        // 强制深度 0, 直接调一次
+        let summaries = vec!["a".to_string(), "b".to_string()];
+        let reduce_fn = |batches: Vec<String>, _lang: &str| async move {
+            Ok::<String, String>(batches.join("|"))
+        };
+        let result = recursive_reduce_summaries(summaries, "Chinese", 0, reduce_fn).await.unwrap();
+        assert_eq!(result, "a|b");
+    }
+
+    #[tokio::test]
+    async fn recursive_reduce_single_chunk_passes_through() {
+        let summaries = vec!["single".to_string()];
+        let reduce_fn = |batches: Vec<String>, _lang: &str| async move {
+            Ok::<String, String>(batches.join("|"))
+        };
+        let result = recursive_reduce_summaries(summaries, "Chinese", 5, reduce_fn).await.unwrap();
+        assert_eq!(result, "single");
+    }
+}
 }

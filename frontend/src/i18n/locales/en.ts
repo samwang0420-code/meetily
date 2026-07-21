@@ -481,6 +481,13 @@ export const en: Record<string, unknown> = {
     llm_connection_failed: 'Could not connect to the local model service. Please ensure Ollama or your configured provider is running.',
     transcript_fetch_failed: 'Failed to fetch transcripts',
     generating: 'Generating meeting summary…',
+    // v0.7.0+ P0-1: Map-Reduce chunked summary phases
+    phase: {
+      map: 'Summarizing chunks…',
+      reduce: 'Combining chunk summaries…',
+      final: 'Building structured meeting minutes…',
+      single: 'Generating meeting summary…',
+    },
   },
   recovery: {
     title: 'Recover interrupted meetings',

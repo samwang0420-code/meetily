@@ -35,6 +35,8 @@ interface SummaryGeneratorButtonGroupProps {
   onStopGeneration: () => void;
   customPrompt: string;
   summaryStatus: 'idle' | 'processing' | 'summarizing' | 'regenerating' | 'completed' | 'error';
+  // v0.7.0+ P0-1: Map-Reduce 阶段
+  summaryPhase?: 'idle'|'single'|'map'|'reduce'|'final';
   availableTemplates: Array<{ id: string; name: string; description: string; required_tier?: 'free' | 'member' }>;
   selectedTemplate: string;
   onTemplateSelect: (templateId: string, templateName: string) => void;
@@ -52,6 +54,7 @@ export function SummaryGeneratorButtonGroup({
   onStopGeneration,
   customPrompt,
   summaryStatus,
+  summaryPhase = 'idle',
   availableTemplates,
   selectedTemplate,
   onTemplateSelect,
@@ -285,6 +288,13 @@ export function SummaryGeneratorButtonGroup({
             <>
               <Loader2 className="animate-spin xl:mr-2" size={18} />
               <span className="hidden xl:inline">{t('common.processing')}</span>
+            </>
+          ) : isGenerating ? (
+            <>
+              <Loader2 className="animate-spin xl:mr-2" size={18} />
+              <span className="hidden xl:inline">
+                {summaryPhase !== 'idle' ? t(`summary.phase.${summaryPhase}`) : t('common.processing')}
+              </span>
             </>
           ) : (
             <>

@@ -554,6 +554,28 @@ impl SummaryService {
             );
         });
 
+        // v0.7.0+ P0-1: phase callback → emit "summary-phase" to frontend
+        // 让 UI 能区分 map/reduce/final/single 阶段
+        use crate::summary::processor::PhaseCallback;
+        let phase_app = app.clone();
+        let phase_meeting_id = meeting_id.clone();
+        let phase_callback: Option<PhaseCallback> = Some(std::sync::Arc::new(move |phase: &str, progress: f32| {
+            #[derive(serde::Serialize, Clone)]
+            struct SummaryPhaseEvent {
+                meeting_id: String,
+                phase: String,
+                progress: f32,
+            }
+            let _ = phase_app.emit(
+                "summary-phase",
+                SummaryPhaseEvent {
+                    meeting_id: phase_meeting_id.clone(),
+                    phase: phase.to_string(),
+                    progress,
+                },
+            );
+        }));
+
         let result = generate_meeting_summary(
             &client,
             &provider,
@@ -575,6 +597,7 @@ impl SummaryService {
             detected_summary_language.as_deref(),
             cached_english.as_deref(),
             Some(stream_sink),
+            phase_callback,
         )
         .await;
 

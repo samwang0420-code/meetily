@@ -480,6 +480,13 @@ export const zh: Record<string, unknown> = {
     llm_connection_failed: '无法连接到本地模型服务，请确认 Ollama 或配置的模型服务正在运行。',
     transcript_fetch_failed: '获取转录文本失败',
     generating: '正在生成会议纪要…',
+    // v0.7.0+ P0-1: Map-Reduce 分块分层摘要阶段
+    phase: {
+      map: '分块总结处理中…',
+      reduce: '合并分块结果中…',
+      final: '生成全局结构化纪要…',
+      single: '正在生成会议纪要…',
+    },
   },
   recovery: {
     title: '恢复中断的会议',
