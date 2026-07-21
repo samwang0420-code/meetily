@@ -41,10 +41,9 @@ impl DatabaseManager {
             return Err(e);
         }
         // 标记 migration 20260719000000 为已跑 (它的 SQL 内容已经被手动处理)
-        if let Err(e) = Self::mark_migration_applied(&pool, "20260719000000", "lixianhuiji_commercial_hardening").await {
-            log::warn!("mark_migration_applied for 20260719000000 failed (non-fatal): {}", e);
-        }
-
+        // 20260719000000 不在 _sqlx_migrations 表 (之前一直 panic 失败),
+        // sqlx::migrate! 会重跑这条 migration, 但里面只剩 IF NOT EXISTS 的 CREATE TABLE/INDEX,
+        // 不会 panic. bound_machine_id ALTER 已在 ensure_activation_codes_bound_machine_id 处理.
         sqlx::migrate!("./migrations").run(&pool).await?;
 
         Ok(DatabaseManager { pool })
@@ -55,48 +54,22 @@ impl DatabaseManager {
     // the current app dir, So the system detects legacy db and copy it and starts with that data
     // (Newly created .sqlite with the copied content from .db)
 
-    /// v0.7.0+ rc3: 检查 activation_codes 表是否有 bound_machine_id 列, 没有就 ALTER.
-    /// 老库 (C4 部署过) 已有, 跳过; 新库第一次启动会加.
+    /// v0.7.0+ rc4: idempotent ALTER bound_machine_id (老库兼容).
+    /// 老库 (C4 部署过) 已有列, 跳过; 新库第一次启动会加.
+    /// 之前用 query_as fetch_optional<Option<(i64,)>> 在 sqlx 0.8 unparameterized 模式会触发 BLOB/Vec<u8> 推断错误.
     async fn ensure_activation_codes_bound_machine_id(pool: &SqlitePool) -> Result<()> {
-        let row: Option<(i64,)> = sqlx::query_as(
+        let exists: i64 = sqlx::query_scalar(
             "SELECT COUNT(*) FROM pragma_table_info('activation_codes') WHERE name = 'bound_machine_id'"
         )
-        .fetch_optional(pool)
+        .fetch_one(pool)
         .await?;
-        let exists = row.map(|r| r.0 > 0).unwrap_or(false);
-        if !exists {
+        if exists == 0 {
             log::info!("activation_codes.bound_machine_id missing, adding via ALTER TABLE");
             sqlx::query("ALTER TABLE activation_codes ADD COLUMN bound_machine_id TEXT")
                 .execute(pool)
                 .await?;
-            log::info!("activation_codes.bound_machine_id added");
         } else {
             log::debug!("activation_codes.bound_machine_id already exists, skip");
-        }
-        Ok(())
-    }
-
-    /// v0.7.0+ rc3: 手动把 migration 标记为已成功跑过, 避免 sqlx::migrate! 重跑.
-    /// 因为 20260719000000 的 SQL 内容 (ALTER TABLE) 已经被 ensure_activation_codes_bound_machine_id 处理,
-    /// 这里只插入 _sqlx_migrations 记录, 不再执行文件里的 SQL.
-    async fn mark_migration_applied(pool: &SqlitePool, version: &str, description: &str) -> Result<()> {
-        let row: Option<(i64,)> = sqlx::query_as(
-            "SELECT COUNT(*) FROM _sqlx_migrations WHERE version = ?1"
-        )
-        .bind(version)
-        .fetch_optional(pool)
-        .await?;
-        let exists = row.map(|r| r.0 > 0).unwrap_or(false);
-        if !exists {
-            log::info!("Manually marking migration {} as applied", version);
-            sqlx::query(
-                "INSERT INTO _sqlx_migrations (version, description, installed_on, success, checksum, execution_time)
-                 VALUES (?1, ?2, datetime('now'), 1, 0, 0)"
-            )
-            .bind(version)
-            .bind(description)
-            .execute(pool)
-            .await?;
         }
         Ok(())
     }
