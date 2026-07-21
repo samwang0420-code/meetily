@@ -76,22 +76,6 @@ export function TranscriptButtonGroup({
           </Button>
         )}
 
-        {onExportTxt && (
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              Analytics.trackButtonClick('export_txt', 'meeting_details');
-              onExportTxt();
-            }}
-            disabled={transcriptCount === 0}
-            title={t('meeting_details.export_txt_title')}
-          >
-            <FileText />
-            <span className="hidden lg:inline">{t('meeting_details.export_txt')}</span>
-          </Button>
-        )}
-
         <Button
           size="sm"
           variant="outline"

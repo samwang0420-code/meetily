@@ -91,23 +91,6 @@ export function SummaryUpdaterButtonGroup({
         </Button>
       )}
 
-      {onExportTxt && (
-        <Button
-          variant="outline"
-          size="sm"
-          title={t('summary.export_txt_title')}
-          onClick={() => {
-            Analytics.trackButtonClick('export_summary_txt', 'meeting_details');
-            onExportTxt();
-          }}
-          disabled={!hasSummary}
-          className="cursor-pointer"
-        >
-          <FileText />
-          <span className="hidden lg:inline">{t('summary.export_txt')}</span>
-        </Button>
-      )}
-
       {/* Find button */}
       {/* {onFind && (
         <Button
