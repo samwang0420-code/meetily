@@ -7,7 +7,7 @@ import React from 'react';
 
 export default function TermsPage() {
   return (
-    <div className="max-w-3xl mx-auto p-6 prose prose-neutral dark:prose-invert">
+    <div className="max-w-3xl mx-auto p-6 space-y-4 text-neutral-900">
       <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">用户协议 / EULA</h1>
       <p className="text-sm text-neutral-500">
         最后更新: 2026-07-18 · 离线会记 (Meetily) 团队
@@ -18,7 +18,7 @@ export default function TermsPage() {
         离线会记按以下方式许可:
       </p>
       <ul className="text-sm text-neutral-700 list-disc pl-6 space-y-1">
-        <li>个人/企业使用: <strong>¥88 永久买断</strong> (绑定 1 台机器)</li>
+        <li>个人/企业使用: <strong className="font-semibold text-neutral-900">¥88 永久买断</strong> (绑定 1 台机器)</li>
         <li>源码: <a href="https://github.com/meetily/meetily" className="text-blue-600 hover:underline">GitHub</a> 开源 (MIT)</li>
         <li>许可证不可转让: 同一许可证不可在多台机器同时使用</li>
       </ul>
