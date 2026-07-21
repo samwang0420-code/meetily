@@ -70,7 +70,7 @@ export function HardwareStatusBadge() {
         {tierLabel}
       </span>
       <span className={`px-2 py-0.5 rounded border ${memoryColor}`}>
-        {locale === 'zh' ? `内存 ${rssMb} MB` : `RSS ${rssMb} MB`}
+        {locale === 'zh' ? `进程占用 ${rssMb} MB` : `RSS ${rssMb} MB`}
       </span>
       <span className="text-slate-500">
         {locale === 'zh' ? `最长 ${profile.recommended_max_meeting_minutes} 分钟` : `max ${profile.recommended_max_meeting_minutes}m`}
