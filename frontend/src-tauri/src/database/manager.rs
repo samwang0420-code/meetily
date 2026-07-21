@@ -32,9 +32,8 @@ impl DatabaseManager {
 
         let pool = SqlitePool::connect(tauri_db_path).await?;
 
-        // v0.7.0+ rc5: DROP 并重建 _sqlx_migrations 表, 解决 sqlx 0.8 解码 panic.
-        // 老表 schema 数据兼容性: BOOLEAN schema 但实际 INTEGER, sqlx 0.8 检查失败报
-        // 'Vec<u8> (BLOB) is not compatible with SQL type INTEGER'. 重建表彻底绕开.
+        // v0.7.0+ rc6: 顺序调整 - 先 DROP _sqlx_migrations, 再 sqlx::migrate, 最后 ensure_activation_codes_bound_machine_id
+        // (ensure 必须在 sqlx 跑完之后, 此时 activation_codes 表已存在).
         if let Err(e) = sqlx::query("DROP TABLE IF EXISTS _sqlx_migrations")
             .execute(&pool)
             .await
@@ -42,13 +41,13 @@ impl DatabaseManager {
             log::warn!("DROP _sqlx_migrations failed (non-fatal): {}", e);
         }
 
+        sqlx::migrate!("./migrations").run(&pool).await?;
+
         // v0.7.0+ rc4: idempotent ALTER bound_machine_id (老库兼容).
         if let Err(e) = Self::ensure_activation_codes_bound_machine_id(&pool).await {
             log::error!("ensure_activation_codes_bound_machine_id failed: {}", e);
             return Err(e);
         }
-
-        sqlx::migrate!("./migrations").run(&pool).await?;
 
         Ok(DatabaseManager { pool })
     }

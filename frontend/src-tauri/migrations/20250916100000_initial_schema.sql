@@ -56,7 +56,10 @@ CREATE TABLE IF NOT EXISTS settings (
     groqApiKey TEXT,
     openaiApiKey TEXT,
     anthropicApiKey TEXT,
-    ollamaApiKey TEXT
+    ollamaApiKey TEXT,
+    -- v0.7.0+ rc6: 同步 openRouterApiKey 到初始 schema, 避免 20250920155811
+    -- 老 migration 用 12-step rebuild 时 schema mismatch panic.
+    openRouterApiKey TEXT
 );
 
 -- Create transcript_settings table
