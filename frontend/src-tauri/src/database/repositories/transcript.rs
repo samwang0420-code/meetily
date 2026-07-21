@@ -49,6 +49,25 @@ impl TranscriptsRepository {
 
         info!("Successfully created meeting with id: {}", meeting_id);
 
+        // 1b. v0.7.x P0 quick-fix: start_recording 时 placeholder meetings 行 folder_path = NULL,
+        // 上面的 INSERT OR IGNORE 会直接 skip (placeholder 已存在), folder_path 永不更新.
+        // 兜底 UPDATE: 只在 folder_path 是 NULL 时覆盖, 保护用户手动改名.
+        // folder_path 为空字符串不算 NULL, 用 TRIM(folder_path) = '' 一起覆盖.
+        if folder_path.is_some() {
+            sqlx::query(
+                "UPDATE meetings SET folder_path = ?, updated_at = ? WHERE id = ? AND (folder_path IS NULL OR TRIM(folder_path) = '')"
+            )
+            .bind(folder_path.as_deref())
+            .bind(now)
+            .bind(&meeting_id)
+            .execute(&mut *transaction)
+            .await
+            .map_err(|e| {
+                error!("Failed to backfill meeting folder_path for {}: {}", meeting_id, e);
+                e
+            })?;
+        }
+
         // 2. Save each transcript segment with audio timing fields
         for segment in transcripts {
             let transcript_id = format!("transcript-{}", Uuid::new_v4());
