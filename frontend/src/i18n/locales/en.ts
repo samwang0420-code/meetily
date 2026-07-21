@@ -372,6 +372,7 @@ export const en: Record<string, unknown> = {
     copy_transcript_title: 'Copy Transcript',
     no_transcript: 'No transcript available',
     open_folder: 'Open recording folder',
+    no_folder: 'No recording folder (legacy meeting)',
     enhance_title: 'Manually retranscribe audio; summary generation never triggers this and low-quality results never replace the original',
     export_md: 'Export MD',
     export_txt: 'Export TXT',

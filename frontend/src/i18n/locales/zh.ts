@@ -371,6 +371,7 @@ export const zh: Record<string, unknown> = {
     copy_transcript_title: '复制转录文本',
     no_transcript: '暂无可复制转录',
     open_folder: '打开录音文件夹',
+    no_folder: '无录音文件夹 (历史会议)',
     enhance_title: '手动重新识别录音；不会由生成摘要自动触发，低质量结果不会覆盖原文',
     export_md: '导出 MD',
     export_txt: '导出 TXT',
