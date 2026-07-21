@@ -14,6 +14,7 @@ import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { indexedDBService, type MeetingMetadata } from '@/services/indexedDBService';
 import { CardBoundary } from './CardBoundary';
 import { useTranslation } from '@/i18n';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface HomeDashboardProps {
   onRecordingStart: () => void;
@@ -80,7 +81,7 @@ export function HomeDashboard({
       const indexedIds = new Set(all.map(m => m.meetingId));
       const sidebarOnly = sidebarMeetings
         .filter(m => !!m && !!m.id && !indexedIds.has(m.id))
-        .slice(0, 6 - all.length)
+        .slice(0, 3 - all.length)
         .map((m, i) => ({
           meetingId: String(m.id),
           title: String(m.title ?? t('meeting.untitled')),
@@ -96,7 +97,7 @@ export function HomeDashboard({
         typeof m.title === 'string' &&
         typeof m.lastUpdated === 'number'
       );
-      const merged = [...cleanIndexed, ...sidebarOnly].slice(0, 6);
+      const merged = [...cleanIndexed, ...sidebarOnly].slice(0, 3);
       setRecentMeetings(merged);
     } catch (e) {
       console.error('HomeDashboard loadRecent failed', e);
@@ -156,43 +157,8 @@ export function HomeDashboard({
           </p>
         </motion.section>
 
-        {/* ── Status chips row ────────────────────────────── */}
-        <motion.section
-          initial={{ opacity: 0, y: 8 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.35, delay: 0.05 }}
-          className="flex flex-wrap items-center justify-center gap-2 pb-8"
-        >
-          <StatusChip
-            icon={<Languages className="h-3.5 w-3.5" />}
-            label={t('dashboard.transcript_model')}
-            value={modelLabel(t, transcriptModelConfig?.provider, transcriptModelConfig?.model)}
-            tone="blue"
-          />
-          <StatusChip
-            icon={<Mic className="h-3.5 w-3.5" />}
-            label={t('dashboard.microphone')}
-            value={selectedDevices?.micDevice || t('dashboard.default_input')}
-            tone="emerald"
-            maxChars={28}
-          />
-          <button
-            onClick={() => router.push('/settings/hotwords')}
-            className="group inline-flex items-center gap-1.5 rounded-full border border-amber-100 bg-amber-50/70 px-3 py-1 text-[12px] text-amber-700 transition-colors hover:border-amber-200 hover:bg-amber-50"
-          >
-            <BookOpen className="h-3.5 w-3.5 text-amber-500 group-hover:text-amber-600" />
-            <span>{t('dashboard.hotwords')}</span>
-            <ChevronRight className="h-3 w-3 text-amber-300 transition-transform group-hover:translate-x-0.5" />
-          </button>
-          <button
-            onClick={() => router.push('/settings')}
-            className="group inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 py-1 text-[12px] text-neutral-700 transition-colors hover:border-neutral-300 hover:bg-neutral-50"
-          >
-            <SettingsIcon className="h-3.5 w-3.5 text-neutral-400 group-hover:text-neutral-600" />
-            <span>{t('dashboard.settings')}</span>
-            <ChevronRight className="h-3 w-3 text-neutral-300 transition-transform group-hover:translate-x-0.5" />
-          </button>
-        </motion.section>
+        {/* v0.7.0+: Pro 升级 CTA — 只对非 Pro 用户显示 */}
+        <ProUpgradeCTA />
 
         {/* ── Recent meetings ────────────────────────────────── */}
         <motion.section
@@ -326,4 +292,35 @@ function EmptyState({ onStart }: { onStart: () => void }) {
       </button>
     </div>
   )
+}
+
+function ProUpgradeCTA() {
+  const { t } = useTranslation();
+  const { user } = useAuth();
+  const router = useRouter();
+  if (!user) return null;
+  if (user.membership === 'member') return null;
+  return (
+    <motion.section
+      initial={{ opacity: 0, y: 8 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.35, delay: 0.04 }}
+      className="mx-auto mb-8 max-w-3xl rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 p-4"
+    >
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex-1">
+          <h3 className="text-sm font-semibold text-blue-900">升级到 Pro · ¥88 永久买断</h3>
+          <p className="mt-0.5 text-xs text-blue-700">
+            解锁 FunASR-Nano 高精度、多发言人分离 (后台异步)、无限会议、完整导出
+          </p>
+        </div>
+        <button
+          onClick={() => router.push('/pricing')}
+          className="shrink-0 rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
+        >
+          查看定价
+        </button>
+      </div>
+    </motion.section>
+  );
 }

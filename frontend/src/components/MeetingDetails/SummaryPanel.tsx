@@ -400,9 +400,9 @@ export function SummaryPanel({
           </div>
         </div>
       ) : !aiSummary ? (
-        <div className="flex flex-col h-full">
+        <div className="flex flex-col h-full overflow-y-auto min-h-0">
           {/* Centered Summary Generator Button Group when no summary */}
-          <div className="flex items-center justify-center gap-2 pt-8 pb-4">
+          <div className="flex items-center justify-center gap-2 pt-8 pb-4 shrink-0">
             <SummaryGeneratorButtonGroup
               modelConfig={modelConfig}
               setModelConfig={setModelConfig}
@@ -421,7 +421,7 @@ export function SummaryPanel({
               languageSlot={transcripts.length > 0 ? languageSlot : undefined}
              summaryPhase={summaryPhase} />
           </div>
-          {/* Empty state message */}
+          {/* Empty state message — scrollable area so button stays visible */}
           <EmptyStateSummary
             onGenerate={() => onGenerateSummary(customPrompt)}
             hasModel={modelConfig.provider !== null && modelConfig.model !== null}

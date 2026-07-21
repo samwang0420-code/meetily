@@ -157,7 +157,7 @@ const FEATURES = [
           </ul>
           {/* v0.7.0+: 双 CTA — 主按钮"购买", 次按钮"已有激活码直接激活" */}
           <div className="space-y-2">
-            <a href="mailto:lisangjie@icloudsend.com?subject=Pro%20%E4%B9%B0%E6%96%AD%E5%92%A8%E8%AF%A2" className="block text-center px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700">
+            <a href="mailto:sam.wang01@icloud.com?subject=Pro%20%E4%B9%B0%E6%96%AD%E5%92%A8%E8%AF%A2" className="block text-center px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700">
               {t('pricing.tier_pro_cta')}
             </a>
             <Link href="/redeem" className="block text-center px-4 py-2 bg-white border border-blue-300 text-blue-700 rounded-md text-sm font-medium hover:bg-blue-50">

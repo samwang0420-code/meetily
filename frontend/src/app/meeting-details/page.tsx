@@ -49,15 +49,15 @@ function MeetingDetailsContent() {
     error: transcriptError,
   } = usePaginatedTranscripts({ meetingId: meetingId || '' });
 
-  // Check if gemma3:1b model is available in Ollama
-  const checkForGemmaModel = useCallback(async (): Promise<boolean> => {
+  // v0.7.0+: Built-in AI uses qwen3.5 models; default to qwen3.5:2b if DB is empty
+  const checkForDefaultModel = useCallback(async (): Promise<boolean> => {
     try {
-      const models = await invoke('get_ollama_models', { endpoint: null }) as any[];
-      const hasGemma = models.some((m: any) => m.name === 'gemma3:1b');
-      console.log('🔍 Checked for gemma3:1b:', hasGemma);
-      return hasGemma;
+      const models = await invoke('builtin_ai_list_models') as any[];
+      const hasDefault = models.some((m: any) => m.name === 'qwen3.5:2b');
+      console.log('🔍 Checked for qwen3.5:2b:', hasDefault);
+      return hasDefault;
     } catch (error) {
-      console.error('❌ Failed to check Ollama models:', error);
+      console.error('❌ Failed to check built-in models:', error);
       return false;
     }
   }, []);
@@ -93,10 +93,10 @@ function MeetingDetailsContent() {
       }
 
       // DB is empty - check if gemma3:1b exists as fallback
-      const hasGemma = await checkForGemmaModel();
+      const hasDefault = await checkForDefaultModel();
 
-      if (hasGemma) {
-        console.log('💾 DB empty, using gemma3:1b as initial default');
+      if (hasDefault) {
+        console.log('💾 DB empty, using qwen3.5:2b as initial default');
 
         await invoke('api_save_model_config', {
           provider: 'ollama',
@@ -108,14 +108,14 @@ function MeetingDetailsContent() {
 
         setShouldAutoGenerate(true);
       } else {
-        console.log('⚠️ No model configured and gemma3:1b not found');
+        console.log('⚠️ No model configured and qwen3.5:2b not found');
       }
     } catch (error) {
       console.error('❌ Failed to setup auto-generation:', error);
     }
 
     setHasCheckedAutoGen(true);
-  }, [hasCheckedAutoGen, checkForGemmaModel, source, isAutoSummary]);
+  }, [hasCheckedAutoGen, checkForDefaultModel, source, isAutoSummary]);
 
   // Sync meeting metadata from pagination hook to meeting details state
   useEffect(() => {
