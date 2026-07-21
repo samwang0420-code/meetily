@@ -69,6 +69,10 @@ export function useRecordingStop(
 
   const router = useRouter();
 
+  // v0.7.0+: useConfig 必须在所有 hooks 顶层调, 避免 try/condition 内 conditional hook
+  // 导致 React hooks 顺序错位触发 #321 (保存会议失败 UI 误报 toast, 数据其实已存)
+  const { isAutoRetranscribe } = useConfig();
+
   // Guard to prevent duplicate/concurrent stop calls (e.g., from UI and tray simultaneously)
   const stopInProgressRef = useRef(false);
 
@@ -379,7 +383,6 @@ export function useRecordingStop(
           // 仅当 folderPath 存在 (音频文件已落地) 才触发
           // v0.6.11 bug fix: 不再依赖 freshTranscripts > 0 (streaming pipeline 可能没切句就关闭,
           //   这种情况 transcripts=[] 但 audio.mp4 已有内容, 必须整段重跑)
-          const { isAutoRetranscribe } = useConfig();
           if (folderPath && isAutoRetranscribe) {
             // 告诉用户正在做什么. 否则 transcript 突然变了, 不知道为啥.
             safeToast.info('正在后台重新转录以优化结果...', {
