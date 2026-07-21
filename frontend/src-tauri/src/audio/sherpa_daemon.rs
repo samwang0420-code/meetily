@@ -236,8 +236,17 @@ impl SherpaDaemon {
         let mut guard = self.inner.lock().map_err(|_| anyhow!("lock"))?;
         let h = guard.as_mut().ok_or_else(|| anyhow!("daemon not started"))?;
 
+        // v0.7.x 修复: 之前的 id:"1" 写死导致 diar 落盘文件名全是 1.json,
+        // 多个 chunk 互相覆盖, pickup loop 只能拿到最后一块的 segments.
+        // 现在用 meeting_id + audio_start_offset 组合当 rid, 保证每个 chunk 独立落盘.
+        let rid = match (meeting_id, audio_start_offset_seconds) {
+            (Some(mid), Some(off)) => format!("{}-{}", mid, off),
+            (_, Some(off)) => format!("anon-{}", off),
+            (Some(mid), None) => format!("{}-noOff", mid),
+            _ => "1".to_string(),
+        };
         let req = SherpaRequest {
-            id: "1",
+            id: &rid,
             model,
             audio_b64,
             sample_rate,

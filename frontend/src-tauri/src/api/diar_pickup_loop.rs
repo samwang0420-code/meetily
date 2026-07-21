@@ -19,7 +19,7 @@ use serde::Serialize;
 use tauri::{AppHandle, Emitter, Manager, Runtime};
 
 const PICKUP_DIR: &str = "/tmp/lixianhuiji_diar";
-const SCAN_INTERVAL_SECS: u64 = 30;
+const SCAN_INTERVAL_SECS: u64 = 10;
 
 #[derive(Serialize, Clone)]
 struct TranscriptsUpdatedEvent {
@@ -254,7 +254,7 @@ mod tests {
     #[test]
     fn test_pickup_dir_constant_is_absolute() {
         assert!(PICKUP_DIR.starts_with('/'));
-        assert_eq!(SCAN_INTERVAL_SECS, 30);
+        assert_eq!(SCAN_INTERVAL_SECS, 10);
     }
 
     #[test]
