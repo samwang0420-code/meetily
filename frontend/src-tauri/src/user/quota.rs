@@ -71,3 +71,71 @@ pub fn compute_quota(
         },
     }
 }
+
+
+/// v0.7.x: 按 membership tier 截断 transcript segments.
+/// member (Pro) 不截断 (返回 -1 = 无限制); free / anonymous 用 FREE_SEGMENTS_PER_TRANSCRIPT_LIMIT.
+pub fn truncate_segments_for_tier<T>(segments: &mut Vec<T>, tier: &str) -> i64 {
+    let limit: i64 = match tier {
+        "member" => i64::MAX,
+        _ => FREE_SEGMENTS_PER_TRANSCRIPT_LIMIT,
+    };
+    if (segments.len() as i64) > limit {
+        segments.truncate(limit as usize);
+        return limit;
+    }
+    -1  // -1 = 没截断, unlimited
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn truncate_member_keeps_all() {
+        let mut v: Vec<u32> = (0..200u32).collect();
+        let r = truncate_segments_for_tier(&mut v, "member");
+        assert_eq!(r, -1);
+        assert_eq!(v.len(), 200);
+    }
+
+    #[test]
+    fn truncate_free_caps_at_100() {
+        let mut v: Vec<u32> = (0..250u32).collect();
+        let r = truncate_segments_for_tier(&mut v, "free");
+        assert_eq!(r, 100);
+        assert_eq!(v.len(), 100);
+    }
+
+    #[test]
+    fn truncate_anonymous_caps_at_100() {
+        let mut v: Vec<u32> = (0..105u32).collect();
+        let r = truncate_segments_for_tier(&mut v, "anonymous");
+        assert_eq!(r, 100);
+        assert_eq!(v.len(), 100);
+    }
+
+    #[test]
+    fn truncate_under_limit_noop() {
+        let mut v: Vec<u32> = (0..50u32).collect();
+        let r = truncate_segments_for_tier(&mut v, "free");
+        assert_eq!(r, -1);
+        assert_eq!(v.len(), 50);
+    }
+
+    #[test]
+    fn truncate_empty() {
+        let mut v: Vec<u32> = Vec::new();
+        let r = truncate_segments_for_tier(&mut v, "free");
+        assert_eq!(r, -1);
+        assert_eq!(v.len(), 0);
+    }
+
+    #[test]
+    fn truncate_exactly_at_limit() {
+        let mut v: Vec<u32> = (0..100u32).collect();
+        let r = truncate_segments_for_tier(&mut v, "free");
+        assert_eq!(r, -1);
+        assert_eq!(v.len(), 100);
+    }
+}

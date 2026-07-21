@@ -454,6 +454,8 @@ export const zh: Record<string, unknown> = {
     export_txt_title: '导出会议纪要为纯文本文件',
     export_success: '已导出: {filename}',
     export_failed: '摘要导出失败',
+    watermark_footer: '\n\n---\n\n*本文档由离线会记生成 · 免费版* · [升级到 Pro 解锁完整纪要、移除水印](https://lixianhuiji.com/pricing)\n',
+    watermark_upsell: '水印已注入 · 升级 Pro 移除',
     no_summary_to_copy: '暂无可复制的会议纪要',
     copy_success: '会议纪要已复制',
     copy_failed: '复制会议纪要失败',

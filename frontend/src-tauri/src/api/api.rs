@@ -1,7 +1,8 @@
 use log::{debug as log_debug, error as log_error, info as log_info, warn as log_warn};
+use crate::user::SessionStore;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tauri::{AppHandle, Runtime};
+use tauri::{AppHandle, Manager, Runtime};
 use tauri_plugin_store::StoreExt;
 
 use crate::{
@@ -10,6 +11,7 @@ use crate::{
         repositories::{
             meeting::MeetingsRepository, setting::SettingsRepository,
             transcript::TranscriptsRepository,
+            user::UsersRepository,
         },
     },
     state::AppState,
@@ -928,7 +930,7 @@ pub async fn api_save_meeting_title<R: Runtime>(
 
 #[tauri::command]
 pub async fn api_save_transcript<R: Runtime>(
-    _app: AppHandle<R>,
+    app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     meeting_title: String,
     transcripts: Vec<serde_json::Value>,
@@ -936,6 +938,8 @@ pub async fn api_save_transcript<R: Runtime>(
     auth_token: Option<String>,
     // v0.7.1+: 长会议 diar pickup — 前端录音停止时从 recording-started 事件拿的 meeting_id
     meeting_id: Option<String>,
+    // v0.7.x: 配额 — 100 段截断需要 user membership tier. 未登录传 None = 走 anonymous.
+    session: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
         "api_save_transcript called for meeting: {}, transcripts: {}, folder_path: {:?}, auth_token: {}",
@@ -953,8 +957,41 @@ pub async fn api_save_transcript<R: Runtime>(
         );
     }
 
+    // v0.7.x: 配额 — 解析 user tier. 未登录或无效 session 视为 anonymous (有 100 段限制).
+    let pool = state.db_manager.pool();
+    let membership: String = match session.as_deref() {
+        Some(token) => {
+            // 优先 SessionStore (in-memory); 缺失则查 auth_sessions 表 (跨重启 fallback).
+            let from_store = {
+                let st: tauri::State<SessionStore> = app.state();
+                let m = st.map.lock().unwrap();
+                m.get(token).copied()
+            };
+            let user_id_opt: Option<i64> = match from_store {
+                Some(uid) => Some(uid),
+                None => {
+                    let row: Option<(i64,)> = sqlx::query_as(
+                        "SELECT user_id FROM auth_sessions WHERE token = ?1 LIMIT 1"
+                    )
+                    .bind(token)
+                    .fetch_optional(pool)
+                    .await
+                    .unwrap_or(None);
+                    row.map(|(id,)| id)
+                }
+            };
+            match user_id_opt {
+                Some(uid) => UsersRepository::get_membership(pool, uid)
+                    .await
+                    .unwrap_or_else(|_| "free".to_string()),
+                None => "anonymous".to_string(),
+            }
+        }
+        None => "anonymous".to_string(),
+    };
+
     // Convert serde_json::Value to TranscriptSegment
-    let transcripts_to_save: Vec<TranscriptSegment> = transcripts
+    let mut transcripts_to_save: Vec<TranscriptSegment> = transcripts
         .into_iter()
         .map(serde_json::from_value)
         .collect::<Result<Vec<_>, _>>()
@@ -962,6 +999,24 @@ pub async fn api_save_transcript<R: Runtime>(
             log_error!("Failed to parse transcript segments: {}", e);
             format!("Invalid transcript data format: {}. Please check the data structure.", e)
         })?;
+
+    // v0.7.x: 配额 — free / anonymous 单次 ≤ 100 段, member 无限制.
+    // 截断逻辑收敛到 user::quota::truncate_segments_for_tier, 有单测覆盖.
+    let original_count = transcripts_to_save.len() as i64;
+    let effective_limit = crate::user::quota::truncate_segments_for_tier(
+        &mut transcripts_to_save,
+        &membership,
+    );
+    let truncated = effective_limit != -1;
+    let saved_count = transcripts_to_save.len() as i64;
+    if truncated {
+        log_warn!(
+            "[quota] {} tier hit segment limit: had {}, limit {}, truncating",
+            membership,
+            original_count,
+            effective_limit
+        );
+    }
 
     // Log parsed segments count and first segment details
     if let Some(first_seg) = transcripts_to_save.first() {
@@ -971,8 +1026,6 @@ pub async fn api_save_transcript<R: Runtime>(
                    first_seg.audio_end_time,
                    first_seg.duration);
     }
-
-    let pool = state.db_manager.pool();
 
     // Now, call the repository with the correctly typed data.
     match TranscriptsRepository::save_transcript(
@@ -998,7 +1051,12 @@ pub async fn api_save_transcript<R: Runtime>(
             Ok(serde_json::json!({
                 "status": "success",
                 "message": "Transcript saved successfully",
-                "meeting_id": meeting_id
+                "meeting_id": meeting_id,
+                "membership": membership,
+                "saved_segments": saved_count,
+                "original_segments": original_count,
+                "truncated": truncated,
+                "segments_limit": if effective_limit == -1 { -1 } else { effective_limit },
             }))
         }
         Err(e) => {
