@@ -203,8 +203,8 @@ body { font-feature-settings: var(--app-font-feature); }
   /* html, */
   body {
     @apply bg-background text-foreground;
-    overflow: hidden;
-    height: 100%;
+    overflow-y: auto;
+    min-height: 100vh;
   }
 
   /* Make the window draggable */

@@ -677,7 +677,7 @@ export const en: Record<string, unknown> = {
     tier_pro_subtitle: 'One-time ¥88, all v1.x upgrades included',
     tier_anonymous_features: ['No sign-up required', 'Only 1 transcription', 'Watermarked exports'],
     tier_free_features: ['✓ 100% local AI transcription', '✓ 5 built-in hotword packs', '— ≤ 5 meetings per month', '— ≤ 100 segments per meeting', '— Watermarked notes'],
-    tier_pro_features: ['✓ Everything in Free', '✓ Unlimited transcriptions + segments', '✓ FunASR-Nano precision mode', '✓ cam++ short-clip (≤ 5 min) speaker separation', '✓ Watermark-free notes + full export', '✓ Priority access to new features'],
+    tier_pro_features: ['✓ Everything in Free', '✓ Unlimited transcriptions + segments', '✓ FunASR-Nano precision mode', '✓ cam++ multi-speaker separation (background async)', '✓ Watermark-free notes + full export', '✓ Priority access to new features'],
     tier_anonymous_cta: 'Open app',
     tier_free_cta: 'Sign up',
     tier_pro_cta: 'Email to buy',

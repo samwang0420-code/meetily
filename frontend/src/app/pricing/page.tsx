@@ -2,7 +2,9 @@
 
 import React from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { useTranslation } from '@/i18n';
+import { ArrowLeft } from 'lucide-react';
 
 // 离线会记 v0.6.10+: 独立定价页 (C6)
 // 主要内容: 
@@ -12,6 +14,7 @@ import { useTranslation } from '@/i18n';
 
 export default function PricingPage() {
   const { t } = useTranslation();
+  const router = useRouter();
 const FEATURES = [
     {
       category: t('pricing.cat_basics'),
@@ -83,6 +86,15 @@ const FEATURES = [
 ];
   return (
     <div className="max-w-5xl mx-auto p-6">
+      <div className="flex items-center gap-3 -mt-2 mb-4">
+        <button
+          onClick={() => router.push('/')}
+          className="flex items-center gap-1 text-gray-600 hover:text-gray-900 text-sm"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>返回工作台</span>
+        </button>
+      </div>
       <header className="text-center mb-8">
         <h1 className="text-3xl font-semibold tracking-tight text-neutral-900 mb-2">
           {t('pricing.page_title')}

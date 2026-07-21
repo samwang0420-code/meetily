@@ -679,7 +679,7 @@ export const zh: Record<string, unknown> = {
     tier_pro_subtitle: '一次性付 ¥88, v1.x 永久升级',
     tier_anonymous_features: ['不需要注册', '仅 1 次转录权限', '导出受水印限制'],
     tier_free_features: ['✓ 100% 本地 AI 转录', '✓ 基础 5 个内置热词', '— 每月 ≤ 5 次会议', '— 单次 ≤ 100 段', '— 纪要带水印'],
-    tier_pro_features: ['✓ 包含免费档全部功能', '✓ 无限次转录 + 不限段', '✓ FunASR-Nano 精度模式', '✓ cam++ 短时 (≤5 min) 多发言人', '✓ 无水印纪要 + 完整导出', '✓ 实验性新功能优先'],
+    tier_pro_features: ['✓ 包含免费档全部功能', '✓ 无限次转录 + 不限段', '✓ FunASR-Nano 精度模式', '✓ cam++ 多发言人分离 (后台异步)', '✓ 无水印纪要 + 完整导出', '✓ 实验性新功能优先'],
     tier_anonymous_cta: '打开 app',
     tier_free_cta: '注册账号',
     tier_pro_cta: '邮件咨询 / 购买',
