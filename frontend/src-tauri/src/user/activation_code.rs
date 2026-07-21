@@ -209,3 +209,59 @@ mod tests {
         assert!(is_crockford_char('1'));
     }
 }
+    // v0.7.0+ P0-3: 自助激活闭环相关测试 (5 个)
+    #[test]
+    fn redeem_validation_normalizes_lowercase_with_spaces() {
+        let code = generate_code();
+        let messy = format!("  {}  ", code.to_ascii_lowercase());
+        let normalized = validate_code(&messy).expect("messy should validate");
+        assert_eq!(normalized, code);
+        // 校验后规范化形式仍能被 mask_for_display 正确遮罩
+        let masked = mask_for_display(&normalized);
+        assert!(masked.starts_with("PROMO-"));
+        assert!(masked.ends_with("-****") || masked.contains("***"));
+    }
+
+    #[test]
+    fn redeem_validation_detects_prefix_tampering() {
+        let code = generate_code();
+        let mut tampered: String = code.clone();
+        // 改前缀第一个字符 (PROMO → XROMO, 第 0 位 P → X)
+        let first = tampered.remove(0);
+        let replacement = if first == 'P' { 'X' } else { 'P' };
+        tampered.insert(0, replacement);
+        assert!(validate_code(&tampered).is_err(), "tampered prefix must fail");
+    }
+
+    #[test]
+    fn redeem_validation_detects_checksum_tampering() {
+        let code = generate_code();
+        // 改 checksum 段第 0 位
+        let mut chars: Vec<char> = code.chars().collect();
+        let last_segment_idx = chars.len() - 1;
+        chars[last_segment_idx] = if chars[last_segment_idx] == 'A' { 'B' } else { 'A' };
+        let tampered: String = chars.into_iter().collect();
+        assert!(validate_code(&tampered).is_err(), "tampered checksum must fail");
+    }
+
+    #[test]
+    fn redeem_validation_rejects_invalid_crockford_chars() {
+        // I, L, O, U 在 Crockford base32 里被排除 (易混淆)
+        for bad in &["PROMO-1I234567-AAAA", "PROMO-1L234567-AAAA", "PROMO-1O234567-AAAA", "PROMO-1U234567-AAAA"] {
+            assert!(validate_code(bad).is_err(), "{bad} should be rejected");
+        }
+    }
+
+    #[test]
+    fn redeem_code_to_secret_round_trip() {
+        let code = generate_code();
+        let secret = code_to_secret(&code).expect("valid code should produce secret");
+        // secret 是中间 8 字符 (不含 PROMO 前缀和 checksum 段)
+        assert_eq!(secret.len(), SECRET_LEN);
+        assert!(secret.chars().all(is_crockford_char));
+        // secret 段应等于完整 code 第 2 段
+        let parts: Vec<&str> = code.split('-').collect();
+        assert_eq!(secret, parts[1]);
+        // 重新算 checksum 应等于原始 checksum (这正是 compute_checksum_4 的定义)
+        assert_eq!(compute_checksum_4(parts[1]), parts[2]);
+    }
