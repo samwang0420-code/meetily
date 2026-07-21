@@ -12,10 +12,10 @@ CREATE TABLE IF NOT EXISTS analytics_events (
 CREATE INDEX IF NOT EXISTS idx_analytics_user ON analytics_events(user_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_analytics_event ON analytics_events(event_name, created_at);
 
--- v0.7.0+ 修复: SQLite 不支持 ALTER TABLE ADD COLUMN IF NOT EXISTS,
--- 已有库 (C4 部署过) 已加过 bound_machine_id, 重跑会 duplicate column 报错.
--- 改成 PRAGMA table_info 查询列存在性, 仅当列不存在时才执行 ALTER.
--- 这种"条件 DDL" 无法用单一 SQL 表达, 改成 SQLite 3.35+ 原生 IF NOT EXISTS 兼容:
---   SQLite 3.35.0 (2021-03-12) 起支持 ALTER TABLE ADD COLUMN IF NOT EXISTS
--- macOS 系统 SQLite 通常 >= 3.39 (Big Sur+), 满足条件.
-ALTER TABLE activation_codes ADD COLUMN IF NOT EXISTS bound_machine_id TEXT;
+-- v0.7.0+ rc3 修复:
+-- 之前用 ALTER TABLE ADD COLUMN IF NOT EXISTS 启动 panic
+-- (libsqlite3-sys bundled 不支持这个语法, 即使 SQLite 3.35+).
+-- 老库已存在 bound_machine_id 列 (C4 部署过), 用裸 ALTER 会 duplicate column.
+-- 新库第一次跑这条 migration 时, 表里没这个列, 也需要加.
+-- 解决: 在 manager.rs 里手工 idempotent ALTER (PRAGMA table_info 检查),
+-- 然后手动把这次成功标记进 _sqlx_migrations, 避免重复跑.
