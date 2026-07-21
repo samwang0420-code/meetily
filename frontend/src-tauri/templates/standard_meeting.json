@@ -1,27 +1,29 @@
 {
-  "name": "Standard Meeting Notes",
-  "description": "A standard template for general meetings, focusing on key outcomes and actions.",
+  "name": "通用会议纪要",
+  "description": "适用于内部周会、项目同步、跨部门沟通等一般性会议。聚焦结论、行动项与负责人,不堆砌过程细节。",
   "sections": [
     {
-      "title": "Summary",
-      "instruction": "Provide a brief, one-paragraph executive summary of the entire meeting.",
+      "title": "会议摘要",
+      "instruction": "用一段话(≤120字)概括会议背景、主要议题与最终结论。原文未提的内容不要补全。",
       "format": "paragraph"
     },
     {
-      "title": "Key Decisions",
-      "instruction": "List the most important decisions made during the meeting.",
-      "format": "list"
-    },
-    {
-      "title": "Action Items",
-      "instruction": "List all assigned tasks with their owners and due date. Always add reference transcript segment and timestamp in the table.",
+      "title": "关键决议",
+      "instruction": "列出本次会议明确做出的决定,每条一句话(≤40字)。无明确决议写'本次无新决议'。",
       "format": "list",
-      "item_format": "| **Owner** | Task | Due | Reference Transcript Segment | Segment Time stamp |\n| --- | --- | --- | --- | --- |"
+      "item_format": "- **决议**：内容"
     },
     {
-      "title": "Discussion Highlights",
-      "instruction": "Summarize the main topics of discussion, key arguments, and important insights.",
-      "format": "paragraph"
+      "title": "行动事项",
+      "instruction": "提取明确的任务、负责人、截止时间。缺失字段写'未明确',禁止猜测。",
+      "format": "list",
+      "item_format": "| **事项** | **负责人** | **截止时间** |\n| --- | --- | --- |"
+    },
+    {
+      "title": "遗留与风险",
+      "instruction": "列出会议中明确提出的待解决问题、风险或需后续确认的事项。空则写'无遗留问题'。",
+      "format": "list",
+      "item_format": "- **问题**：原文摘要"
     }
   ]
 }
