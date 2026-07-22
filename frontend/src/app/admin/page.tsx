@@ -217,7 +217,7 @@ export default function AdminPage() {
         <div className="bg-white border border-neutral-200 rounded-2xl p-6 shadow-sm">
           <div className="flex items-center gap-2 mb-4">
             <ShieldCheck className="h-5 w-5 text-blue-600" />
-            <h1 className="text-lg font-semibold text-neutral-900">Admin Console</h1>
+            <h1 className="text-lg font-semibold text-neutral-900">{t('admin.console')}</h1>
           </div>
           <p className="text-xs text-neutral-500 mb-4">
             {t('admin.page_subtitle')}
@@ -259,7 +259,7 @@ export default function AdminPage() {
       <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-2">
           <ShieldCheck className="h-5 w-5 text-blue-600" />
-          <h1 className="text-lg font-semibold text-neutral-900">Admin Console</h1>
+          <h1 className="text-lg font-semibold text-neutral-900">{t('admin.console')}</h1>
           <span className="text-xs text-neutral-500">{t('admin.version_label')}</span>
         </div>
         <div className="flex items-center gap-2">
@@ -423,7 +423,7 @@ export default function AdminPage() {
           <table className="w-full text-xs">
             <thead>
               <tr className="text-left text-neutral-500 border-b border-neutral-100">
-                <th className="py-2 font-medium">ID</th>
+                <th className="py-2 font-medium">{t('common.id')}</th>
                 <th className="py-2 font-medium">{t('admin.th.email')}</th>
                 <th className="py-2 font-medium">{t('admin.th.contact')}</th>
                 <th className="py-2 font-medium">{t('admin.th.time')}</th>
@@ -465,7 +465,7 @@ export default function AdminPage() {
           <table className="w-full text-xs">
             <thead>
               <tr className="text-left text-neutral-500 border-b border-neutral-100">
-                <th className="py-2 font-medium">ID</th>
+                <th className="py-2 font-medium">{t('common.id')}</th>
                 <th className="py-2 font-medium">邮箱</th>
                 <th className="py-2 font-medium">会员</th>
                 <th className="py-2 font-medium">机器</th>
@@ -525,7 +525,7 @@ export default function AdminPage() {
           <table className="w-full text-xs">
             <thead>
               <tr className="text-left text-neutral-500 border-b border-neutral-100">
-                <th className="py-2 font-medium">ID</th>
+                <th className="py-2 font-medium">{t('common.id')}</th>
                 <th className="py-2 font-medium">{t('admin.th.email')}</th>
                 <th className="py-2 font-medium">{t('admin.th.amount')}</th>
                 <th className="py-2 font-medium">{t('admin.th.channel')}</th>

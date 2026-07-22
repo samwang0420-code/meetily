@@ -985,7 +985,7 @@ export function ModelSettingsModal({
                 type="password"
                 value={customOpenAIApiKey}
                 onChange={(e) => setCustomOpenAIApiKey(e.target.value)}
-                placeholder="Leave empty if not required"
+                placeholder={t('model_settings.api_key_optional')}
                 className="mt-1"
               />
             </div>
@@ -1082,7 +1082,7 @@ export function ModelSettingsModal({
                 value={apiKey || ''}
                 onChange={(e) => setApiKey(e.target.value)}
                 disabled={isApiKeyLocked}
-                placeholder="Enter your API key"
+                placeholder={t('model_settings.api_key_placeholder')}
                 className="pr-24"
               />
               {isApiKeyLocked && apiKey?.trim() && (

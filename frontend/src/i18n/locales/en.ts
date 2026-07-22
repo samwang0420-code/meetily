@@ -14,6 +14,18 @@ export const en: Record<string, unknown> = {
     import_audio: 'Import Audio',
     recording_in_progress: 'Recording...',
   },
+  hardware: {
+    spec_cpu: 'CPU',
+    spec_metal_vram: 'Metal VRAM',
+  },
+  import: {
+    dialog: {
+      title_label: 'Meeting Title',
+    },
+    overlay: {
+      drop_hint: 'Drop audio file to import',
+    },
+  },
   home: {
     welcome: 'Welcome to Meetily!',
     hint_record: 'Start recording to see live transcription',
@@ -28,6 +40,7 @@ export const en: Record<string, unknown> = {
   meeting: {
     untitled: 'Untitled meeting',
     delete_confirm: 'Delete this meeting? This cannot be undone.',
+    confirm_delete: 'Confirm Delete',
     edit_title: 'Edit meeting title',
     meeting_title_placeholder: 'Enter meeting title',
     failed_delete: 'Failed to delete meeting',
@@ -476,6 +489,7 @@ export const en: Record<string, unknown> = {
     template_selected: 'Template selected',
     template_pro_required: '“{template}” is Pro-only, please upgrade to use it',
     using_template: 'Using “{template}” template for summary generation',
+    editor_placeholder: "Type '/' for commands...",
     settings_saved: 'Summary model settings saved',
     settings_save_failed: 'Failed to save summary model settings',
     save: 'Save',
@@ -581,7 +595,11 @@ export const en: Record<string, unknown> = {
     download: 'Download',
     browse: 'Browse for Database',
     delete_confirm: 'Are you sure? This cannot be undone.',
+    download_complete: 'Download complete',
+    download_cancelled: 'Download cancelled',
+    download_failed: 'Download failed',
     required_field: 'Required',
+    id: 'ID',
   },
   errors: {
     unknown: 'An error occurred',
@@ -736,6 +754,7 @@ export const en: Record<string, unknown> = {
     footer_copyright: '© 2026 Meetily · v0.6.10+',
   },
   admin: {
+    console: 'Admin Console',
     th: {
       email: 'Email',
       contact: 'Contact',

@@ -14,6 +14,18 @@ export const zh: Record<string, unknown> = {
     import_audio: '导入音频',
     recording_in_progress: '录音进行中...',
   },
+  hardware: {
+    spec_cpu: 'CPU',
+    spec_metal_vram: 'Metal 显存',
+  },
+  import: {
+    dialog: {
+      title_label: '会议标题',
+    },
+    overlay: {
+      drop_hint: '拖入音频文件以导入',
+    },
+  },
   home: {
     welcome: '欢迎使用离线会记!',
     hint_record: '开始录音, 即可看到实时转录文字',
@@ -475,6 +487,7 @@ export const zh: Record<string, unknown> = {
     template_selected: '已选择模板',
     template_pro_required: '「{template}」是 Pro 专属模板, 请升级到 Pro 后使用',
     using_template: '将使用“{template}”模板生成会议纪要',
+    editor_placeholder: '输入 / 命令...',
     settings_saved: '纪要模型设置已保存',
     settings_save_failed: '保存纪要模型设置失败',
     save: '保存',
@@ -582,7 +595,12 @@ export const zh: Record<string, unknown> = {
     download: '下载',
     browse: '浏览数据库',
     delete_confirm: '确认删除？此操作不可撤销。',
+    download_complete: '下载完成',
+    download_cancelled: '下载已取消',
+    download_failed: '下载失败',
+    confirm_delete: '确认删除',
     required_field: '必填',
+    id: 'ID',
   },
 
   errors: {
@@ -738,6 +756,7 @@ export const zh: Record<string, unknown> = {
     footer_copyright: '© 2026 离线会记 · v0.6.10+',
   },
   admin: {
+    console: '管理控制台',
     th: {
       email: '邮箱',
       contact: '联系方式',

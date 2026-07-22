@@ -293,7 +293,7 @@ export function ImportAudioDialog({
 
                   {/* Editable title */}
                   <div className="space-y-1">
-                    <label className="text-sm font-medium text-gray-700">Meeting Title</label>
+                    <label className="text-sm font-medium text-gray-700">{t('import.dialog.title_label')}</label>
                     <Input
                       value={title}
                       onChange={(e) => {

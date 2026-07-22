@@ -587,7 +587,7 @@ const Sidebar: React.FC = () => {
       <div key={item.id}>
         <div
           className={`flex items-center transition-all duration-150 group ${item.type === 'folder' && depth === 0
-            ? 'p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg'
+            ? 'p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors'
             : `px-3 py-2 my-0.5 rounded-md text-sm ${isActive ? 'bg-blue-100 text-blue-700 font-medium' :
               hasTranscriptMatch ? 'bg-yellow-50' : 'hover:bg-gray-50'
             } cursor-pointer`
@@ -790,6 +790,14 @@ const Sidebar: React.FC = () => {
             </button>
           );
         })()}
+
+        {/* Import audio (v0.7.x: Beta 已毕业, 不再受 betaFeatures 旗控制) */}
+        <button onClick={() => { openImportDialog(); }}
+          title={isCollapsed ? t('nav.import_audio') : undefined}
+          className={`relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] font-medium transition-colors text-neutral-600 hover:bg-blue-50 hover:text-blue-700 ${isCollapsed ? 'justify-center' : ''}`}>
+          <Upload className={`h-[18px] w-[18px] text-blue-600`} />
+          {!isCollapsed && <span className="truncate">{t('nav.import_audio')}</span>}
+        </button>
 
         {/* Library: meetings folder */}
         {!isCollapsed && filteredSidebarItems.filter(i => i.type === 'folder').map(item => (

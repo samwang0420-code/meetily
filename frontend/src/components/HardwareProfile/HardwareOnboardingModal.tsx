@@ -88,12 +88,12 @@ export function HardwareOnboardingModal({ open, onOpenChange }: Props) {
                 </div>
               </div>
               <div className="border rounded p-2">
-                <div className="text-xs text-slate-500">CPU</div>
+                <div className="text-xs text-slate-500">{t("hardware.spec_cpu")}</div>
                 <div className="font-medium text-xs">{profile.cpu_brand}</div>
               </div>
               {profile.is_apple_silicon && (
                 <div className="border rounded p-2">
-                  <div className="text-xs text-slate-500">Metal VRAM</div>
+                  <div className="text-xs text-slate-500">{t("hardware.spec_metal_vram")}</div>
                   <div className="font-medium">
                     {(profile.metal_vram_mb / 1024).toFixed(1)} GB
                   </div>

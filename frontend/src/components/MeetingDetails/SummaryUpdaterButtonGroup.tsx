@@ -91,23 +91,6 @@ export function SummaryUpdaterButtonGroup({
         </Button>
       )}
 
-      {/* Find button */}
-      {/* {onFind && (
-        <Button
-          variant="outline"
-          size="sm"
-          title="在摘要中查找"
-          onClick={() => {
-            Analytics.trackButtonClick('find_in_summary', 'meeting_details');
-            onFind();
-          }}
-          disabled={!hasSummary}
-          className="cursor-pointer"
-        >
-          <Search />
-          <span className="hidden lg:inline">Find</span>
-        </Button>
-      )} */}
     </ButtonGroup>
   );
 }
