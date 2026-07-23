@@ -9,8 +9,18 @@
 // 工作原理:
 //   - 通过 daemon stdin/stdout JSON 行协议调用本地 sherpa_asr.py 子进程
 //   - 单次 transcribe = 一次 transcribe_blocking 同步调用 → 返回整段 transcript text
+//
+// P1-E (CoreML 真加速) 已知限制:
+//   - 当前 ASR 走 sherpa-onnx Python daemon, 默认 onnx CPU provider.
+//   - sherpa-onnx 支持 CoreML provider (sherpa_onnx.Provider.CoreML), 但需要把 onnx 模型
+//     转成 .mlmodelc, 且 macOS 上 sherpa_onnx Python 绑定需要 pyobjc/CoreML 框架
+//     (complicate.apple.CoreML). 当前回退 Metal GPU 不支持 CoreML encoder 路径.
+//   - 之前用户实测: "CoreML 实际加速: 未完成, 当前回退 Metal". AGENTS.md §18 后置 P2.
+//   - P2 候选: 转 sensevoice-zh-int8 为 .mlmodelc + 改 sherpa_asr.py Provider 设置,
+//     需要: 1) Apple convert toolchain (coremltools), 2) 模型重训 + 验证精度,
+//     3) 全量回归 10+ 段真实录音. 估时 3 天 + 1 天验证. 等内测用户反馈真加速需求再做.
 
-use super::provider::{TranscriptionError, TranscriptionProvider, TranscriptResult};
+use super::provider::{TranscriptResult, TranscriptionError, TranscriptionProvider};
 use crate::audio::sherpa_daemon::{global as global_sherpa, SherpaDaemon};
 use async_trait::async_trait;
 use log::{info, warn};
@@ -56,10 +66,7 @@ impl TranscriptionProvider for SherpaProvider {
 
         if let Some(ref lang) = language {
             if lang != "zh" && lang != "auto" {
-                warn!(
-                    "SenseVoice 默认中文识别, 收到 language='{}'",
-                    lang
-                );
+                warn!("SenseVoice 默认中文识别, 收到 language='{}'", lang);
             }
         }
 
@@ -86,17 +93,21 @@ impl TranscriptionProvider for SherpaProvider {
             match primary {
                 Ok(response) if !response.text.trim().is_empty() => Ok((response, model, false)),
                 Ok(_) | Err(_) if model == "funasr-nano-zh" => {
-                    warn!("[sherpa] Nano failed or returned empty text; falling back to SenseVoice");
-                    daemon.transcribe_blocking(
-                        "sense-voice-zh-int8",
-                        &audio_b64,
-                        16000,
-                        false,
-                        &hotwords_pack,
-                        &hotwords_custom,
-                        _diar_meeting_id.as_deref(),
-                        _diar_audio_offset,
-                    ).map(|response| (response, "sense-voice-zh-int8".to_string(), true))
+                    warn!(
+                        "[sherpa] Nano failed or returned empty text; falling back to SenseVoice"
+                    );
+                    daemon
+                        .transcribe_blocking(
+                            "sense-voice-zh-int8",
+                            &audio_b64,
+                            16000,
+                            false,
+                            &hotwords_pack,
+                            &hotwords_custom,
+                            _diar_meeting_id.as_deref(),
+                            _diar_audio_offset,
+                        )
+                        .map(|response| (response, "sense-voice-zh-int8".to_string(), true))
                 }
                 Ok(response) => Ok((response, model, false)),
                 Err(error) => Err(error),
@@ -117,7 +128,11 @@ impl TranscriptionProvider for SherpaProvider {
 
         Ok(TranscriptResult {
             text: result.text.trim().to_string(),
-            confidence: if result.confidence > 0.0 { Some(result.confidence) } else { None },
+            confidence: if result.confidence > 0.0 {
+                Some(result.confidence)
+            } else {
+                None
+            },
             is_partial: false,
         })
     }
@@ -137,8 +152,7 @@ impl TranscriptionProvider for SherpaProvider {
 
 /// Simple base64 (RFC 4648) encode
 fn base64_encode(input: &[u8]) -> String {
-    const CHARSET: &[u8; 64] =
-        b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const CHARSET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut result = String::with_capacity((input.len() + 2) / 3 * 4);
     for chunk in input.chunks(3) {
         let b0 = chunk[0];
