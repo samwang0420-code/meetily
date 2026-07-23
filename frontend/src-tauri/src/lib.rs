@@ -37,29 +37,29 @@ pub(crate) use perf_trace;
 
 // Declare audio module
 pub mod analytics;
+pub mod anthropic;
 pub mod api;
 pub mod audio;
 pub mod config;
 pub mod console_utils;
 pub mod database;
+pub mod groq;
 pub mod notifications;
 pub mod ollama;
 pub mod onboarding;
 pub mod openai;
-pub mod anthropic;
-pub mod groq;
 pub mod openrouter;
 pub mod parakeet_engine;
 pub mod state;
 pub mod summary;
 pub mod tray;
-pub mod utils;
 pub mod user;
+pub mod utils;
 pub mod whisper_engine;
 
 pub mod hardware;
 
-use audio::{list_audio_devices, AudioDevice, trigger_audio_permission};
+use audio::{list_audio_devices, trigger_audio_permission, AudioDevice};
 use log::{error as log_error, info as log_info};
 use notifications::commands::NotificationManagerState;
 use std::sync::Arc;
@@ -128,10 +128,7 @@ async fn start_recording<R: Runtime>(
             )
             .await
             {
-                log_error!(
-                    "Failed to show recording started notification: {}",
-                    e
-                );
+                log_error!("Failed to show recording started notification: {}", e);
             } else {
                 log_info!("Successfully showed recording started notification");
             }
@@ -189,10 +186,7 @@ async fn stop_recording<R: Runtime>(app: AppHandle<R>, args: RecordingArgs) -> R
             )
             .await
             {
-                log_error!(
-                    "Failed to show recording stopped notification: {}",
-                    e
-                );
+                log_error!("Failed to show recording stopped notification: {}", e);
             } else {
                 log_info!("Successfully showed recording stopped notification");
             }
@@ -361,10 +355,7 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
             )
             .await
             {
-                log_error!(
-                    "Failed to show recording started notification: {}",
-                    e
-                );
+                log_error!("Failed to show recording started notification: {}", e);
             }
 
             Ok(())
@@ -389,6 +380,138 @@ async fn set_language_preference(language: String) -> Result<(), String> {
 // Internal helper function to get language preference (for use within Rust code)
 pub fn get_language_preference_internal() -> Option<String> {
     LANGUAGE_PREFERENCE.lock().ok().map(|lang| lang.clone())
+}
+
+/// P1-I 兜底: 启动时扫描所有 placeholder "Recording in progress (...)" meetings, 处理崩溃残留.
+///
+/// 场景: 用户录音中 app 被强杀 (kill / panic / 断电), stop_recording 流程没跑完:
+///   - audio/metadata 已落盘到 folder_path
+///   - transcripts 可能已 INSERT 几段 (取决于崩溃时机)
+///   - 但 api_save_transcript 没被前端调, title 还是 placeholder
+///
+/// 启动时按 folder_path 上的 audio.mp4 存在与否分两种处理:
+///   - audio.mp4 存在: rename title 为 folder basename (Meeting YYYY-MM-DD_HH-MM-SS),
+///     把残留"鬼会议"变成正常可点开会话. 不删任何数据.
+///   - audio.mp4 缺失 (录到一半崩溃): DELETE placeholder + 关联 transcripts.
+///
+/// 复用 is_placeholder_title() 判定 (database::repositories::transcript).
+/// 失败 non-fatal: warn! 写日志, 不阻塞 app 启动.
+async fn placeholder_startup_recovery<R: Runtime>(app: &AppHandle<R>) {
+    use sqlx::Row;
+    let pool = match app.try_state::<database::manager::DatabaseManager>() {
+        Some(s) => s.pool().clone(),
+        None => {
+            log::warn!("[placeholder_recovery] db_manager not initialized yet, skip");
+            return;
+        }
+    };
+
+    // 1) 找所有 placeholder meetings
+    let rows = match sqlx::query(
+        "SELECT id, folder_path, created_at FROM meetings WHERE title LIKE 'Recording in progress%'"
+    )
+    .fetch_all(&pool)
+    .await
+    {
+        Ok(r) => r,
+        Err(e) => {
+            log::warn!("[placeholder_recovery] query failed: {}", e);
+            return;
+        }
+    };
+
+    if rows.is_empty() {
+        log::info!("[placeholder_recovery] no placeholder meetings found, skip");
+        return;
+    }
+
+    let mut renamed = 0usize;
+    let mut deleted = 0usize;
+    for row in rows {
+        let id: String = row.get("id");
+        let folder_path: Option<String> = row.try_get("folder_path").ok().flatten();
+        let created_at: String = row.try_get("created_at").unwrap_or_default();
+
+        match folder_path.as_deref() {
+            Some(fp) => {
+                let audio_path = std::path::Path::new(fp).join("audio.mp4");
+                if audio_path.exists() {
+                    // audio.mp4 存在: rename title 为 folder basename
+                    // folder 命名规则: "Meeting 2026-07-22_19-33-11_2026-07-22_11-33"
+                    // 直接用 basename, 简单可靠 (含完整日期时间).
+                    let new_title = std::path::Path::new(fp)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or(&created_at)
+                        .to_string();
+                    let res = sqlx::query(
+                        "UPDATE meetings SET title = ?, updated_at = ? WHERE id = ?"
+                    )
+                    .bind(&new_title)
+                    .bind(&created_at)
+                    .bind(&id)
+                    .execute(&pool)
+                    .await;
+                    match res {
+                        Ok(_) => {
+                            log::info!(
+                                "[placeholder_recovery] renamed {} -> '{}'",
+                                id,
+                                new_title
+                            );
+                            renamed += 1;
+                        }
+                        Err(e) => {
+                            log::warn!(
+                                "[placeholder_recovery] rename {} failed: {}",
+                                id,
+                                e
+                            );
+                        }
+                    }
+                } else {
+                    // audio.mp4 缺失: 录到一半崩溃, DELETE placeholder + 关联 transcripts
+                    let res = sqlx::query("DELETE FROM meetings WHERE id = ?")
+                        .bind(&id)
+                        .execute(&pool)
+                        .await;
+                    // ON DELETE CASCADE 处理 transcripts
+                    match res {
+                        Ok(r) => {
+                            log::warn!(
+                                "[placeholder_recovery] deleted orphan placeholder {} ({} rows)",
+                                id,
+                                r.rows_affected()
+                            );
+                            deleted += 1;
+                        }
+                        Err(e) => {
+                            log::warn!("[placeholder_recovery] delete {} failed: {}", id, e);
+                        }
+                    }
+                }
+            }
+            None => {
+                // 没 folder_path: 极早期崩溃, DELETE
+                let res = sqlx::query("DELETE FROM meetings WHERE id = ?")
+                    .bind(&id)
+                    .execute(&pool)
+                    .await;
+                match res {
+                    Ok(_) => {
+                        log::warn!("[placeholder_recovery] deleted no-folder placeholder {}", id);
+                        deleted += 1;
+                    }
+                    Err(e) => log::warn!("[placeholder_recovery] delete {} failed: {}", id, e),
+                }
+            }
+        }
+    }
+    log::info!(
+        "[placeholder_recovery] done: renamed={}, deleted={}",
+        renamed,
+        deleted
+    );
 }
 
 pub fn run() {
@@ -423,7 +546,9 @@ pub fn run() {
             None::<notifications::manager::NotificationManager<tauri::Wry>>,
         )) as NotificationManagerState<tauri::Wry>)
         .manage(audio::init_system_audio_state())
-        .manage(summary::summary_engine::ModelManagerState(Arc::new(tokio::sync::Mutex::new(None))))
+        .manage(summary::summary_engine::ModelManagerState(Arc::new(
+            tokio::sync::Mutex::new(None),
+        )))
         .manage(SessionStore::default())
         .setup(|_app| {
             log::info!("Application setup complete");
@@ -438,7 +563,11 @@ pub fn run() {
             let app_for_notif = _app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let notif_state = app_for_notif.state::<NotificationManagerState<tauri::Wry>>();
-                match notifications::commands::initialize_notification_manager(app_for_notif.clone()).await {
+                match notifications::commands::initialize_notification_manager(
+                    app_for_notif.clone(),
+                )
+                .await
+                {
                     Ok(manager) => {
                         // Set default consent and permissions on first launch
                         if let Err(e) = manager.set_consent(true).await {
@@ -482,7 +611,11 @@ pub fn run() {
             // Initialize ModelManager for summary engine (async, non-blocking)
             let app_handle_for_model_manager = _app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                match summary::summary_engine::commands::init_model_manager_at_startup(&app_handle_for_model_manager).await {
+                match summary::summary_engine::commands::init_model_manager_at_startup(
+                    &app_handle_for_model_manager,
+                )
+                .await
+                {
                     Ok(_) => log::info!("ModelManager initialized successfully at startup"),
                     Err(e) => {
                         log::warn!("Failed to initialize ModelManager at startup: {}", e);
@@ -507,11 +640,21 @@ pub fn run() {
             })
             .expect("Failed to initialize database");
 
+            // v0.7.0+ P1-I startup recovery: 扫描上轮崩溃残留的 "Recording in progress (...)"
+            // placeholder meetings. 失败 non-fatal (warn 写日志, 不阻塞启动).
+            let app_for_recovery = _app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                placeholder_startup_recovery(&app_for_recovery).await;
+            });
+
             // Initialize bundled templates directory for dynamic template discovery
             log::info!("Initializing bundled templates directory...");
             if let Ok(resource_path) = _app.handle().path().resource_dir() {
                 let templates_dir = resource_path.join("templates");
-                log::info!("Setting bundled templates directory to: {:?}", templates_dir);
+                log::info!(
+                    "Setting bundled templates directory to: {:?}",
+                    templates_dir
+                );
                 summary::templates::set_bundled_templates_dir(templates_dir);
             } else {
                 log::warn!("Failed to resolve resource directory for templates");
@@ -563,12 +706,10 @@ pub fn run() {
             analytics::commands::track_analytics_enabled,
             analytics::commands::track_analytics_disabled,
             analytics::commands::track_analytics_transparency_viewed,
-
             // v0.7.0+ P0-4: 硬件检测
             hardware::device_detect_profile,
             hardware::device_current_memory_mb,
             hardware::device_memory_pressure,
-
             // 离线会记 v0.5.0: 用户/会员管理
             user::commands::user_register,
             user::commands::user_login,
@@ -580,7 +721,6 @@ pub fn run() {
             user::commands::hotwords_get,
             user::commands::hotwords_save,
             user::commands::hotwords_set_globals,
-
             // v0.6.10+: 商业化
             user::commands::quota_get_status,
             user::commands::quota_increment_after_record,
@@ -809,7 +949,9 @@ pub fn run() {
                                 log::info!("Database cleanup completed successfully");
                             }
                         } else {
-                            log::warn!("AppState not available for database cleanup (likely first launch)");
+                            log::warn!(
+                                "AppState not available for database cleanup (likely first launch)"
+                            );
                         }
 
                         // Clean up sidecar
@@ -829,9 +971,9 @@ pub fn run() {
 /// 任何 Rust 线程 panic 时, 把 backtrace 写到本地 crash log 文件, 用户可查.
 /// 完全本地, 0 网络, 0 第三方依赖.
 fn install_panic_hook() {
-    use std::panic;
     use std::fs;
     use std::io::Write;
+    use std::panic;
 
     let default_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
@@ -839,8 +981,9 @@ fn install_panic_hook() {
         default_hook(panic_info);
 
         // 2) 写本地 crash log
-        let app_data = std::env::var("LIXIANHUIJI_DATA_DIR").ok()
-            .or_else(|| dirs::data_dir().map(|p| p.join("cn.lixianhuiji.app").to_string_lossy().to_string()));
+        let app_data = std::env::var("LIXIANHUIJI_DATA_DIR").ok().or_else(|| {
+            dirs::data_dir().map(|p| p.join("cn.lixianhuiji.app").to_string_lossy().to_string())
+        });
         if let Some(dir) = app_data {
             let crash_dir = std::path::PathBuf::from(&dir).join("crashes");
             let _ = fs::create_dir_all(&crash_dir);
@@ -851,17 +994,29 @@ fn install_panic_hook() {
                 let _ = writeln!(f, "=== LixianHuiji Panic Report ===");
                 let _ = writeln!(f, "timestamp: {}", now.to_rfc3339());
                 let _ = writeln!(f, "version: {}", env!("CARGO_PKG_VERSION"));
-                let _ = writeln!(f, "os: {} / arch: {}", std::env::consts::OS, std::env::consts::ARCH);
-                let _ = writeln!(f, "
---- panic_info ---");
+                let _ = writeln!(
+                    f,
+                    "os: {} / arch: {}",
+                    std::env::consts::OS,
+                    std::env::consts::ARCH
+                );
+                let _ = writeln!(
+                    f,
+                    "
+--- panic_info ---"
+                );
                 let _ = writeln!(f, "{}", panic_info);
-                let _ = writeln!(f, "
---- backtrace ---");
+                let _ = writeln!(
+                    f,
+                    "
+--- backtrace ---"
+                );
                 let _ = writeln!(f, "{}", std::backtrace::Backtrace::force_capture());
             }
             // 3) 仅保留最近 50 个 crash 文件
             if let Ok(rd) = fs::read_dir(&crash_dir) {
-                let mut entries: Vec<_> = rd.flatten()
+                let mut entries: Vec<_> = rd
+                    .flatten()
                     .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("txt"))
                     .collect();
                 entries.sort_by_key(|e| e.metadata().and_then(|m| m.modified()).ok());
