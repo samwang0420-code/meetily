@@ -191,6 +191,12 @@ async fn stop_recording<R: Runtime>(app: AppHandle<R>, args: RecordingArgs) -> R
                 log_info!("Successfully showed recording stopped notification");
             }
 
+            // P0-fix: 录完音立刻杀 sherpa daemon, 释放 ~700M onnx 模型.
+            // 用户体感: 录音停止 → 几秒内 RAM 大幅下降 (从 1G+ 到 200M).
+            // 下次 transcribe 会自动重新 spawn (~1-2s).
+            log_info!("[recording stopped] killing sherpa daemon to free onnx model RAM");
+            audio::sherpa_daemon::shutdown_global_daemon();
+
             Ok(())
         }
         Err(e) => {
@@ -959,6 +965,11 @@ pub fn run() {
                         if let Err(e) = summary::summary_engine::force_shutdown_sidecar().await {
                             log::error!("Failed to force shutdown sidecar: {}", e);
                         }
+
+                        // P0-fix: 关 app 时杀 sherpa daemon (Python 子进程 + onnx 模型 ~700M).
+                        // 之前 daemon 是 once_cell::Lazy 静态, 进程不退就常驻, 录完音后 RAM 不回收.
+                        log::info!("Cleaning up sherpa daemon...");
+                        audio::sherpa_daemon::shutdown_global_daemon();
                     });
                     log::info!("Application cleanup complete");
                 }

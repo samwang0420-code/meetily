@@ -195,6 +195,8 @@ impl SherpaDaemon {
     /// v0.6.11: 通用 JSON request / response (用于 streaming actions)
     fn send_request(&self, req_json: &serde_json::Value) -> Result<serde_json::Value> {
         self.ensure_started()?;
+        // P0-fix: 每次请求更新 last_activity, 防止 idle killer 误杀
+        crate::audio::sherpa_daemon::touch_daemon_activity();
         let mut guard = self.inner.lock().map_err(|_| anyhow!("lock"))?;
         let h = guard
             .as_mut()
@@ -407,6 +409,68 @@ pub static SHERPA_DAEMON: Lazy<SherpaDaemon> = Lazy::new(SherpaDaemon::new);
 
 pub fn global() -> &'static SherpaDaemon {
     &SHERPA_DAEMON
+}
+
+/// P0-fix: 主动杀 sherpa Python 子进程, 释放 ~700M onnx 模型内存.
+/// 调一次即可, 后续 transcribe 调用会重新 spawn (ensure_started 幂等).
+/// App 退出 (RunEvent::Exit) + 录音停止 idle 超时都会调.
+pub fn shutdown_global_daemon() {
+    log::info!("[sherpa] shutdown_global_daemon requested");
+    SHERPA_DAEMON.shutdown_blocking().ok();
+}
+
+// 全局 idle killer 状态, OnceLock<Arc<AtomicU64>> 持有共享引用, 让 init 闭包 move 进 thread
+static DAEMON_LAST_ACTIVITY: std::sync::OnceLock<std::sync::Arc<std::sync::atomic::AtomicU64>> =
+    std::sync::OnceLock::new();
+
+fn daemon_last_activity() -> &'static std::sync::Arc<std::sync::atomic::AtomicU64> {
+    DAEMON_LAST_ACTIVITY.get_or_init(|| {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::time::{Duration, SystemTime, UNIX_EPOCH};
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let a = std::sync::Arc::new(AtomicU64::new(now));
+        // 启动 idle killer 线程 (单次)
+        let a_clone = a.clone();
+        std::thread::spawn(move || {
+            const IDLE_SECS: u64 = 120; // 2 min, 录完音 2min 没活动就杀 daemon, 释放 ~700M onnx
+            loop {
+                std::thread::sleep(Duration::from_secs(30));
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                let last = a_clone.load(Ordering::SeqCst);
+                if last == 0 {
+                    continue;
+                }
+                let idle = now.saturating_sub(last);
+                if idle > IDLE_SECS {
+                    log::info!(
+                        "[sherpa] daemon idle for {}s (>{}s), auto-shutdown to free onnx model RAM",
+                        idle,
+                        IDLE_SECS
+                    );
+                    SHERPA_DAEMON.shutdown_blocking().ok();
+                    // 重置 last = 0, 下次 transcribe 会重新 spawn, 重新计时
+                    a_clone.store(0, Ordering::SeqCst);
+                }
+            }
+        });
+        a
+    })
+}
+
+pub(crate) fn touch_daemon_activity() {
+    use std::sync::atomic::Ordering;
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    daemon_last_activity().store(now, Ordering::SeqCst);
 }
 
 // ============= Tauri commands (streaming pipeline) =============
