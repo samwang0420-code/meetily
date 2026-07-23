@@ -16,6 +16,9 @@ export interface Transcript {
   audio_start_time?: number; // Seconds from recording start (e.g., 125.3)
   audio_end_time?: number;   // Seconds from recording start (e.g., 128.6)
   duration?: number;          // Segment duration in seconds (e.g., 3.3)
+  // P1-G: speaker label from Diar pickup (e.g., "speaker_00", "speaker_01").
+  // undefined / null = segment not diarized yet (cam++ disabled, single-speaker, or pre-diar record).
+  speaker?: string | null;
 }
 
 export interface TranscriptUpdate {
