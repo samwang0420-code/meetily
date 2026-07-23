@@ -109,6 +109,15 @@ struct SherpaRequest<'a> {
 }
 
 /// Single global daemon, lazily started on first call, kept alive until process exit.
+///
+/// P1-D (Diar 串行排队) 已知限制:
+/// - SherpaDaemon 是单进程串行 stdin/stdout JSON-RPC. 同一时刻只处理 1 个 transcribe 请求.
+/// - 多会议并发场景: 第二个会议要等第一个 transcribe 响应才能开始, 体感是"排队".
+/// - 当前架构约束: IS_RECORDING 是 AtomicBool 全局单 flag, Rust 端只支持 1 个会议并行
+///   (用户 UI 根本开不了多会议), 所以 P1-D 实际不会被触发.
+/// - 长会议 diar 16 分钟异步计算由 sherpa_asr.py daemon 内部 background thread 处理,
+///   不影响下一个 transcribe 请求的派发.
+/// - P2 候选: 多会议支持 + per-meeting daemon pool. 等用户场景真实出现再做 (AGENTS.md §18).
 pub struct SherpaDaemon {
     inner: Mutex<Option<SherpaHandle>>,
 }
@@ -121,25 +130,38 @@ struct SherpaHandle {
 
 impl SherpaDaemon {
     fn new() -> Self {
-        Self { inner: Mutex::new(None) }
+        Self {
+            inner: Mutex::new(None),
+        }
     }
 
     /// Ensure daemon running, return locked handle.
     fn ensure_started(&self) -> Result<()> {
-        let mut guard = self.inner.lock().map_err(|_| anyhow!("daemon lock poisoned"))?;
+        let mut guard = self
+            .inner
+            .lock()
+            .map_err(|_| anyhow!("daemon lock poisoned"))?;
         if guard.is_some() {
             return Ok(());
         }
         let script = script_path();
-        info!("[sherpa] spawning daemon: {} {}", python_path(), script.display());
+        info!(
+            "[sherpa] spawning daemon: {} {}",
+            python_path(),
+            script.display()
+        );
         let mut cmd = Command::new(python_path());
         cmd.arg(&script)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| anyhow!("failed to spawn sherpa daemon ({}): {}", script.display(), e))?;
+        let mut child = cmd.spawn().map_err(|e| {
+            anyhow!(
+                "failed to spawn sherpa daemon ({}): {}",
+                script.display(),
+                e
+            )
+        })?;
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
         let stdout = BufReader::new(child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?);
         // Take stderr, log it on drop
@@ -147,19 +169,23 @@ impl SherpaDaemon {
 
         // Drain stderr in background
         if let Some(mut err) = _stderr {
-        let h = std::thread::spawn(move || {
-            use std::io::Read;
-            let mut s = String::new();
-            let _ = err.read_to_string(&mut s);
-            if !s.trim().is_empty() {
-                warn!("[sherpa stderr] {}", s.trim());
-            }
-        });
-        // detach; thread will exit naturally
-        let _ = h;
+            let h = std::thread::spawn(move || {
+                use std::io::Read;
+                let mut s = String::new();
+                let _ = err.read_to_string(&mut s);
+                if !s.trim().is_empty() {
+                    warn!("[sherpa stderr] {}", s.trim());
+                }
+            });
+            // detach; thread will exit naturally
+            let _ = h;
         }
 
-        *guard = Some(SherpaHandle { child, stdin, stdout });
+        *guard = Some(SherpaHandle {
+            child,
+            stdin,
+            stdout,
+        });
         info!("[sherpa] daemon ready");
         Ok(())
     }
@@ -170,19 +196,31 @@ impl SherpaDaemon {
     fn send_request(&self, req_json: &serde_json::Value) -> Result<serde_json::Value> {
         self.ensure_started()?;
         let mut guard = self.inner.lock().map_err(|_| anyhow!("lock"))?;
-        let h = guard.as_mut().ok_or_else(|| anyhow!("daemon not started"))?;
+        let h = guard
+            .as_mut()
+            .ok_or_else(|| anyhow!("daemon not started"))?;
         let line = serde_json::to_string(req_json)?;
         writeln!(h.stdin, "{}", line).map_err(|e| anyhow!("write daemon: {}", e))?;
-        h.stdin.flush().map_err(|e| anyhow!("flush daemon: {}", e))?;
+        h.stdin
+            .flush()
+            .map_err(|e| anyhow!("flush daemon: {}", e))?;
         let mut resp_line = String::new();
-        h.stdout.read_line(&mut resp_line).map_err(|e| anyhow!("read daemon: {}", e))?;
+        h.stdout
+            .read_line(&mut resp_line)
+            .map_err(|e| anyhow!("read daemon: {}", e))?;
         let resp: serde_json::Value = serde_json::from_str(&resp_line)
             .map_err(|e| anyhow!("parse daemon '{}': {}", resp_line.trim(), e))?;
         Ok(resp)
     }
 
     /// v0.6.11: 开 streaming session
-    pub fn stream_begin(&self, session_id: &str, model: &str, hotwords_pack: &str, hotwords_custom: &str) -> Result<serde_json::Value> {
+    pub fn stream_begin(
+        &self,
+        session_id: &str,
+        model: &str,
+        hotwords_pack: &str,
+        hotwords_custom: &str,
+    ) -> Result<serde_json::Value> {
         let req = serde_json::json!({
             "id": session_id,
             "action": "stream_begin",
@@ -192,6 +230,7 @@ impl SherpaDaemon {
             "sample_rate": 16000,
             "chunk_threshold_ms": 600,
             "silence_threshold_ms": 1200,
+            "force_final_ms": 8000,
         });
         self.send_request(&req)
     }
@@ -229,12 +268,19 @@ impl SherpaDaemon {
         audio_start_offset_seconds: Option<f64>,
     ) -> Result<SherpaResponse> {
         let t0 = std::time::Instant::now();
-        info!("[sherpa] transcribe_blocking ENTER model={} timestamps={} b64_len={}", model, timestamps, audio_b64.len());
+        info!(
+            "[sherpa] transcribe_blocking ENTER model={} timestamps={} b64_len={}",
+            model,
+            timestamps,
+            audio_b64.len()
+        );
         self.ensure_started()?;
         let t1 = std::time::Instant::now();
         info!("[sherpa] ensure_started OK ({:?})", t1.duration_since(t0));
         let mut guard = self.inner.lock().map_err(|_| anyhow!("lock"))?;
-        let h = guard.as_mut().ok_or_else(|| anyhow!("daemon not started"))?;
+        let h = guard
+            .as_mut()
+            .ok_or_else(|| anyhow!("daemon not started"))?;
 
         // v0.7.x 修复: 之前的 id:"1" 写死导致 diar 落盘文件名全是 1.json,
         // 多个 chunk 互相覆盖, pickup loop 只能拿到最后一块的 segments.
@@ -259,27 +305,43 @@ impl SherpaDaemon {
         };
         let line = serde_json::to_string(&req)?;
         let t2 = std::time::Instant::now();
-        info!("[sherpa] serializing req OK ({:?}), writing to daemon stdin...", t2.duration_since(t1));
+        info!(
+            "[sherpa] serializing req OK ({:?}), writing to daemon stdin...",
+            t2.duration_since(t1)
+        );
         writeln!(h.stdin, "{}", line).map_err(|e| anyhow!("write to daemon: {}", e))?;
-        h.stdin.flush().map_err(|e| anyhow!("flush daemon stdin: {}", e))?;
+        h.stdin
+            .flush()
+            .map_err(|e| anyhow!("flush daemon stdin: {}", e))?;
         let t3 = std::time::Instant::now();
-        info!("[sherpa] stdin write+flush OK ({:?}), reading daemon stdout...", t3.duration_since(t2));
+        info!(
+            "[sherpa] stdin write+flush OK ({:?}), reading daemon stdout...",
+            t3.duration_since(t2)
+        );
 
         let mut resp_line = String::new();
         h.stdout
             .read_line(&mut resp_line)
             .map_err(|e| anyhow!("read daemon stdout: {}", e))?;
         let t4 = std::time::Instant::now();
-        info!("[sherpa] stdout read OK ({:?}), parse: {:?} | raw: {}",
-              t4.duration_since(t3), serde_json::from_str::<SherpaResponse>(&resp_line).map(|_| "OK").map_err(|e| e.to_string()),
-              resp_line.trim());
+        info!(
+            "[sherpa] stdout read OK ({:?}), parse: {:?} | raw: {}",
+            t4.duration_since(t3),
+            serde_json::from_str::<SherpaResponse>(&resp_line)
+                .map(|_| "OK")
+                .map_err(|e| e.to_string()),
+            resp_line.trim()
+        );
 
         let resp: SherpaResponse = serde_json::from_str(&resp_line)
             .map_err(|e| anyhow!("parse daemon response '{}': {}", resp_line.trim(), e))?;
         if !resp.ok {
             return Err(anyhow!("sherpa error: {}", resp.error.unwrap_or_default()));
         }
-        info!("[sherpa] transcribe_blocking EXIT total={:?}", t4.duration_since(t0));
+        info!(
+            "[sherpa] transcribe_blocking EXIT total={:?}",
+            t4.duration_since(t0)
+        );
         Ok(resp)
     }
 
@@ -290,21 +352,31 @@ impl SherpaDaemon {
     pub fn capability(&self) -> Result<bool> {
         self.ensure_started()?;
         let mut guard = self.inner.lock().map_err(|_| anyhow!("lock"))?;
-        let h = guard.as_mut().ok_or_else(|| anyhow!("daemon not started"))?;
+        let h = guard
+            .as_mut()
+            .ok_or_else(|| anyhow!("daemon not started"))?;
 
         let req = serde_json::json!({"id": "cap", "action": "capability"});
         let line = serde_json::to_string(&req)?;
         writeln!(h.stdin, "{}", line).map_err(|e| anyhow!("write capability: {}", e))?;
-        h.stdin.flush().map_err(|e| anyhow!("flush capability: {}", e))?;
+        h.stdin
+            .flush()
+            .map_err(|e| anyhow!("flush capability: {}", e))?;
 
         let mut resp_line = String::new();
-        h.stdout.read_line(&mut resp_line).map_err(|e| anyhow!("read capability: {}", e))?;
+        h.stdout
+            .read_line(&mut resp_line)
+            .map_err(|e| anyhow!("read capability: {}", e))?;
         let resp: serde_json::Value = serde_json::from_str(&resp_line)
             .map_err(|e| anyhow!("parse capability '{}': {}", resp_line.trim(), e))?;
-        let supported = resp.get("level3_supported").and_then(|v| v.as_bool()).unwrap_or(false);
+        let supported = resp
+            .get("level3_supported")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         info!(
             "[sherpa] capability: level3_supported={} (raw: {})",
-            supported, resp_line.trim()
+            supported,
+            resp_line.trim()
         );
         Ok(supported)
     }
@@ -348,7 +420,8 @@ pub async fn sherpa_stream_begin(
 ) -> Result<serde_json::Value, String> {
     let daemon = global();
     tokio::task::block_in_place(|| {
-        daemon.stream_begin(&session_id, &model, &hotwords_pack, &hotwords_custom)
+        daemon
+            .stream_begin(&session_id, &model, &hotwords_pack, &hotwords_custom)
             .map_err(|e| format!("{}", e))
     })
 }
@@ -360,22 +433,21 @@ pub async fn sherpa_stream_chunk(
 ) -> Result<serde_json::Value, String> {
     let daemon = global();
     tokio::task::block_in_place(|| {
-        daemon.stream_chunk(&session_id, &audio_b64)
+        daemon
+            .stream_chunk(&session_id, &audio_b64)
             .map_err(|e| format!("{}", e))
     })
 }
 
 #[tauri::command]
-pub async fn sherpa_stream_finalize(
-    session_id: String,
-) -> Result<serde_json::Value, String> {
+pub async fn sherpa_stream_finalize(session_id: String) -> Result<serde_json::Value, String> {
     let daemon = global();
     tokio::task::block_in_place(|| {
-        daemon.stream_finalize(&session_id)
+        daemon
+            .stream_finalize(&session_id)
             .map_err(|e| format!("{}", e))
     })
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -400,8 +472,14 @@ mod tests {
             audio_start_offset_seconds: Some(12.5),
         };
         let v = serde_json::to_value(&req).expect("serialize");
-        assert_eq!(v.get("model").and_then(|x| x.as_str()), Some("paraformer-zh"));
-        assert_eq!(v.get("hotwords_pack").and_then(|x| x.as_str()), Some("tech"));
+        assert_eq!(
+            v.get("model").and_then(|x| x.as_str()),
+            Some("paraformer-zh")
+        );
+        assert_eq!(
+            v.get("hotwords_pack").and_then(|x| x.as_str()),
+            Some("tech")
+        );
         assert_eq!(
             v.get("hotwords_custom").and_then(|x| x.as_str()),
             Some("Meetily,SenseVoice,Paraformer")
@@ -423,10 +501,15 @@ mod tests {
             "sample_rate": 16000,
             "chunk_threshold_ms": 600,
             "silence_threshold_ms": 1200,
+            "force_final_ms": 8000,
         });
         assert_eq!(
             req.get("hotwords_pack").and_then(|x| x.as_str()),
             Some("cross_border")
+        );
+        assert_eq!(
+            req.get("force_final_ms").and_then(|x| x.as_i64()),
+            Some(8000)
         );
         assert!(req
             .get("hotwords_custom")
