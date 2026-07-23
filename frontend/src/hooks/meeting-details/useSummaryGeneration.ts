@@ -12,6 +12,7 @@ import {
   readMeetingSummaryLanguage,
   readCachedDetectedSummaryLanguage,
 } from '@/lib/summary-language-preferences';
+import { useAuth } from '@/contexts/AuthContext';
 import { useTranslation } from '@/i18n';
 
 async function resolveSummaryLanguage(
@@ -79,6 +80,7 @@ export function useSummaryGeneration({
   const { t } = useTranslation();
 
   const { startSummaryPolling, stopSummaryPolling } = useSidebar();
+  const { session: authToken } = useAuth();
 
   // Helper to get status message
   const getSummaryStatusMessage = useCallback((status: SummaryStatus) => {
@@ -151,6 +153,8 @@ export function useSummaryGeneration({
       )) || 'zh';
 
       // Process transcript and get process_id
+      // P0-fix: pass auth token so backend quota gate resolves to free/member, not anonymous
+      // (anonymous tier has can_run_summary=false since v0.7.x P1-A and silently rejects).
       const result = await invokeTauri('api_process_transcript', {
         text: transcriptText,
         model: modelConfig.provider,
@@ -162,6 +166,7 @@ export function useSummaryGeneration({
         templateId: selectedTemplate,
         summaryLanguage,
         evidence,
+        authToken: authToken,
       }) as any;
 
       const process_id = result.process_id;
@@ -375,7 +380,18 @@ export function useSummaryGeneration({
       });
     } catch (error) {
       console.error(`Failed to ${isRegeneration ? 'regenerate' : 'generate'} summary:`, error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      // Tauri invoke rejects with plain string (Rust Result<_, String>::Err),
+      // not Error object. handle both + non-string fallbacks.
+      let errorMessage: string;
+      if (typeof error === 'string') {
+        errorMessage = error;
+      } else if (error instanceof Error) {
+        errorMessage = error.message;
+      } else if (error && typeof error === 'object' && 'message' in error) {
+        errorMessage = String((error as { message: unknown }).message);
+      } else {
+        errorMessage = `Unknown error (type: ${typeof error})`;
+      }
       setSummaryError(sanitizeDescription(errorMessage, 'error'));
       setSummaryStatus('error');
       // Note: We don't clear the summary here because the backend has already restored from backup
@@ -411,6 +427,7 @@ export function useSummaryGeneration({
       // First, get total count by fetching first page
       const firstPage = await invokeTauri('api_get_meeting_transcripts', {
         meetingId,
+        session: window.localStorage.getItem('lixianhuiji.session'),
         limit: 1,
         offset: 0,
       }) as { transcripts: Transcript[]; total_count: number; has_more: boolean };
@@ -425,6 +442,7 @@ export function useSummaryGeneration({
       // Fetch all transcripts in one call
       const allData = await invokeTauri('api_get_meeting_transcripts', {
         meetingId,
+        session: window.localStorage.getItem('lixianhuiji.session'),
         limit: totalCount,
         offset: 0,
       }) as { transcripts: Transcript[]; total_count: number; has_more: boolean };
