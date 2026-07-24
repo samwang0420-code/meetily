@@ -88,7 +88,9 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
   const fetchMeetings = React.useCallback(async () => {
     if (serverAddress) {
       try {
-        const meetings = await invoke('api_get_meetings') as Array<{ id: string, title: string }>;
+        const meetings = await invoke('api_get_meetings', {
+          session: window.localStorage.getItem('lixianhuiji.session'),
+        }) as Array<{ id: string, title: string }>;
         const transformedMeetings = meetings.map((meeting: any) => ({
           id: meeting.id,
           title: meeting.title

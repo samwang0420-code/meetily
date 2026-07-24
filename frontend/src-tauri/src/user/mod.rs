@@ -8,3 +8,4 @@ pub use commands::SessionStore;
 // v0.6.10+: 商业化模块
 pub mod quota;
 pub mod activation_code;
+pub mod ratelimit;

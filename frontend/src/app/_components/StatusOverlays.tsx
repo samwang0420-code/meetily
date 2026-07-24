@@ -47,7 +47,7 @@ export function StatusOverlays({
       {/* Processing status overlay - shown after recording stops while finalizing transcription */}
       <StatusOverlay
         show={isProcessing}
-        message="Finalizing transcription..."
+        message="正在完成转录..."
         sidebarCollapsed={sidebarCollapsed}
       />
 

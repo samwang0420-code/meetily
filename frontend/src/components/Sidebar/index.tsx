@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { APP_VERSION, APP_VERSION_SHORT, APP_LICENSE } from '@/lib/version';
 import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
 import { FeedbackDialog } from '@/components/FeedbackDialog';
 import { useRouter, usePathname } from 'next/navigation';
@@ -700,7 +701,7 @@ const Sidebar: React.FC = () => {
         )}
       </button>
 
-      {/* Brand: 盾牌 + 文字 + v0.6.10 chip (展开态) / 单盾 (折叠态) */}
+      {/* Brand: 盾牌 + 文字 + APP_VERSION_SHORT chip (展开态) / 单盾 (折叠态) */}
       <div className="flex h-14 items-center border-b border-neutral-200/70 px-3.5">
         {!isCollapsed ? (
           <div className="flex min-w-0 items-center gap-2.5">
@@ -729,7 +730,7 @@ const Sidebar: React.FC = () => {
                 离线会记
               </span>
               <span className="shrink-0 rounded border border-neutral-200 px-1 py-px font-mono text-[9.5px] uppercase tracking-wider text-neutral-500 dark:border-neutral-700 dark:text-neutral-500">
-                v0.6.10
+                {APP_VERSION_SHORT}
               </span>
             </div>
           </div>
@@ -864,18 +865,18 @@ const Sidebar: React.FC = () => {
         <div className="flex items-center justify-between">
           {!isCollapsed ? (
             <>
-              <span>v0.6.10 · MIT</span>
+              <span>{APP_VERSION_SHORT} · {APP_LICENSE}</span>
               <span className="inline-flex items-center gap-1 text-emerald-600">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />offline
               </span>
             </>
           ) : (
-            <span className="mx-auto">v0.6.10</span>
+            <span className="mx-auto">{APP_VERSION_SHORT}</span>
           )}
         </div>
         {!isCollapsed && (
           <a
-            href="mailto:sam.wang01@icloud.com?subject=离线会记 - 反馈&body=版本 v0.6.10 · macOS"
+            href="mailto:sam.wang01@icloud.com?subject=离线会记 - 反馈&body=版本 {APP_VERSION_SHORT} · macOS"
             className="mt-1.5 flex items-center gap-1 text-[10px] text-neutral-500 hover:text-blue-600 transition-colors truncate"
             title="联系客服: sam.wang01@icloud.com"
           >

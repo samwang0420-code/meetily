@@ -120,7 +120,7 @@ export function useTranscriptRecovery(): UseTranscriptRecoveryReturn {
       // 2. Load all transcripts
       const transcripts = await loadMeetingTranscripts(meetingId);
       if (transcripts.length === 0) {
-        throw new Error('No transcripts found for this meeting');
+        throw new Error('该会议暂无转录内容');
       }
 
       // 3. Check for folder path

@@ -31,6 +31,22 @@ pub fn current_month_key() -> String {
     format!("{:04}-{:02}", now.format("%Y"), now.format("%m"))
 }
 
+/// 摘要闸门便捷调用 (summary/commands.rs:404 用): 当前实现下对 anonymous 拒
+/// v0.7.0-rc2: 真实 session 通过 latest_session_in_db 拉, tier 不会 = anonymous
+pub fn compute_summary_quota(tier: &str, _meetings_used_unused: i64) -> QuotaStatus {
+    let status = compute_quota(tier, _meetings_used_unused);
+    // 即使 status.can_record=true, 但摘要场景下 anonymous 永不通过
+    if tier == "anonymous" {
+        QuotaStatus {
+            can_record: false,
+            reason: Some("未登录无法生成摘要,请注册 / 登录账号".into()),
+            ..status
+        }
+    } else {
+        status
+    }
+}
+
 /// 配额判定 (给定用户信息 + 本月已用次数)
 pub fn compute_quota(
     tier: &str,

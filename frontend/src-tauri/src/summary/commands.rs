@@ -402,7 +402,7 @@ pub async fn api_process_transcript<R: Runtime>(
     // 同时为 free / member 调用现有的 truncate_segments_for_tier 提前阻断
     // (虽然实际段数截断在 api_save_transcript 那边更合适, 这里仅做占位).
     let q = crate::user::quota::compute_summary_quota(&tier, 0);
-    if !q.can_run_summary {
+    if !q.can_record {
         let reason_zh = q.reason.clone().unwrap_or_else(|| "未登录无法生成摘要".to_string());
         log_warn!(
             "[quota] summary blocked for tier={}, reason={}",

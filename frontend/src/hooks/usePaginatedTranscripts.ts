@@ -126,7 +126,7 @@ export function usePaginatedTranscripts({
             return newTranscripts;
         } catch (err) {
             console.error('Failed to load transcripts:', err);
-            setError('Failed to load transcripts');
+            setError('加载会议转录失败');
             return [];
         }
     }, [meetingId]);

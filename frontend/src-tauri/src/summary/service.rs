@@ -255,7 +255,7 @@ impl SummaryService {
         pool: &SqlitePool,
         meeting_id: &str,
     ) -> Option<String> {
-        let meeting = match MeetingsRepository::get_meeting_metadata(pool, meeting_id).await {
+        let meeting = match MeetingsRepository::get_meeting_metadata(pool, meeting_id, None).await {
             Ok(Some(meeting)) => meeting,
             Ok(None) => {
                 warn!("Meeting not found while reading detected summary language: {}", meeting_id);
