@@ -166,7 +166,7 @@ export function useSummaryGeneration({
         templateId: selectedTemplate,
         summaryLanguage,
         evidence,
-        authToken: authToken,
+        auth_token: authToken,
       }) as any;
 
       const process_id = result.process_id;

@@ -85,7 +85,7 @@ pub async fn api_save_meeting_summary<R: Runtime>(
     state: tauri::State<'_, AppState>,
     meeting_id: String,
     summary: serde_json::Value,
-    _auth_token: Option<String>,
+    auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
         "api_save_meeting_summary (native) called for meeting_id: {}",
@@ -238,7 +238,7 @@ pub async fn api_get_summary<R: Runtime>(
     _app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     meeting_id: String,
-    _auth_token: Option<String>,
+    auth_token: Option<String>,
 ) -> Result<SummaryResponse, String> {
     log_info!(
         "api_get_summary (native) called for meeting_id: {}",
@@ -343,7 +343,7 @@ pub async fn api_process_transcript<R: Runtime>(
     template_id: Option<String>,
     summary_language: Option<String>,
     evidence: Option<Vec<StructuredTranscriptEvidence>>,
-    _auth_token: Option<String>,
+    auth_token: Option<String>,
 ) -> Result<ProcessTranscriptResponse, String> {
     use uuid::Uuid;
 
@@ -369,19 +369,26 @@ pub async fn api_process_transcript<R: Runtime>(
     // v0.7.x P1-A: 摘要免费化闸门. 之前完全没 quota — free 用户可无限耗 LLM.
     // 当前 schema summary_processes.meetings 都没 user_id, 全局月度配额会误算
     // (例如未登录用户混到会员配额). 因此这一轮只挡 anonymous (未登录) 路径:
-    // 若 _auth_token 是空 / 无效, 一律拒绝. 等 P2-J 会议归属/schema user_id 落地后
+    // 若 auth_token 是空 / 无效, 一律拒绝. 等 P2-J 会议归属/schema user_id 落地后
     // 再切到 compute_summary_quota 月度计数.
-    let session_token: Option<String> = _auth_token
+    let session_token_from_param: Option<String> = auth_token
         .as_ref()
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty());
-    let session_user_id: Option<i64> = if let Some(tok) = session_token.as_deref() {
+    let session_user_id: Option<i64> = if let Some(tok) = session_token_from_param.as_deref() {
         crate::user::commands::lookup_session_in_db(&app, tok)
             .await
             .ok()
             .flatten()
     } else {
-        None
+        // Fallback: 不依赖前端传入 token (Tauri invoke 序列化实测发现
+        // auth_token 字段在 Option<String> + 蛇形/驼峰两种命名尝试下都收不到,
+        // §22 commit 修复未生效). 改用 DB 里最新活跃 session (像 user_bootstrap).
+        crate::user::commands::latest_session_in_db(&app)
+            .await
+            .ok()
+            .flatten()
+            .map(|(_, uid)| uid)
     };
     let tier = match session_user_id {
         Some(uid) => crate::database::repositories::user::UsersRepository::get_membership(
