@@ -17,14 +17,15 @@ import { useTranslation } from '@/i18n';
 
 async function resolveSummaryLanguage(
   meetingId: string,
-  transcriptTexts: string[]
+  transcriptTexts: string[],
+  t: (path: string) => string
 ): Promise<string | null> {
   try {
     const perMeeting = await readMeetingSummaryLanguage(meetingId);
     if (perMeeting.language) return perMeeting.language;
   } catch (err) {
     console.warn('Failed to load meeting summary language:', err);
-    safeToast.warning('Could not load saved summary language', {
+    safeToast.warning(t('summary.errors.load_language'), {
       description: 'Using Auto for this generation.',
     });
   }
@@ -39,8 +40,8 @@ async function resolveSummaryLanguage(
   try {
     const detection = await detectAndCacheSummaryLanguage(meetingId, transcriptTexts);
     if (detection.reason === 'tie') {
-      safeToast.warning('Bilingual transcript detected', {
-        description: 'Pick a summary language manually if Auto chooses the wrong fallback.',
+      safeToast.warning(t('summary.errors.bilingual_detected'), {
+        description: t('summary.errors.bilingual_desc'),
       });
     }
     return detection.language;
@@ -119,7 +120,7 @@ export function useSummaryGeneration({
 
     try {
       if (!transcriptText.trim()) {
-        throw new Error('No transcript text available. Please add some text first.');
+        throw new Error(t('summary.errors.no_transcript'));  // dev-only sanity guard
       }
 
       console.log('Processing transcript with template:', selectedTemplate);
@@ -149,16 +150,30 @@ export function useSummaryGeneration({
       // Resolve explicit metadata override first; Auto detects the transcript language.
       const summaryLanguage = (await resolveSummaryLanguage(
         meeting.id,
-        transcriptTexts?.length ? transcriptTexts : [transcriptText]
+        transcriptTexts?.length ? transcriptTexts : [transcriptText],
+        t
       )) || 'zh';
 
       // Process transcript and get process_id
       // P0-fix: pass auth token so backend quota gate resolves to free/member, not anonymous
       // (anonymous tier has can_run_summary=false since v0.7.x P1-A and silently rejects).
+      // v0.7.0+ rc6: modelConfig 偶尔存了 transcription provider (sherpa_funasr_nano
+      // / parakeet / localWhisper) — 这些是 ASR 不是 LLM, 不能传给 summary.
+      // 自动 fallback 到 builtin-ai + qwen3.5:2b (本地 LLM, 用户已下载).
+      const localAsrProviders = ['sherpa_funasr_nano', 'sherpa_paraformer', 'parakeet', 'localWhisper', 'local'];
+      const summaryProvider = localAsrProviders.includes(modelConfig.provider)
+        ? 'builtin-ai'
+        : modelConfig.provider;
+      const summaryModel = localAsrProviders.includes(modelConfig.provider)
+        ? 'qwen3.5:2b'
+        : modelConfig.model;
+      if (summaryProvider !== modelConfig.provider) {
+        console.warn('[summary] modelConfig.provider=' + modelConfig.provider + ' is a local ASR provider, falling back to', summaryProvider + '/' + summaryModel);
+      }
       const result = await invokeTauri('api_process_transcript', {
         text: transcriptText,
-        model: modelConfig.provider,
-        modelName: modelConfig.model,
+        model: summaryProvider,
+        modelName: summaryModel,
         meetingId: meeting.id,
         chunkSize: 40000,
         overlap: 1000,
@@ -311,7 +326,7 @@ export function useSummaryGeneration({
 
           if (allEmpty) {
             console.error('Summary completed but all sections empty');
-            setSummaryError(sanitizeDescription('Summary generation completed but returned empty content.', 'error'));
+            setSummaryError(sanitizeDescription(t('summary.errors.empty_content'), 'error'));
             setSummaryStatus('error');
 
             await Analytics.trackSummaryGenerationCompleted(
@@ -319,7 +334,7 @@ export function useSummaryGeneration({
               modelConfig.model,
               false,
               undefined,
-              'Empty summary generated'
+              t('summary.errors.empty_generated')
             );
             return;
           }
@@ -500,7 +515,7 @@ export function useSummaryGeneration({
     const allTranscripts = await fetchAllTranscripts(meeting.id);
 
     if (!allTranscripts.length) {
-      const error_msg = 'No transcripts available for summary';
+      const error_msg = t('summary.errors.no_transcripts');
       console.log(error_msg);
       safeToast.error(error_msg);
       return;
@@ -534,9 +549,9 @@ export function useSummaryGeneration({
         if (isOllamaNotInstalledError(errorMessage)) {
           // Ollama is not installed - show specific message with download link
           safeToast.error(
-            'Ollama is not installed',
+            t('summary.errors.ollama_not_installed'),
             {
-              description: 'Please download and install Ollama to use local models.',
+              description: t('summary.errors.ollama_install_desc'),
               duration: 7000,
               action: {
                 label: '下载',
@@ -547,7 +562,7 @@ export function useSummaryGeneration({
         } else {
           // Other error - generic message
           safeToast.error(
-            'Failed to check Ollama models. Please ensure Ollama is running and download a model from Settings.',
+            t('summary.errors.ollama_check_failed'),
             { duration: 5000 }
           );
         }
@@ -607,8 +622,8 @@ export function useSummaryGeneration({
 
             if (status.type === 'corrupted' || status.type === 'error') {
               const errorDesc = status.type === 'error'
-                ? status.Error || 'The model file has an error'
-                : 'The model file is corrupted';
+                ? status.Error || t('summary.errors.model_file_error')
+                : t('summary.errors.model_file_corrupted');
               safeToast.error(t('summary.model_unavailable'), {
                 description: `${errorDesc}. Please check model settings.`,
                 duration: 7000,

@@ -432,6 +432,22 @@ pub async fn api_process_transcript<R: Runtime>(
 
     log_info!("✓ Summary process initialized for meeting_id: {}", &m_id);
 
+    // v0.7.0+ rc6: 前端偶尔把 transcription provider (sherpa_funasr_nano 等) 误传
+    // 到 summary LLM 接口. 在 Rust 入口就 fallback 到 builtin-ai + qwen3.5:2b, 不阻塞摘要.
+    let (model, model_name) = if matches!(
+        model.as_str(),
+        "sherpa_funasr_nano" | "sherpa_paraformer" | "parakeet" | "localWhisper" | "local"
+    ) {
+        log_warn!(
+            "[summary:commands] model='{}' is a local ASR provider, not an LLM.              Falling back to builtin-ai / qwen3.5:2b for meeting_id={}.",
+            &model,
+            &m_id
+        );
+        ("builtin-ai".to_string(), "qwen3.5:2b".to_string())
+    } else {
+        (model, model_name)
+    };
+
     // Save transcript chunks data (matching Python backend behavior)
     let chunk_size = _chunk_size.unwrap_or(40000);
     let overlap = _overlap.unwrap_or(1000);

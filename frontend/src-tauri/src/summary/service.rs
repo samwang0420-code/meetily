@@ -338,6 +338,23 @@ impl SummaryService {
         // Register cancellation token for this meeting
         let cancellation_token = Self::register_cancellation_token(&meeting_id);
 
+        // v0.7.0+ rc6: 前端 modelConfig 偶尔会误把 transcription provider
+        // (sherpa_funasr_nano / parakeet / localWhisper) 传到 summary LLM 接口 —
+        // v0.6.10 后期到 v0.7.0 没迁干净的 bug. 客户端误传时自动 fallback
+        // 到 builtin-ai + qwen3.5:2b (用户已下载的本地 LLM), 不阻塞摘要.
+        let (model_provider, model_name) = if matches!(
+            model_provider.as_str(),
+            "sherpa_funasr_nano" | "sherpa_paraformer" | "parakeet" | "localWhisper" | "local"
+        ) {
+            warn!(
+                "[summary] model_provider='{}' is a local ASR provider, not an LLM.                  Falling back to builtin-ai / qwen3.5:2b.",
+                &model_provider
+            );
+            ("builtin-ai".to_string(), "qwen3.5:2b".to_string())
+        } else {
+            (model_provider, model_name)
+        };
+
         // Parse provider
         let provider = match LLMProvider::from_str(&model_provider) {
             Ok(p) => p,

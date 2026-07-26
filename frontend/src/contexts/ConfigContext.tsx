@@ -101,10 +101,13 @@ const ConfigContext = createContext<ConfigContextType | undefined>(undefined);
 
 
 export function ConfigProvider({ children }: { children: ReactNode }) {
-  // Model configuration state
+  // v0.7.0+ rc6: 默认 builtin-ai + Qwen3.5-2B (用户已下载的本地 LLM, 见
+  // ~/Library/Application Support/cn.lixianhuiji.app/models/summary/Qwen3.5-2B-Q4_K_M.gguf)
+  // 旧默认 ollama/llama3.2:latest 在用户没装 ollama 时会触发 useSummaryGeneration
+  // 的 '未安装 Ollama' 误报 — 这是 v0.6.10 后期到 v0.7.0 没迁干净的回归.
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
-    provider: 'ollama',
-    model: 'llama3.2:latest',
+    provider: 'builtin-ai',
+    model: 'qwen3.5:2b',
     whisperModel: 'large-v3',
     ollamaEndpoint: null
   });
