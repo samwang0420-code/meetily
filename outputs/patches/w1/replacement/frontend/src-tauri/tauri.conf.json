@@ -1,0 +1,113 @@
+{
+    "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
+    "productName": "离线会记",
+    "version": "0.1.0",
+    "identifier": "cn.lixianhuiji.app",
+    "build": {
+        "frontendDist": "../out",
+        "devUrl": "http://localhost:3118",
+        "beforeDevCommand": "pnpm dev",
+        "beforeBuildCommand": "pnpm build"
+    },
+    "app": {
+        "windows": [
+            {
+                "title": "离线会记 — 本地 AI 会议转录",
+                "width": 1180,
+                "height": 760,
+                "resizable": true,
+                "fullscreen": false,
+                "theme": "Light",
+                "decorations": true
+            }
+        ],
+        "macOSPrivateApi": true,
+        "security": {
+            "csp": {
+                "default-src": "'self'",
+                "style-src": "'self' 'unsafe-inline'",
+                "img-src": "'self' asset: https://asset.localhost data:",
+                "connect-src": "'self' http://localhost:11434 http://localhost:11435"
+            },
+            "assetProtocol": {
+                "enable": true,
+                "scope": [
+                    "$APPDATA/**"
+                ]
+            },
+            "capabilities": [
+                {
+                    "identifier": "main",
+                    "description": "离线会记 — 本地 AI 会议转录主窗口",
+                    "windows": [
+                        "main"
+                    ],
+                    "permissions": [
+                        "fs:default",
+                        "fs:allow-read-file",
+                        "fs:read-all",
+                        "fs:write-all",
+                        "fs:allow-app-read",
+                        "fs:allow-app-write",
+                        "fs:allow-download-write",
+                        "fs:allow-download-read",
+                        "fs:scope-download",
+                        "core:path:default",
+                        "core:event:default",
+                        "core:window:default",
+                        "core:app:default",
+                        "core:resources:default",
+                        "core:menu:default",
+                        "core:tray:default",
+                        "core:window:allow-set-title",
+                        "store:default",
+                        "notification:default",
+                        "notification:allow-is-permission-granted",
+                        "process:default",
+                        {
+                            "identifier": "fs:scope",
+                            "allow": [
+                                {
+                                    "path": "$APPDATA/*"
+                                }
+                            ]
+                        }
+                    ]
+                }
+            ]
+        }
+    },
+    "bundle": {
+        "active": true,
+        "targets": [
+            "deb",
+            "appimage",
+            "msi",
+            "nsis",
+            "app",
+            "dmg"
+        ],
+        "createUpdaterArtifacts": false,
+        "icon": [
+            "icons/icon.png",
+            "icons/app_icon.icns",
+            "icons/app_icon.ico"
+        ],
+        "resources": [
+            "templates/*.json"
+        ],
+        "externalBin": [
+            "binaries/llama-helper",
+            "binaries/ffmpeg"
+        ],
+        "macOS": {
+            "entitlements": "entitlements.plist",
+            "signingIdentity": "-",
+            "hardenedRuntime": true
+        },
+        "windows": {
+            "signCommand": "powershell -ExecutionPolicy Bypass -File scripts/sign-windows.ps1 -FilePath %1"
+        }
+    },
+    "plugins": {}
+}
