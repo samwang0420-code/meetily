@@ -124,6 +124,12 @@ impl SettingsRepository {
             "claude" => "anthropicApiKey",
             "openrouter" => "openRouterApiKey",
             "builtin-ai" => return Ok(None), // No API key needed
+            // v0.7.0+: local providers (sherpa-onnx / parakeet / localWhisper / local) —
+            // 也不需要 API key, 返 None 不抛 Err, 否则 ConfigContext 拿不到 modelConfig
+            // 会卡在默认 ollama, useSummaryGeneration 误触发 ollama check → 报"未安装 Ollama".
+            "sherpa_funasr_nano" | "sherpa_paraformer" | "parakeet" | "localWhisper" | "local" => {
+                return Ok(None);
+            }
             _ => {
                 return Err(sqlx::Error::Protocol(
                     format!("Invalid provider: {}", provider).into(),
