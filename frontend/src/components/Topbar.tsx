@@ -266,7 +266,18 @@ function UserMenu() {
           </DropdownMenu.Item>
           <DropdownMenu.Separator className="my-1 h-px bg-neutral-100 dark:bg-neutral-800" />
           <DropdownMenu.Item
-            onClick={async () => { await logout(); router.push('/'); }}
+            onClick={async () => {
+                  try {
+                    await logout();
+                  } catch (e: any) {
+                    console.warn('Topbar logout invoke failed, clearing local state anyway:', e);
+                  }
+                  try {
+                    localStorage.removeItem('lixianhuiji.session');
+                    localStorage.removeItem('lixianhuiji.user');
+                  } catch {}
+                  try { window.location.replace('/'); } catch { router.push('/'); }
+                }}
             className="
               flex cursor-pointer items-center gap-2.5 rounded-md px-3 py-1.5 text-[13px]
               text-red-600 outline-none

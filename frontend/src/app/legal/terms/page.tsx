@@ -8,6 +8,14 @@ import React from 'react';
 export default function TermsPage() {
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-4 text-neutral-900">
+      <button
+        type="button"
+        onClick={() => { try { window.history.length > 1 ? window.history.back() : (window.location.href = '/'); } catch { window.location.href = '/'; } }}
+        className="flex items-center gap-1 text-sm text-neutral-600 hover:text-neutral-900"
+      >
+        <span aria-hidden>←</span>
+        <span>{`返回`}</span>
+      </button>
       <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">用户协议 / EULA</h1>
       <p className="text-sm text-neutral-500">
         最后更新: 2026-07-18 · 离线会记 (Meetily) 团队

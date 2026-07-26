@@ -352,7 +352,7 @@ const Sidebar: React.FC = () => {
       await invoke('api_delete_meeting', {
         meetingId: itemId,
       });
-      console.log('Meeting deleted successfully');
+      console.log('会议已删除');
       const updatedMeetings = meetings.filter((m: CurrentMeeting) => m.id !== itemId);
       setMeetings(updatedMeetings);
 
@@ -874,16 +874,6 @@ const Sidebar: React.FC = () => {
             <span className="mx-auto">{APP_VERSION_SHORT}</span>
           )}
         </div>
-        {!isCollapsed && (
-          <a
-            href="mailto:sam.wang01@icloud.com?subject=离线会记 - 反馈&body=版本 {APP_VERSION_SHORT} · macOS"
-            className="mt-1.5 flex items-center gap-1 text-[10px] text-neutral-500 hover:text-blue-600 transition-colors truncate"
-            title="联系客服: sam.wang01@icloud.com"
-          >
-            <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
-            <span className="truncate">客服: sam.wang01@icloud.com</span>
-          </a>
-        )}
       </div>
     <FeedbackDialog
         open={feedbackOpen}

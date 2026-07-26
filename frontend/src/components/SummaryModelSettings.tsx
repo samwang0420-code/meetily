@@ -64,8 +64,8 @@ export function SummaryModelSettings({ refetchTrigger }: SummaryModelSettingsPro
         setModelConfig(data);
       }
     } catch (error) {
-      console.error('Failed to fetch model config:', error);
-      safeToast.error('Failed to load model settings');
+      // 不弹红色 toast: 用户首次进设置页 / DB settings 表为空 / Ollama 卸载都是常态
+      console.warn('Failed to fetch model config (will keep default UI):', error);
     }
   }, []);
 
