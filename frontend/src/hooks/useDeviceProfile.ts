@@ -24,7 +24,10 @@ export function useDeviceProfile(): UseDeviceProfileResult {
     let cancelled = false;
     (async () => {
       try {
-        const p = await invoke<DeviceProfile>('device_detect_profile');
+        const p = await (async () => {
+        const session = typeof window !== 'undefined' ? window.localStorage.getItem('lixianhuiji.session') : null;
+        return invoke<DeviceProfile>('device_detect_profile', { session });
+      })();
         if (!cancelled) {
           setProfile(p);
           setIsLoading(false);

@@ -242,11 +242,18 @@ const Sidebar: React.FC = () => {
       };
       console.log('Saving transcript config with payload:', payload);
 
+      const session = typeof window !== 'undefined' ? window.localStorage.getItem('lixianhuiji.session') : null;
       await invoke('api_save_transcript_config', {
         provider: payload.provider,
         model: payload.model,
         apiKey: payload.apiKey,
+        session,
       });
+      // v0.7.0+: Pro 专属 tier gate — funasr-nano-zh 仅 member 可用
+      if (typeof payload.model === 'string' && payload.model === 'funasr-nano-zh') {
+        // 前端 UI 已经拒绝, 这里 catch 后端硬闸门返回 (curl 绕过场景)
+        // 已在 catch 分支统一处理, 此处无额外动作
+      }
 
 
       setSettingsSaveSuccess(true);

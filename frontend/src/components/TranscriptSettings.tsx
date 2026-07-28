@@ -8,6 +8,7 @@ import { Eye, EyeOff, Lock, Unlock } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { toast } from 'sonner';
 import { safeToast } from '@/lib/safeToast';
+import { useAuth } from '@/contexts/AuthContext';
 
 // W2.5: WhisperModelManager 已不需要 — Whisper 完全删除
 // import { ModelManager } from './WhisperModelManager';
@@ -32,6 +33,9 @@ export function TranscriptSettings({
     onModelSelect,
   }: TranscriptSettingsProps) {
   const { t } = useTranslation();
+    // v0.7.0+: tier gate — Pro 专属模型 (FunASR-Nano) + Pro 专属功能 (cam++).
+    const { user } = useAuth();
+    const isPro = user?.membership === 'member';
     const [apiKey, setApiKey] = useState<string | null>(transcriptModelConfig.apiKey || null);
     const [showApiKey, setShowApiKey] = useState<boolean>(false);
     const [isApiKeyLocked, setIsApiKeyLocked] = useState<boolean>(true);
@@ -152,6 +156,18 @@ export function TranscriptSettings({
                                 <Select
                                     value={transcriptModelConfig.model}
                                     onValueChange={(value) => {
+                                        // v0.7.0+: FunASR-Nano 是 Pro 专属, free tier 拒绝切换
+                                        if (value === 'funasr-nano-zh' && !isPro) {
+                                            safeToast.error(t('settings.pro_only_model_desc'), {
+                                                description: t('settings.pro_only'),
+                                                duration: 6000,
+                                                action: {
+                                                    label: t('settings.pro_only_upgrade'),
+                                                    onClick: () => { window.location.href = '/pricing'; }
+                                                }
+                                            });
+                                            return;
+                                        }
                                         // v0.6.10+: 切到 FunASR-Nano (实验性) 时弹窗告知评测数据
                                         if (value === 'funasr-nano-zh') {
                                             // 来自 /benchmarks/asr/reports/model-decision.json (5 段法律 + 5 段医疗标准文本)

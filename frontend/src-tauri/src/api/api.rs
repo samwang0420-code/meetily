@@ -1,4 +1,5 @@
 use crate::user::SessionStore;
+use crate::database::repositories::user as user_repo;
 use log::{debug as log_debug, error as log_error, info as log_info, warn as log_warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -685,19 +686,40 @@ pub async fn api_get_transcript_config<R: Runtime>(
 
 #[tauri::command]
 pub async fn api_save_transcript_config<R: Runtime>(
-    _app: AppHandle<R>,
+    app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
+    sessions: tauri::State<'_, crate::user::commands::SessionStore>,
     provider: String,
     model: String,
     api_key: Option<String>,
-    _auth_token: Option<String>,
+    session: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
-        "api_save_transcript_config called (native) for provider '{}'",
-        &provider
+        "api_save_transcript_config called (native) for provider '{}', model '{}'",
+        &provider, &model
     );
-    let pool = state.db_manager.pool();
 
+    // v0.7.0+: Pro 专属 tier gate — FunASR-Nano 仅 member 可用.
+    // 前端 UI 也会拒绝切换, 这里做硬闸门 (防 curl 绕过 / localStorage 篡改).
+    if model == "funasr-nano-zh" {
+        let user_id = session
+            .as_deref()
+            .and_then(|s| sessions.map.lock().unwrap().get(s).copied());
+        if let Some(uid) = user_id {
+            let pool = state.db_manager.pool();
+            let (_, membership, _) = user_repo::UsersRepository::get_quota(pool, uid)
+                .await
+                .map_err(|e| e.to_string())?;
+            if membership != "member" {
+                return Err("pro_only_funasr_nano".into());
+            }
+        } else {
+            // 匿名用户 = 默认 free, 直接拒
+            return Err("pro_only_funasr_nano".into());
+        }
+    }
+
+    let pool = state.db_manager.pool();
     if let Err(e) = SettingsRepository::save_transcript_config(pool, &provider, &model).await {
         log_error!("Failed to save transcript config: {}", e);
         return Err(e.to_string());

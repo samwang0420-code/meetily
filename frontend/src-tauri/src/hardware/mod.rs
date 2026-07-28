@@ -122,9 +122,39 @@ pub fn is_memory_pressure(rss_mb: u64) -> bool {
 // Tauri commands
 // ============================================================================
 
+/// v0.7.0+: tier gate helper — free 用户即使硬件 High, 也不给 cam++ / Nano.
+/// Pro 专属承诺: FunASR-Nano 精度模式 + cam++ 多发言人分离 仅 member 解锁.
+fn apply_tier_gates(mut profile: DeviceProfile, tier: &str) -> DeviceProfile {
+    if tier != "member" {
+        profile.cam_plus_plus_disabled = true;
+        profile.nano_disabled = true;
+    }
+    profile
+}
+
 #[tauri::command]
-pub fn device_detect_profile() -> DeviceProfile {
-    DeviceProfile::detect()
+pub fn device_detect_profile(
+    app: tauri::AppHandle,
+    sessions: tauri::State<'_, crate::user::commands::SessionStore>,
+    pool_state: tauri::State<'_, crate::state::AppState>,
+    session: Option<String>,
+) -> DeviceProfile {
+    let mut profile = DeviceProfile::detect();
+    // 查 membership (user_id -> users.membership).
+    let tier = session
+        .as_deref()
+        .and_then(|s| sessions.map.lock().ok().and_then(|m| m.get(s).copied()))
+        .and_then(|uid| {
+            // 同步查 membership (简单 SELECT)
+            let pool = &pool_state.db_manager.pool();
+            // 用 blocking 查询, 命令是 sync fn, 不能 .await
+            tauri::async_runtime::block_on(async move {
+                use crate::database::repositories::user::UsersRepository;
+                UsersRepository::get_quota(pool, uid).await.ok().map(|(_, m, _)| m)
+            })
+        })
+        .unwrap_or_else(|| "free".to_string());
+    apply_tier_gates(profile, &tier)
 }
 
 #[tauri::command]
