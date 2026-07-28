@@ -74,7 +74,8 @@ export function TranscriptSettings({
         // W2.5: sherpa 模型选择由 WhisperModelManager / sherpa daemon 处理, 不需要这里列
         sherpa_paraformer: [],
         // v0.6.10+: 加 funasr-nano-zh 作为可选 (实验性), 用户切时弹窗告知评测数据不达标
-        sherpa_funasr_nano: ['sense-voice-zh-int8', 'funasr-nano-zh'],
+        // v0.7.0+rc9: 默认 paraformer-zh (用户机器上实际装的). sense-voice-zh-int8 是历史遗留 fallback, 模型未下载, 会被 sherpa_asr 静默 fallback.
+        sherpa_funasr_nano: ['paraformer-zh', 'funasr-nano-zh'],
     };
     const requiresApiKey = transcriptModelConfig.provider === 'deepgram' || transcriptModelConfig.provider === 'elevenLabs' || transcriptModelConfig.provider === 'openai' || transcriptModelConfig.provider === 'groq';
 
@@ -139,10 +140,10 @@ export function TranscriptSettings({
                                     <SelectValue placeholder="选择 provider" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {/* 离线会记 W2.5: 默认推荐 SenseVoice, Whisper 已删除 */}
-                                    <SelectItem value="sherpa_funasr_nano">✨ SenseVoice-zh (推荐 · 23 段)</SelectItem>
-                                    <SelectItem value="sherpa_paraformer">🐉 Paraformer-zh (备选 · 10 段)</SelectItem>
-                                    <SelectItem value="parakeet">⚡ Parakeet (旧推荐 · 实测不如 SenseVoice)</SelectItem>
+                                    {/* v0.7.0+rc9: 默认是 FunASR-Nano (994MB) — 注意免费用户也会默认加载这个, Pro 专属承诺目前没兑现, 见 §29 */}
+                                    <SelectItem value="sherpa_funasr_nano">✨ FunASR-Nano (默认 · 高精度 · 994MB)</SelectItem>
+                                    <SelectItem value="sherpa_paraformer">🐉 Paraformer-zh (备选 · 轻量 · 227MB)</SelectItem>
+                                    <SelectItem value="parakeet">⚡ Parakeet (旧推荐 · 实测不如 FunASR)</SelectItem>
                                     {/* Whisper 已删除 (W2.5) */}
                                     {/* <SelectItem value="deepgram">☁️ Deepgram (Backup)</SelectItem>
                                     <SelectItem value="elevenLabs">☁️ ElevenLabs</SelectItem>
@@ -205,12 +206,12 @@ export function TranscriptSettings({
                         </div>
                     </div>
 
-                    {/* W2.5: Whisper 已删除, WhisperModelManager 不再渲染 */}
+                    {/* v0.7.0+rc9: Whisper / SenseVoice 已弃用, 默认 FunASR-Nano */}
                     {uiProvider === 'localWhisper' && (
                         <div className="mt-6 p-4 bg-gray-50 rounded-lg">
                             <p className="text-sm text-gray-700">
-                                ⚠️ Whisper 已在 v0.5 中移除, 完全被 SenseVoice-zh INT8 替代 (23 段按句切, 中文 SOTA)。
-                                请切换到 ✨ SenseVoice-zh INT8 (上方选项)。
+                                ⚠️ Whisper 已在 v0.5 中移除, 完全被 FunASR-Nano INT8 替代 (中文高精度, Pro 会员专属承诺见 §29)。
+                                请切换到 ✨ FunASR-Nano (上方选项)。
                             </p>
                         </div>
                     )}

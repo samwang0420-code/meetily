@@ -269,7 +269,7 @@ export const zh: Record<string, unknown> = {
   },
   dashboard: {
     just_now: '刚刚', minutes_ago: '{count} 分钟前', hours_ago: '{count} 小时前', days_ago: '{count} 天前', date_md: '{month}月{day}日',
-    model_local_whisper: '本地 Whisper', model_funasr_nano: 'FunASR-Nano 实验性', model_sensevoice: 'SenseVoice 实时', model_cloud: '云端转录', model_none: '未选择模型',
+    model_local_whisper: '本地 Whisper', model_funasr_nano: 'FunASR-Nano 高精度', model_sensevoice: 'SenseVoice 实时 (未安装)', model_paraformer: 'Paraformer-zh 轻量', model_cloud: '云端转录', model_none: '未选择模型',
     welcome: '欢迎使用离线会记', subtitle: '本地 AI 会议转录 · 全程离线 · 隐私安全', record_hint: '点击麦克风按钮开始录音 · 实时转录 + AI 纪要将自动生成',
     transcript_model: '转录模型', microphone: '麦克风', default_input: '默认输入', hotwords: '热词词库', settings: '系统设置', recent: '最近会议',
     recent_count: '共 {total} 条会议 · 显示最近 {recent} 条', first_meeting: '开始你的第一次会议', unknown_meeting: '未知会议', segments: '{count} 段', unknown_time: '时间未知', approx_minutes: '~{count} 分钟',

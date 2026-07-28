@@ -44,7 +44,10 @@ function formatRelative(ts: number, t: (path: string, vars?: Record<string, stri
 function modelLabel(t: (path: string) => string, provider?: string, model?: string) {
   if (provider === 'localWhisper') return t('dashboard.model_local_whisper');
   if (model === 'funasr-nano-zh') return t('dashboard.model_funasr_nano');
-  if (provider === 'sherpa_funasr_nano' || provider === 'senseVoice') return t('dashboard.model_sensevoice');
+  if (provider === 'sherpa_funasr_nano' || provider === 'senseVoice') {
+    if (model === 'funasr-nano-zh') return t('dashboard.model_funasr_nano');
+    return t('dashboard.model_paraformer');  // v0.7.0+rc9: 默认 fallback 是 paraformer-zh
+  }
   if (provider === 'cloud') return t('dashboard.model_cloud');
   return t('dashboard.model_none');
 }
@@ -81,7 +84,7 @@ export function HomeDashboard({
       const indexedIds = new Set(all.map(m => m.meetingId));
       const sidebarOnly = sidebarMeetings
         .filter(m => !!m && !!m.id && !indexedIds.has(m.id))
-        .slice(0, 3 - all.length)
+        .slice(0, Math.max(0, 6 - all.length))
         .map((m, i) => ({
           meetingId: String(m.id),
           title: String(m.title ?? t('meeting.untitled')),
@@ -97,7 +100,7 @@ export function HomeDashboard({
         typeof m.title === 'string' &&
         typeof m.lastUpdated === 'number'
       );
-      const merged = [...cleanIndexed, ...sidebarOnly].slice(0, 3);
+      const merged = [...cleanIndexed, ...sidebarOnly].slice(0, 6);
       setRecentMeetings(merged);
     } catch (e) {
       console.error('HomeDashboard loadRecent failed', e);
@@ -155,6 +158,44 @@ export function HomeDashboard({
           <p className="mt-6 text-xs text-neutral-400">
             {t('dashboard.record_hint')}
           </p>
+        </motion.section>
+
+        {/* ── Status chips row ────────────────────────────── */}
+        <motion.section
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.35, delay: 0.05 }}
+          className="flex flex-wrap items-center justify-center gap-2 pb-5"
+        >
+          <StatusChip
+            icon={<Languages className="h-3.5 w-3.5" />}
+            label={t('dashboard.transcript_model')}
+            value={modelLabel(t, transcriptModelConfig?.provider, transcriptModelConfig?.model)}
+            tone="blue"
+          />
+          <StatusChip
+            icon={<Mic className="h-3.5 w-3.5" />}
+            label={t('dashboard.microphone')}
+            value={selectedDevices?.micDevice || t('dashboard.default_input')}
+            tone="emerald"
+            maxChars={28}
+          />
+          <button
+            onClick={() => router.push('/settings/hotwords')}
+            className="group inline-flex items-center gap-1.5 rounded-full border border-amber-100 bg-amber-50/70 px-3 py-1 text-[12px] text-amber-700 transition-colors hover:border-amber-200 hover:bg-amber-50"
+          >
+            <BookOpen className="h-3.5 w-3.5 text-amber-500 group-hover:text-amber-600" />
+            <span>{t('dashboard.hotwords')}</span>
+            <ChevronRight className="h-3 w-3 text-amber-300 transition-transform group-hover:translate-x-0.5" />
+          </button>
+          <button
+            onClick={() => router.push('/settings')}
+            className="group inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 py-1 text-[12px] text-neutral-700 transition-colors hover:border-neutral-300 hover:bg-neutral-50"
+          >
+            <SettingsIcon className="h-3.5 w-3.5 text-neutral-400 group-hover:text-neutral-600" />
+            <span>{t('dashboard.settings')}</span>
+            <ChevronRight className="h-3 w-3 text-neutral-300 transition-transform group-hover:translate-x-0.5" />
+          </button>
         </motion.section>
 
         {/* v0.7.0+: Pro 升级 CTA — 只对非 Pro 用户显示 */}

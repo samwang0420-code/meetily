@@ -113,10 +113,12 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   });
 
   // Transcript model configuration state
-  // 离线会记 W2.5: 默认 SenseVoice-zh INT8 (23 段按句切 / 中文 SOTA / 比 Whisper 强)
+  // v0.7.0+rc9: 默认 paraformer-zh-int8 (227MB, 中文 ASR 备选, 10 段按句切).
+  // FunASR-Nano (994MB) 是 Pro 专属, 由用户从 Settings 主动切.
+  // sense-voice-zh-int8 是历史遗留 fallback, 模型未下载, DB 里有脏数据时 reset 到 paraformer.
   const [transcriptModelConfig, setTranscriptModelConfig] = useState<TranscriptModelProps>({
     provider: 'sherpa_funasr_nano',
-    model: 'sense-voice-zh-int8',
+    model: 'paraformer-zh',
     apiKey: null
   });
 
@@ -228,11 +230,15 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         if (config) {
           console.log('[ConfigContext] Loaded saved transcript config:', config);
           // 兼容老数据: 如果 DB 里是 localWhisper / parakeet, 重置为 SenseVoice
+          // v0.7.0+rc9: 兼容老脏数据 — localWhisper/parakeet/sense-voice 都 reset
+          const is_legacy_model = (config.model === 'sense-voice-zh-int8'
+            || config.model === 'sense-voice-zh'
+            || config.model === 'whisper');
           const provider = (config.provider === 'localWhisper' || config.provider === 'parakeet')
             ? 'sherpa_funasr_nano'
             : (config.provider || 'sherpa_funasr_nano');
           const model = (provider === 'sherpa_funasr_nano')
-            ? 'sense-voice-zh-int8'
+            ? (is_legacy_model ? 'paraformer-zh' : (config.model || 'paraformer-zh'))
             : (config.model || 'paraformer-zh-int8');
           setTranscriptModelConfig({
             provider,
