@@ -189,7 +189,10 @@ export const zh: Record<string, unknown> = {
       pro_only_diar_desc: 'cam++ 多发言人分离是 Pro 会员专属功能, 请升级到 Pro 解锁.',
       pro_only_upgrade: '升级到 Pro',
     },
-  },
+  
+    pro_only_model_desc: 'FunASR-Nano 高精度模型是 Pro 会员专属功能, 请升级到 Pro 解锁.',
+    pro_only: 'Pro 专属',
+    pro_only_upgrade: '升级到 Pro',},
 
   account: {
     guest: '游客模式',
@@ -304,7 +307,20 @@ export const zh: Record<string, unknown> = {
     cta_skip: '稍后再说',
     enable_mic: '启用麦克风权限',
     finish: '完成设置',
-  },
+  
+    check_connection: '检查网络连接',
+    retry_download: '重试下载',
+    can_start_app: '可以开始使用 app 了',
+    try_again: '再试一次',
+    continue_background: '继续在后台下载',
+    ollama_for_summary: 'Ollama 用于本地摘要生成',
+    enable_mic_alert: '请在系统设置中启用麦克风权限',
+    enable_audio_capture_alert: '请在系统设置中启用音频捕获权限',
+    permissions_note: '权限说明',
+    feature_local_title: '100% 本地处理',
+    feature_summary_title: 'AI 会议纪要',
+    feature_offline_title: '完全离线工作',
+    time_estimate: '预计时间',},
   about: {
     intro: '会议转录与 AI 纪要全程本地运算, 隐私数据从不离开你的设备。',
     check_update: '检查更新',
@@ -368,7 +384,9 @@ export const zh: Record<string, unknown> = {
     openai: 'OpenAI',
     openrouter: 'OpenRouter',
     custom_openai: 'Custom OpenAI 兼容',
-  },
+  
+    api_key_optional: 'API Key (可选)',
+    api_key_placeholder: '输入 API Key',},
   preferences: {
     open_folder: '打开文件夹',
     title: '偏好设置',
@@ -458,7 +476,8 @@ export const zh: Record<string, unknown> = {
       model_file_error: '模型文件有错误',
       model_file_corrupted: '模型文件已损坏',
       save_failed: '保存失败, 请重试',
-    },
+    
+      timeout_15min: '摘要超时 (15 分钟), 请重试或检查网络',},
     block: {
       label_text: '正文',
       label_bullet: '项目符号',
@@ -597,7 +616,10 @@ export const zh: Record<string, unknown> = {
     title_required: '需要授予权限',
     title_mic_required: '需要麦克风权限',
     title_system_required: '需要系统音频权限',
-  },
+  
+    mic_no_devices: '未检测到麦克风设备',
+    system_audio_unavailable: '系统音频不可用',
+    system_audio_also_unavailable: '系统音频也不可用, 请检查权限设置',},
 
 
 
@@ -650,7 +672,10 @@ export const zh: Record<string, unknown> = {
     confirm_delete: '确认删除',
     required_field: '必填',
     id: 'ID',
-  },
+  
+    unknown_error: '未知错误',
+    processing: '处理中...',
+    back: '返回',},
 
   errors: {
     unknown: '出现未知错误',
@@ -702,7 +727,10 @@ export const zh: Record<string, unknown> = {
     auto_saved_local: '仅保存在本机',
     auto_dominant_transcript: '使用转录文本的主要语言',
     summary_language_title: '纪要语言: {language}',
-  },
+  
+    saved_local: '已保存到本地',
+    saved_local_desc: '语言偏好已保存',
+    save_failed: '保存失败',},
   pricing: {
     page_title: '选择套餐',
     page_subtitle: '免费档满足个人试用 · Pro ¥88 一次性买断, 满足长期重度使用',
@@ -883,5 +911,19 @@ export const zh: Record<string, unknown> = {
     transcribing: '正在转录音频',
     saving: '正在保存',
     complete: '完成',
+  },
+
+  update: {
+    no_longer_available: '该更新已不再可用',
+    prepare_failed: '更新准备失败',
+    not_available: '更新不可用',
+    get_failed: '获取更新信息失败',
+    download_install_failed: '下载安装失败',
+    failed: '更新失败',
+  },
+
+  model_dialog: {
+    file_corrupted: '模型文件损坏, 请删除后重新下载',
+    provider_builtin_ai: '本地 AI 模型',
   },
 };

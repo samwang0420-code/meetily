@@ -2,7 +2,6 @@ import React, { useState, useEffect } from "react";
 import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
 import { Shield, Cpu, Wallet, Globe2, Sparkles, Loader2, CheckCircle2, ArrowUpRight, Mic, FileText, Lock, Mail, Copy, Send } from "lucide-react";
-import AnalyticsConsentSwitch from "./AnalyticsConsentSwitch";
 import { UpdateDialog } from "./UpdateDialog";
 import { FeedbackDialog } from "./FeedbackDialog";
 import { updateService, UpdateInfo } from '@/services/updateService';
@@ -274,9 +273,6 @@ export function About() {
                         </button>
                     </div>
                 </section>
-
-                {/* Analytics */}
-                <AnalyticsConsentSwitch />
 
                 {/* Footer */}
                 <div className="pt-2 text-center">

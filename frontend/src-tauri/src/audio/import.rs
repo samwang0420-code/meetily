@@ -61,8 +61,12 @@ fn vad_redemption_time_ms(duration_seconds: f64) -> u32 {
 
 const MAX_EVIDENCE_SEGMENT_SECONDS: f64 = 12.0;
 
-/// Maximum file size: 20GB (prevents OOM and excessive processing time)
-const MAX_FILE_SIZE_BYTES: u64 = 20 * 1024 * 1024 * 1024; // 20GB
+/// Maximum file size: 5GB
+// 2026-07-22 用户指令: 导入限制 5G 以内吧, 防止内存爆.
+// (上游 7c74684 默认是 20GB, 我们 fork 时收到 0.6.21-plus 工作区, 用户在 v0.7.0 期间
+//  显式要求降到 5GB. 5GB 单文件足够覆盖 90 min 会议 (16kHz mono ~ 1.7 GB), 仍能挡
+//  4-8GB RAM 设备 OOM 风险. 不要再改回 20GB, 如要改请先开 issue.)
+const MAX_FILE_SIZE_BYTES: u64 = 5 * 1024 * 1024 * 1024; // 5GB
 
 /// Information about a selected audio file
 #[derive(Debug, Clone, Serialize, Deserialize)]

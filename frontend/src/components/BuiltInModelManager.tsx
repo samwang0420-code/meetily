@@ -219,7 +219,7 @@ export function BuiltInModelManager({
       }
 
       // For real errors, show toast and remove from downloading
-      safeToast.error(`Failed to download ${modelName}`);
+      safeToast.error(`下载 ${modelName} 失败`);
 
       setDownloadingModels((prev) => {
         const newSet = new Set(prev);
@@ -253,7 +253,7 @@ export function BuiltInModelManager({
       fetchModels();
     } catch (error) {
       console.error('Failed to delete model:', error);
-      safeToast.error(`Failed to delete ${modelName}`);
+      safeToast.error(`删除 ${modelName} 失败`);
     }
   };
 

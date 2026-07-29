@@ -150,7 +150,7 @@ export function useRecordingStop(
       console.log('Recording already stopped by RecordingControls, processing transcription...');
 
       // Wait for transcription to complete
-      setStatus(RecordingStatus.PROCESSING_TRANSCRIPTS, 'Waiting for transcription...');
+      setStatus(RecordingStatus.PROCESSING_TRANSCRIPTS, '等待转录...');
       console.log('Waiting for transcription to complete...');
 
       const MAX_WAIT_TIME = 60000; // 60 seconds maximum wait (increased for longer processing)
@@ -219,7 +219,7 @@ export function useRecordingStop(
         time_since_stop: flushStartTime - stopStartTime,
         current_transcript_count: transcriptsRef.current.length
       });
-      setStatus(RecordingStatus.PROCESSING_TRANSCRIPTS, 'Flushing transcript buffer...');
+      setStatus(RecordingStatus.PROCESSING_TRANSCRIPTS, '正在刷新转录缓冲区...');
       flushBuffer();
       const flushEndTime = Date.now();
       console.log('✅ Final buffer flush completed', {
@@ -239,7 +239,7 @@ export function useRecordingStop(
       // This ensures user sees all transcripts streaming in before database save
       if (isCallApi && transcriptionComplete == true) {
 
-        setStatus(RecordingStatus.SAVING, 'Saving meeting to database...');
+        setStatus(RecordingStatus.SAVING, '正在保存会议到数据库...');
 
         // Get fresh transcript state (ALL transcripts including late ones)
         const freshTranscripts = [...transcriptsRef.current];
@@ -275,8 +275,8 @@ export function useRecordingStop(
             shouldDetectSummaryLanguage = !(await applyPinnedSummaryLanguageToMeeting(meetingId));
           } catch (error) {
             console.warn('Failed to apply pinned summary language preference for new meeting:', error);
-            safeToast.warning('Could not apply default summary language', {
-              description: 'The meeting was saved, but the default summary language was not applied.',
+            safeToast.warning('默认摘要语言应用失败', {
+              description: '会议已保存,但默认摘要语言未能应用。',
             });
           }
 

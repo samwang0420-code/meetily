@@ -57,6 +57,12 @@ export function usePaginatedTranscripts({
     const isLoadingRef = useRef(false);
     const lastLoadTimeRef = useRef(0); // Debounce protection
 
+    const getSession = useCallback(() =>
+        typeof window !== 'undefined'
+            ? window.localStorage.getItem('lixianhuiji.session')
+            : null,
+    []);
+
     // Reset state when meeting changes
     const reset = useCallback(() => {
         setMetadata(null);
@@ -76,6 +82,7 @@ export function usePaginatedTranscripts({
         try {
             const data = await invoke<MeetingMetadata>('api_get_meeting_metadata', {
                 meetingId,
+                session: getSession(),
             });
             setMetadata(data);
             return data;
@@ -84,7 +91,7 @@ export function usePaginatedTranscripts({
             setError('Failed to load meeting details');
             return null;
         }
-    }, [meetingId]);
+    }, [meetingId, getSession]);
 
     // Load transcripts at specific offset
     const loadTranscriptsAtOffset = useCallback(async (
@@ -100,6 +107,7 @@ export function usePaginatedTranscripts({
                     meetingId,
                     limit: DEFAULT_PAGE_SIZE,
                     offset,
+                    session: getSession(),
                 }
             );
 
@@ -129,7 +137,7 @@ export function usePaginatedTranscripts({
             setError('加载会议转录失败');
             return [];
         }
-    }, [meetingId]);
+    }, [meetingId, getSession]);
 
     // Load next page with debounce protection
     const loadMore = useCallback(async () => {

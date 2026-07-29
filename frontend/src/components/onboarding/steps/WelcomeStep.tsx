@@ -3,22 +3,24 @@ import { Lock, Sparkles, Cpu } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { OnboardingContainer } from '../OnboardingContainer';
 import { useOnboarding } from '@/contexts/OnboardingContext';
+import { useTranslation } from '@/i18n';
 
 export function WelcomeStep() {
   const { goNext } = useOnboarding();
+  const { t } = useTranslation();
 
   const features = [
     {
       icon: Lock,
-      title: 'Your data never leaves your device',
+      title: t('onboarding.feature_local_title'),
     },
     {
       icon: Sparkles,
-      title: 'Intelligent summaries & insights',
+      title: t('onboarding.feature_summary_title'),
     },
     {
       icon: Cpu,
-      title: 'Works offline, no cloud required',
+      title: t('onboarding.feature_offline_title'),
     },
   ];
 
@@ -58,7 +60,7 @@ export function WelcomeStep() {
           >
             Get Started
           </Button>
-          <p className="text-xs text-center text-gray-500">Takes less than 3 minutes</p>
+          <p className="text-xs text-center text-gray-500">{t('onboarding.time_estimate')}</p>
         </div>
       </div>
     </OnboardingContainer>

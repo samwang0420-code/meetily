@@ -24,7 +24,7 @@ import { LANGUAGES } from '@/constants/languages';
 import { useTranscriptionModels, ModelOption } from '@/hooks/useTranscriptionModels';
 import { sanitizeDescription, safeToast } from "@/lib/safeToast";
 import Analytics from '@/lib/analytics';
-import { useTranslation } from '@/i18n';
+import { useTranslation, translateStage } from '@/i18n';
 
 interface RetranscribeDialogProps {
   open: boolean;
@@ -391,7 +391,7 @@ export function RetranscribeDialog({
                   />
                 </div>
                 <div className="flex justify-between text-xs text-gray-600 mt-1">
-                  <span>{progress.stage}</span>
+                  <span>{translateStage(progress.stage, t)}</span>
                   <span>{Math.round(progress.progress_percentage)}%</span>
                 </div>
               </div>

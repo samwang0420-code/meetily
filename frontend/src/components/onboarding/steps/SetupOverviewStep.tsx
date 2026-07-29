@@ -3,6 +3,7 @@ import { Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { OnboardingContainer } from '../OnboardingContainer';
 import { useOnboarding } from '@/contexts/OnboardingContext';
+import { useTranslation } from '@/i18n';
 import {
   Tooltip,
   TooltipContent,
@@ -12,6 +13,7 @@ import {
 
 export function SetupOverviewStep() {
   const { goNext } = useOnboarding();
+  const { t } = useTranslation();
   const [isMac, setIsMac] = useState(false);
 
   useEffect(() => {
@@ -74,7 +76,7 @@ export function SetupOverviewStep() {
                                 </TooltipTrigger>
                                 <TooltipContent className="max-w-xs text-sm">
                                 You can also select external AI providers like OpenAI, Claude, or
-                                Ollama for summary generation in settings.
+                                {t('onboarding.ollama_for_summary')}
                                 </TooltipContent>
                             </Tooltip>
                             </TooltipProvider>

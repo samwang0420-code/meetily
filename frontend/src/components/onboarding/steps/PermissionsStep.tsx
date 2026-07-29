@@ -1,3 +1,4 @@
+import { useTranslation } from '@/i18n';
 import React, { useEffect, useState, useCallback } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { Mic, Volume2 } from 'lucide-react';
@@ -7,6 +8,7 @@ import { PermissionRow } from '../shared';
 import { useOnboarding } from '@/contexts/OnboardingContext';
 
 export function PermissionsStep() {
+  const { t } = useTranslation();
   const { setPermissionStatus, setPermissionsSkipped, permissions, completeOnboarding } = useOnboarding();
   const [isPending, setIsPending] = useState(false);
 
@@ -32,7 +34,7 @@ export function PermissionsStep() {
       try {
         await invoke('open_system_settings');
       } catch {
-        alert('Please enable microphone access in System 偏好设置 > Security & Privacy > Microphone');
+        alert(t('onboarding.enable_mic_alert'));
       }
       return;
     }
@@ -64,7 +66,7 @@ export function PermissionsStep() {
       try {
         await invoke('open_system_settings');
       } catch {
-        alert('Please enable Audio Capture in System Settings → Privacy & Security → Audio Capture');
+        alert(t('onboarding.enable_audio_capture_alert'));
       }
       return;
     }
@@ -159,7 +161,7 @@ export function PermissionsStep() {
 
           {!allPermissionsGranted && (
             <p className="text-xs text-center text-muted-foreground">
-              Recording won't work without permissions. You can grant them later in settings.
+              {t('onboarding.permissions_note')}
             </p>
           )}
         </div>

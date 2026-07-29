@@ -92,11 +92,11 @@ export function DownloadProgressStep() {
       setParakeetState((prev) => ({
         ...prev,
         status: 'error',
-        error: error instanceof Error ? error.message : 'Retry failed',
+        error: error instanceof Error ? error.message : '重试失败',
       }));
 
-      safeToast.error('Download retry failed', {
-        description: 'Please check your connection and try again.',
+      safeToast.error('下载重试失败', {
+        description: t('onboarding.check_connection'),
       });
     } finally {
       // Allow retry again after 2 seconds
@@ -140,11 +140,11 @@ export function DownloadProgressStep() {
       setSummaryState((prev) => ({
         ...prev,
         status: 'error',
-        error: error instanceof Error ? error.message : 'Retry failed',
+        error: error instanceof Error ? error.message : '重试失败',
       }));
 
-      safeToast.error('Summary model download retry failed', {
-        description: 'Please check your connection and try again.',
+      safeToast.error('摘要模型下载重试失败', {
+        description: t('onboarding.check_connection'),
       });
     } finally {
       // Allow retry again after 2 seconds
@@ -347,8 +347,8 @@ export function DownloadProgressStep() {
           progress: 100,
         }));
       } else if (!actuallyAvailable && parakeetState.status === 'error') {
-        safeToast.error('Transcription engine required', {
-          description: 'Please retry the download before continuing.',
+        safeToast.error('需要转录引擎', {
+          description: t('onboarding.retry_download'),
         });
         return;
       }
@@ -362,8 +362,8 @@ export function DownloadProgressStep() {
 
     // Show toast if downloads still in progress
     if (!downloadsComplete) {
-      safeToast.info('Downloads will continue in the background', {
-        description: 'You can start using the app. Recording will be available once speech recognition is ready.',
+      safeToast.info('下载将在后台继续', {
+        description: t('onboarding.can_start_app'),
         duration: 5000,
       });
     }
@@ -383,8 +383,8 @@ export function DownloadProgressStep() {
         window.location.reload();
       } catch (error) {
         console.error('Failed to complete onboarding:', error);
-        safeToast.error('Failed to complete setup', {
-          description: 'Please try again.',
+        safeToast.error('设置未完成', {
+          description: t('onboarding.try_again'),
         });
         setIsCompleting(false);
       }
@@ -516,7 +516,7 @@ export function DownloadProgressStep() {
                 <div>
                   <p className="font-medium">{t('downloads.bg_hint')}</p>
                   <p className="text-gray-700 mt-1">
-                    Download will continue in the background.
+                    {t('onboarding.continue_background')}
                   </p>
                 </div>
               </div>
@@ -534,7 +534,7 @@ export function DownloadProgressStep() {
             {(isCompleting || !parakeetDownloaded) ? (
               <Loader2 className="w-4 h-4 mr-2 animate-spin" />
             ) : (
-              'Continue'
+              '继续'
             )}
           </Button>
         </div>

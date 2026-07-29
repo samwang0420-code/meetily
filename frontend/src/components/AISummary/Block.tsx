@@ -19,43 +19,21 @@ interface BlockProps {
   onCreateNewBlock?: (blockId: string, newBlockContent: string, blockType: Block['type'], currentBlockContent?: string) => void;
 }
 
+type CommandKey = 'text' | 'bullet' | 'h1' | 'h2';
+
 interface CommandOption {
   id: string;
-  label: string;
+  labelKey: string;
+  descKey: string;
   type: Block['type'];
   icon: string;
-  description: string;
 }
 
 const COMMANDS: CommandOption[] = [
-  { 
-    id: 'text', 
-    label: 'Text', 
-    type: 'text', 
-    icon: 'T', 
-    description: 'Just start writing with plain text' 
-  },
-  { 
-    id: 'bullet', 
-    label: 'Bullet List', 
-    type: 'bullet', 
-    icon: '•', 
-    description: 'Create a bulleted list' 
-  },
-  { 
-    id: 'h1', 
-    label: 'Heading 1', 
-    type: 'heading1', 
-    icon: 'H1', 
-    description: 'Big section heading' 
-  },
-  { 
-    id: 'h2', 
-    label: 'Heading 2', 
-    type: 'heading2', 
-    icon: 'H2', 
-    description: 'Medium section heading' 
-  },
+  { id: 'text', labelKey: 'summary.block.label_text', descKey: 'summary.block.desc_text', type: 'text', icon: 'T' },
+  { id: 'bullet', labelKey: 'summary.block.label_bullet', descKey: 'summary.block.desc_bullet', type: 'bullet', icon: '•' },
+  { id: 'h1', labelKey: 'summary.block.label_h1', descKey: 'summary.block.desc_h1', type: 'heading1', icon: 'H1' },
+  { id: 'h2', labelKey: 'summary.block.label_h2', descKey: 'summary.block.desc_h2', type: 'heading2', icon: 'H2' },
 ];
 
 export const BlockComponent: React.FC<BlockProps> = ({
@@ -103,7 +81,7 @@ export const BlockComponent: React.FC<BlockProps> = ({
   }, [selectedCommandIndex, showCommands]);
 
   const filteredCommands = COMMANDS.filter(cmd => 
-    cmd.label.toLowerCase().includes(commandFilter.toLowerCase())
+    t(cmd.labelKey).toLowerCase().includes(commandFilter.toLowerCase())
   );
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -275,8 +253,8 @@ export const BlockComponent: React.FC<BlockProps> = ({
                   {cmd.icon}
                 </span>
                 <div className="flex-1">
-                  <div className="font-medium">{cmd.label}</div>
-                  <div className="text-sm text-gray-500">{cmd.description}</div>
+                  <div className="font-medium">{t(cmd.labelKey)}</div>
+                  <div className="text-sm text-gray-500">{t(cmd.descKey)}</div>
                 </div>
               </button>
             ))}

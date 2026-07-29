@@ -20,7 +20,7 @@ export async function showRecordingNotification(): Promise<void> {
     if (showNotification) {
       let dontShowAgain = false;
 
-      const toastId = toast.info('🔴 Recording Started', {
+      const toastId = toast.info('🔴 录音已开始', {
         description: (
           <div className="space-y-3 min-w-[280px]">
             <p className="text-sm font-medium text-gray-900">
@@ -34,7 +34,7 @@ export async function showRecordingNotification(): Promise<void> {
                 }}
                 className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 focus:ring-2"
               />
-              <span className="select-none text-gray-700">Don't show this again</span>
+              <span className="select-none text-gray-700">不再提示</span>
             </label>
             <button
               onClick={async () => {

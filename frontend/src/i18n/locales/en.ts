@@ -37,7 +37,8 @@ export const en: Record<string, unknown> = {
       drop_hint: 'Drop audio file to import',
     cancelled: 'Import cancelled',
     },
-  },
+  
+    cancelled: 'Import cancelled',},
   home: {
     welcome: 'Welcome to Meetily!',
     hint_record: 'Start recording to see live transcription',
@@ -190,7 +191,10 @@ export const en: Record<string, unknown> = {
       pro_only_diar_desc: 'cam++ multi-speaker separation is exclusive to Pro members. Please upgrade to Pro to unlock.',
       pro_only_upgrade: 'Upgrade to Pro',
     },
-  },
+  
+    pro_only_model_desc: 'FunASR-Nano high-precision model is a Pro exclusive feature, please upgrade to Pro to unlock.',
+    pro_only: 'Pro exclusive',
+    pro_only_upgrade: 'Upgrade to Pro',},
 
   account: {
     guest: 'Guest',
@@ -305,7 +309,20 @@ export const en: Record<string, unknown> = {
     cta_skip: 'Later',
     enable_mic: 'Grant microphone permission',
     finish: 'Finish setup',
-  },
+  
+    check_connection: 'Check network connection',
+    retry_download: 'Retry download',
+    can_start_app: 'You can start using the app',
+    try_again: 'Try again',
+    continue_background: 'Continue downloading in background',
+    ollama_for_summary: 'Ollama for local summary generation',
+    enable_mic_alert: 'Please enable microphone permission in System Settings',
+    enable_audio_capture_alert: 'Please enable audio capture permission in System Settings',
+    permissions_note: 'Permissions note',
+    feature_local_title: '100% local processing',
+    feature_summary_title: 'AI meeting summary',
+    feature_offline_title: 'Fully offline',
+    time_estimate: 'Estimated time',},
   about: {
     intro: 'All transcription and AI summary runs locally. Your data never leaves your device.',
     check_update: 'Check for updates',
@@ -369,7 +386,9 @@ export const en: Record<string, unknown> = {
     openai: 'OpenAI',
     openrouter: 'OpenRouter',
     custom_openai: 'Custom OpenAI-compatible',
-  },
+  
+    api_key_optional: 'API Key (optional)',
+    api_key_placeholder: 'Enter API Key',},
   preferences: {
     open_folder: 'Open folder',
     title: 'Preferences',
@@ -553,6 +572,7 @@ export const en: Record<string, unknown> = {
       reduce: 'Combining chunk summaries…',
       final: 'Building structured meeting minutes…',
       single: 'Generating meeting summary…',
+    },
     // v0.7.0+ summary section UI keys (zh parity)
     processing_title: 'Processing transcript',
     generating_title: 'Generating summary',
@@ -571,7 +591,12 @@ export const en: Record<string, unknown> = {
       empty_generated: 'Summary is empty',
       import_audio_desc: 'Import an audio file to create a new meeting with transcription',
       ollama_install_desc: 'Please download and install Ollama to use the local model',
-    },
+    
+      timeout_15min: 'Summary timeout (15 min), please retry or check your network',
+      no_transcript: 'No transcript text yet, please add content first',
+      ollama_not_installed: 'Ollama is not installed',
+      ollama_check_failed: 'Failed to check Ollama models, please ensure Ollama is running and a model is downloaded',
+      save_failed: 'Save failed, please try again',},
     block: {
       label_text: 'Body text',
       label_bullet: 'Bullet list',
@@ -581,7 +606,6 @@ export const en: Record<string, unknown> = {
       desc_bullet: 'Create an unordered list',
       desc_h1: 'Major section title',
       desc_h2: 'Minor section title',
-    },
     },
   },
   recovery: {
@@ -596,7 +620,10 @@ export const en: Record<string, unknown> = {
     title_required: 'Permissions Required',
     title_mic_required: 'Microphone Permission Required',
     title_system_required: 'System Audio Permission Required',
-  },
+  
+    mic_no_devices: 'No microphone device detected',
+    system_audio_unavailable: 'System audio not available',
+    system_audio_also_unavailable: 'System audio is also unavailable, please check permission settings',},
 
 
 
@@ -646,7 +673,11 @@ export const en: Record<string, unknown> = {
     download_failed: 'Download failed',
     required_field: 'Required',
     id: 'ID',
-  },
+  
+    unknown_error: 'Unknown error',
+    processing: 'Processing...',
+    back: 'Back',
+    confirm_delete: 'Confirm delete',},
   errors: {
     unknown: 'An error occurred',
     generic: 'Operation failed, please retry',
@@ -697,7 +728,10 @@ export const en: Record<string, unknown> = {
     auto_saved_local: 'Saved on this device only',
     auto_dominant_transcript: 'Uses the dominant transcript language',
     summary_language_title: 'Summary language: {language}',
-  },
+  
+    saved_local: 'Saved locally',
+    saved_local_desc: 'Language preference saved',
+    save_failed: 'Save failed',},
   pricing: {
     page_title: 'Choose your plan',
     page_subtitle: 'Free tier for personal trial · Pro ¥88 one-time for power users',
@@ -878,5 +912,19 @@ export const en: Record<string, unknown> = {
     transcribing: 'Transcribing audio',
     saving: 'Saving',
     complete: 'Complete',
+  },
+
+  update: {
+    no_longer_available: 'This update is no longer available',
+    prepare_failed: 'Failed to prepare update',
+    not_available: 'Update not available',
+    get_failed: 'Failed to fetch update',
+    download_install_failed: 'Download and install failed',
+    failed: 'Update failed',
+  },
+
+  model_dialog: {
+    file_corrupted: 'Model file corrupted, please delete and re-download',
+    provider_builtin_ai: 'Local AI model',
   },
 };

@@ -248,6 +248,17 @@ def _scan_models():
             "size_mb": size_mb,
             "dir": entry,
         }
+        # v0.7.0+: UI 标签 "paraformer-zh-int8" → 也注册为别名, 避免请求方填 "paraformer-zh-int8" 被误判为不存在的 tag.
+        if "paraformer" in lname and "int8" in lname and tag == "paraformer-zh":
+            found["paraformer-zh-int8"] = {
+                "path": onnx,
+                "tokens": tokens,
+                "kind": kind,
+                "tag": tag,  # 实际还是 paraformer-zh (loader 用 kind)
+                "label": entry,
+                "size_mb": size_mb,
+                "dir": entry,
+            }
     return found
 
 
@@ -336,22 +347,14 @@ def _ensure_model(tag):
     models = _scan_models()
     info = models.get(tag)
     if info is None:
-        # try alias: 任意 sensevoice-* 都映射到首个已装 sensevoice 模型
-        # (sensevoice-zh / sensevoice-zh-int8 / sense-voice-zh-int8 等)
-        sensevoice_aliases = {
-            "sensevoice-zh", "sensevoice-zh-int8",
-            "sense-voice-zh", "sense-voice-zh-int8",
-        }
-        if tag in sensevoice_aliases:
-            for t, i in models.items():
-                if i["kind"] == "sensevoice":
-                    info = i; tag = t; break
-        if info is None:
-            # 最终 fallback: 任何已装的模型
-            for t, i in models.items():
-                info = i; tag = t; break
-        if info is None:
-            raise ValueError(f"no installed model for tag '{tag}'. installed: {list(models.keys())}")
+        msg = (
+            f"requested model '{tag}' is not installed; "
+            f"available models: {sorted(models.keys())}. "
+            f"refusing to silently fall back."
+        )
+        sys.stderr.write(f"[sherpa_asr][WARN] {msg}\n")
+        sys.stderr.flush()
+        raise ValueError(msg)
 
     loader = _KIND_LOADERS.get(info["kind"])
     if loader is None:

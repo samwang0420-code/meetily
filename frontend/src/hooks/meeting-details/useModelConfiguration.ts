@@ -14,8 +14,8 @@ export function useModelConfiguration({ serverAddress }: UseModelConfigurationPr
   const { t } = useTranslation();
   // Note: No hardcoded defaults - DB is the source of truth
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
-    provider: 'ollama',
-    model: '', // Empty until loaded from DB
+    provider: 'builtin-ai',
+    model: 'qwen3.5:2b',
     whisperModel: 'large-v3'
   });
   const [isLoading, setIsLoading] = useState(true);

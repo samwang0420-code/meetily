@@ -218,7 +218,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
         });
         onUpdate({
           status: 'error',
-          error: 'Summary generation timed out after 15 minutes. Please try again or check your model configuration.'
+          error: t('summary.errors.timeout_15min')
         });
         return;
       }
@@ -265,7 +265,7 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
         // Report error to callback
         onUpdate({
           status: 'error',
-          error: error instanceof Error ? error.message : 'Unknown error'
+          error: error instanceof Error ? error.message : t('common.unknown_error')
         });
         clearInterval(pollInterval);
         setActiveSummaryPolls(prev => {

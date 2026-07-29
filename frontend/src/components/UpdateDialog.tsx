@@ -1,3 +1,4 @@
+import { useTranslation } from '@/i18n';
 import React, { useState, useEffect } from 'react';
 import { Download, X, CheckCircle2, AlertCircle, Loader2 } from 'lucide-react';
 import {
@@ -22,6 +23,7 @@ interface UpdateDialogProps {
 }
 
 export function UpdateDialog({ open, onOpenChange, updateInfo }: UpdateDialogProps) {
+  const { t } = useTranslation();
   const [isDownloading, setIsDownloading] = useState(false);
   const [progress, setProgress] = useState<UpdateProgress | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -39,11 +41,11 @@ export function UpdateDialog({ open, onOpenChange, updateInfo }: UpdateDialogPro
         if (updateResult?.available) {
           setUpdate(updateResult);
         } else {
-          setError('Update no longer available');
+          setError(t('update.no_longer_available'));
         }
       }).catch((err) => {
         console.error('Failed to get update object:', err);
-        setError('Failed to prepare update: ' + (err.message || 'Unknown error'));
+        setError(t('update.prepare_failed') + ': ' + (err.message || t('common.unknown_error')));
       });
     } else {
       // Reset state when dialog closes
@@ -64,11 +66,11 @@ export function UpdateDialog({ open, onOpenChange, updateInfo }: UpdateDialogPro
           updateToUse = updateResult;
           setUpdate(updateResult);
         } else {
-          setError('Update not available');
+          setError(t('update.not_available'));
           return;
         }
       } catch (err: any) {
-        setError('Failed to get update: ' + (err.message || 'Unknown error'));
+        setError(t('update.get_failed') + ': ' + (err.message || t('common.unknown_error')));
         return;
       }
     }
@@ -124,7 +126,7 @@ export function UpdateDialog({ open, onOpenChange, updateInfo }: UpdateDialogPro
       });
 
       console.log('[UpdateDialog] Update installed successfully');
-      safeToast.success('Update installed successfully. The app will restart...');
+      safeToast.success('更新已安装, 应用将重启...');
 
       // Mark download as complete before closing
       setIsDownloading(false);
@@ -135,10 +137,10 @@ export function UpdateDialog({ open, onOpenChange, updateInfo }: UpdateDialogPro
       // Relaunch the app
       await relaunch();
     } catch (err: any) {
-      console.error('Update failed:', err);
-      setError(err.message || 'Failed to download or install update');
+      console.error('更新失败:', err);
+      setError(err.message || t('update.download_install_failed'));
       setIsDownloading(false);
-      safeToast.error('Update failed: ' + (err.message || 'Unknown error'));
+      safeToast.error(t('update.failed') + ': ' + (err.message || t('common.unknown_error')));
     }
   };
 

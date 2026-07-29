@@ -102,3 +102,19 @@ export function useTranslation() {
   }
   return ctx;
 }
+
+/**
+ * Translate a backend-emitted snake_case progress stage to a localized label.
+ * Falls back to the raw stage (capitalised) if no mapping exists.
+ */
+export function translateStage(stage: string | undefined | null, t: (key: string, vars?: Record<string, string | number>) => string): string {
+  if (!stage) return '';
+  const key = stage.replace(/-/g, '_');
+  const translated = t(`progress_stages.${key}`);
+  if (translated && translated !== `progress_stages.${key}`) return translated;
+  // fallback: humanise snake_case
+  return key
+    .split('_')
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ');
+}

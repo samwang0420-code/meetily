@@ -522,7 +522,7 @@ export function ModelSettingsModal({
       }
     } catch (err) {
       console.error('Error loading Built-in AI models:', err);
-      safeToast.error('Failed to load Built-in AI models');
+      safeToast.error('加载内置 AI 模型失败');
     }
   };
 
@@ -1332,7 +1332,7 @@ export function ModelSettingsModal({
                         >
                           <div>
                             <b className="font-bold">{model.name}&nbsp;</b>
-                            <span className="text-muted-foreground">with a size of </span>
+                            <span className="text-muted-foreground">大小约为 </span>
                             <span className="font-mono font-bold text-sm">{model.size}</span>
                           </div>
 

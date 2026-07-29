@@ -187,7 +187,7 @@ export function SummaryPanel({
         }
       } catch (err) {
         console.error('Failed to load summary language:', err);
-        safeToast.warning('Could not load saved summary language', {
+        safeToast.warning('无法加载保存的摘要语言', {
           description: 'Using Auto until meeting metadata can be read.',
         });
         if (!cancelled && languageLoadVersionRef.current === loadVersion) setSummaryLang(null);
@@ -385,7 +385,7 @@ export function SummaryPanel({
               <div className="mx-auto max-w-4xl rounded-xl border border-blue-100 bg-blue-50/40 p-5">
                 <div className="mb-3 flex items-center gap-2 text-xs font-medium text-blue-700">
                   <span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />
-                  {locale === 'zh' ? '本地模型正在生成' : 'Local model is generating'}
+                  {locale === 'zh' ? t('summary.local_generating') : t('summary.local_generating_en')}
                 </div>
                 <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-gray-800">{streamedMarkdown}</pre>
               </div>
