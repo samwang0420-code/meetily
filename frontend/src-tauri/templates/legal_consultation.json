@@ -32,5 +32,6 @@
       "format": "list",
       "item_format": "- **问题**：原文摘要"
     }
-  ]
+  ],
+  "required_tier": "member"
 }

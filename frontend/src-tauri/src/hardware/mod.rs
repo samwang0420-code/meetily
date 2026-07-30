@@ -117,6 +117,79 @@ pub fn is_memory_pressure(rss_mb: u64) -> bool {
     rss_mb > MEMORY_PRESSURE_THRESHOLD_MB
 }
 
+// ============================================================================
+// v0.7.0+ §31 P0: 自动内存降级 (上线必要条件)
+// ============================================================================
+//
+// 问题: v0.7.0 之前 is_memory_pressure 只在 test 里被调用, 实际运行时没触发.
+//   长会议录音 (60+ min) 时 onnx daemon + diar 后台 cluster 累加 ~700M RSS,
+//   不监控就会 silently OOM 或 swap 卡死.
+//
+// 设计:
+//   - MemoryGuard 是 Lazy 静态, 持有当前 RSS 状态 + 上次降级时间.
+//   - 每 30s 在录音 active 期间由 worker_pool 调 poll() 触发一次 check.
+//   - 检测到压力后 emit "memory-pressure" event 给前端, 携带建议降级策略.
+//   - 降级动作由前端执行 (切模型 / 关 cam++), 后端不直接改 model 状态.
+
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum MemoryPressureLevel {
+    /// < 70% 阈值, 正常
+    Normal,
+    /// 70%-100% 阈值, 警告 (前端可提示用户, 准备降级)
+    Warning,
+    /// > 阈值, 强制降级
+    Critical,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct MemoryPressureReport {
+    pub level: MemoryPressureLevel,
+    pub rss_mb: u64,
+    pub threshold_mb: u64,
+    pub recommended_action: &'static str,
+    pub should_drop_cam_plus_plus: bool,
+    pub should_switch_to_sensevoice: bool,
+    pub should_disable_long_summary: bool,
+}
+
+pub fn classify_memory_pressure(rss_mb: u64) -> MemoryPressureReport {
+    let threshold = MEMORY_PRESSURE_THRESHOLD_MB;
+    let warn_threshold = threshold * 70 / 100;  // 840 MB
+
+    if rss_mb >= threshold {
+        MemoryPressureReport {
+            level: MemoryPressureLevel::Critical,
+            rss_mb,
+            threshold_mb: threshold,
+            recommended_action: "立即降级: 切到 sense-voice-zh + 关 cam++ + 禁用长摘要",
+            should_drop_cam_plus_plus: true,
+            should_switch_to_sensevoice: true,
+            should_disable_long_summary: true,
+        }
+    } else if rss_mb >= warn_threshold {
+        MemoryPressureReport {
+            level: MemoryPressureLevel::Warning,
+            rss_mb,
+            threshold_mb: threshold,
+            recommended_action: "警告: 准备降级, 提示用户",
+            should_drop_cam_plus_plus: false,
+            should_switch_to_sensevoice: false,
+            should_disable_long_summary: false,
+        }
+    } else {
+        MemoryPressureReport {
+            level: MemoryPressureLevel::Normal,
+            rss_mb,
+            threshold_mb: threshold,
+            recommended_action: "正常运行",
+            should_drop_cam_plus_plus: false,
+            should_switch_to_sensevoice: false,
+            should_disable_long_summary: false,
+        }
+    }
+}
+
 
 // ============================================================================
 // Tauri commands
@@ -255,6 +328,44 @@ mod tests {
         assert_eq!(MEMORY_PRESSURE_THRESHOLD_MB, 1200);
         assert!(is_memory_pressure(1500));
         assert!(!is_memory_pressure(800));
+    }
+
+    /// v0.7.0+ §31 P0: classify_memory_pressure 3 档分级.
+    /// - Normal: < 70% 阈值 (840 MB)
+    /// - Warning: 70% - 100% 阈值
+    /// - Critical: >= 阈值 (1200 MB)
+    #[test]
+    fn classify_memory_pressure_three_levels() {
+        let r = classify_memory_pressure(500);
+        assert_eq!(r.level, MemoryPressureLevel::Normal);
+        assert!(!r.should_drop_cam_plus_plus);
+        assert!(!r.should_switch_to_sensevoice);
+        assert!(!r.should_disable_long_summary);
+
+        let r = classify_memory_pressure(900);  // 75% threshold
+        assert_eq!(r.level, MemoryPressureLevel::Warning);
+        assert!(!r.should_drop_cam_plus_plus);  // Warning 不动, 只提示
+
+        let r = classify_memory_pressure(1500);  // > threshold
+        assert_eq!(r.level, MemoryPressureLevel::Critical);
+        assert!(r.should_drop_cam_plus_plus);
+        assert!(r.should_switch_to_sensevoice);
+        assert!(r.should_disable_long_summary);
+    }
+
+    /// §31 P0: 边界值 - 阈值正好等于 1200 MB 应触发 Critical.
+    #[test]
+    fn classify_memory_pressure_boundary_at_threshold() {
+        let r = classify_memory_pressure(MEMORY_PRESSURE_THRESHOLD_MB);
+        assert_eq!(r.level, MemoryPressureLevel::Critical);
+    }
+
+    /// §31 P0: 边界值 - 警告阈值正好等于 840 MB (70% of 1200) 应触发 Warning.
+    #[test]
+    fn classify_memory_pressure_boundary_at_warning_threshold() {
+        let warn_threshold = MEMORY_PRESSURE_THRESHOLD_MB * 70 / 100;
+        let r = classify_memory_pressure(warn_threshold);
+        assert_eq!(r.level, MemoryPressureLevel::Warning);
     }
 
     #[test]

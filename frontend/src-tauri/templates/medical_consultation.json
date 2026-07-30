@@ -30,5 +30,6 @@
       "instruction": "列出影响判断但原文未提供或存在冲突的信息，例如检查结果待回报、剂量未明确或病史需核实，不得自行补齐",
       "format": "list"
     }
-  ]
+  ],
+  "required_tier": "member"
 }

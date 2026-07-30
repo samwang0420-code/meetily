@@ -81,4 +81,35 @@ mod tests {
                 .unwrap_or_else(|error| panic!("template '{}' failed validation: {}", id, error));
         }
     }
+
+    /// v0.7.0+ §31 P1: 法律 / 医疗 模板必须 required_tier=member.
+    #[test]
+    fn test_legal_medical_templates_are_member_only() {
+        use crate::summary::templates::TemplateTier;
+        let legal_json = get_builtin_template("legal_consultation").expect("legal_consultation exists");
+        let legal: crate::summary::templates::Template =
+            serde_json::from_str(legal_json).expect("legal parses");
+        assert_eq!(legal.required_tier, TemplateTier::Member);
+        assert!(!legal.is_available_for("free"));
+        assert!(legal.is_available_for("member"));
+
+        let medical_json = get_builtin_template("medical_consultation").expect("medical_consultation exists");
+        let medical: crate::summary::templates::Template =
+            serde_json::from_str(medical_json).expect("medical parses");
+        assert_eq!(medical.required_tier, TemplateTier::Member);
+        assert!(!medical.is_available_for("free"));
+        assert!(medical.is_available_for("member"));
+    }
+
+    /// §31 P1: standard_meeting 保持 free tier (默认免费可用).
+    #[test]
+    fn test_standard_meeting_remains_free() {
+        use crate::summary::templates::TemplateTier;
+        let std_json = get_builtin_template("standard_meeting").expect("standard_meeting exists");
+        let std: crate::summary::templates::Template =
+            serde_json::from_str(std_json).expect("standard parses");
+        assert_eq!(std.required_tier, TemplateTier::Free);
+        assert!(std.is_available_for("free"));
+        assert!(std.is_available_for("member"));
+    }
 }

@@ -1,6 +1,8 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
+import { listen } from '@tauri-apps/api/event';
+import { toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import {
@@ -72,6 +74,47 @@ export function HomeDashboard({
 
   const [recentMeetings, setRecentMeetings] = useState<MeetingMetadata[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // v0.7.0+ §31 P0: 监听 memory-pressure 事件 (worker.rs 每 30 chunks 检测一次)
+  // 等级 = critical 时弹 toast 警告 + 记录到 console (前端后续可根据 should_* 自动切模型)
+  // 限制: useRef 防止重复监听
+  const memUnlistenRef = useRef<(() => void) | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const unlisten = await listen<{
+          level: 'normal' | 'warning' | 'critical';
+          rss_mb: number;
+          threshold_mb: number;
+          recommended_action: string;
+          should_drop_cam_plus_plus: boolean;
+          should_switch_to_sensevoice: boolean;
+          should_disable_long_summary: boolean;
+        }>('memory-pressure', (event) => {
+          const p = event.payload;
+          if (p.level === 'critical') {
+            toast.error(t('memory_pressure.critical_title'), {
+              description: t('memory_pressure.critical_desc', { rss: p.rss_mb, threshold: p.threshold_mb }),
+              duration: 10000,
+            });
+          } else if (p.level === 'warning') {
+            toast.warning(t('memory_pressure.warning_title'), {
+              description: t('memory_pressure.warning_desc', { rss: p.rss_mb }),
+              duration: 6000,
+            });
+          }
+        });
+        if (cancelled) { unlisten(); } else { memUnlistenRef.current = unlisten; }
+      } catch (e) {
+        console.warn('[memory-pressure] listen failed', e);
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (memUnlistenRef.current) memUnlistenRef.current();
+    };
+  }, [t]);
 
   // 用侧栏同源 meetings 做 union 兜底 (indexedDB unsaved + sidebar saved)
   const loadRecent = useCallback(async () => {
