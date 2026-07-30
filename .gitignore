@@ -81,3 +81,11 @@ experiments/
 target/
 
 frontend/src-tauri/binaries/
+
+# Codex 会话草稿 / Codex release binary — 永远不入 git (按 §21 / AGENTS.md)
+# 物理文件保留供 Codex 端复查, 但版本库只看代码
+/outputs/
+/release/*.app
+/release/*.dmg
+/release/*.exe
+/release/meetily-*
