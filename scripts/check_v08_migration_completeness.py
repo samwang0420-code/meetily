@@ -285,5 +285,95 @@ def main() -> int:
     return 0
 
 
+# §31 P1 member-only 模板闸门 — v0.8.1 commit 5ea2bad 加 test 真断言
+add(
+    "§31 P1 test_list_templates 真实断言 (template_commands.rs)",
+    "rust_func",
+    "frontend/src-tauri/src/summary/template_commands.rs",
+    "fn test_list_templates",
+)
+add(
+    "§31 P1 test_list_templates_falls_back_to_free 已知 tier 边界 (template_commands.rs)",
+    "rust_func",
+    "frontend/src-tauri/src/summary/template_commands.rs",
+    "fn test_list_templates_falls_back_to_free",
+)
+add(
+    "§31 P1 list_templates_for_tier 过滤逻辑 (loader.rs)",
+    "rust_func",
+    "frontend/src-tauri/src/summary/templates/loader.rs",
+    "fn list_templates_for_tier",
+)
+add(
+    "§31 P1 TemplateInfo 含 required_tier 字段 (template_commands.rs)",
+    "phrase",
+    "frontend/src-tauri/src/summary/template_commands.rs",
+    "required_tier",
+)
+add(
+    "§18 LLM Streaming 已实装 (processor.rs)",
+    "phrase",
+    "frontend/src-tauri/src/summary/processor.rs",
+    "StreamSink",
+)
+add(
+    "§18 CoreML feature flag 已 wire (whisper_engine.rs)",
+    "phrase",
+    "frontend/src-tauri/src/whisper_engine/whisper_engine.rs",
+    'feature = "coreml"',
+)
+add(
+    "§18 CoreML enabled 入口日志 (whisper_engine.rs)",
+    "phrase",
+    "frontend/src-tauri/src/whisper_engine/whisper_engine.rs",
+    "Apple CoreML support: enabled",
+)
+
+
 if __name__ == "__main__":
     sys.exit(main())
+
+# §31 P1 member-only 模板闸门 — v0.8.1 commit 5ea2bad 加 test 真断言.
+add(
+    "§31 P1 test_list_templates 真实断言 (template_commands.rs)",
+    "rust_func",
+    "frontend/src-tauri/src/summary/template_commands.rs",
+    "fn test_list_templates",
+)
+add(
+    "§31 P1 test_list_templates_falls_back_to_free 已知 tier 边界 (template_commands.rs)",
+    "rust_func",
+    "frontend/src-tauri/src/summary/template_commands.rs",
+    "fn test_list_templates_falls_back_to_free",
+)
+add(
+    "§31 P1 list_templates_for_tier 过滤逻辑 (loader.rs)",
+    "rust_func",
+    "frontend/src-tauri/src/summary/templates/loader.rs",
+    "fn list_templates_for_tier",
+)
+add(
+    "§31 P1 TemplateInfo 含 required_tier 字段 (template_commands.rs)",
+    "phrase",
+    "frontend/src-tauri/src/summary/template_commands.rs",
+    "required_tier",
+)
+add(
+    "§36 本地 LLM 摘要强制 1800-token chunk (service.rs) — 已在上面 v0.7",
+    "phrase",
+    "frontend/src-tauri/src/summary/service.rs",
+    "LOCAL_SUMMARY_CHUNK_THRESHOLD",
+)
+# 已包含 (§36 在 v0.7 锚点已建), 但加一条 LLM streaming 锚点对应 "都做了"
+add(
+    "§18 LLM Streaming 已实装 (processor.rs)",
+    "phrase",
+    "frontend/src-tauri/src/summary/processor.rs",
+    "StreamSink",
+)
+add(
+    "§18 CoreML feature flag 已 wire (whisper_engine.rs)",
+    "phrase",
+    "frontend/src-tauri/src/whisper_engine/whisper_engine.rs",
+    'feature = "coreml"',
+)
