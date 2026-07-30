@@ -396,7 +396,8 @@ export function DownloadProgressStep() {
     icon: React.ReactNode,
     state: DownloadState,
     modelSize: string,
-    sizeUnit = 'MB'
+    sizeUnit = 'MB',
+    onRetry?: () => void
   ) => (
     <div className="bg-white rounded-xl border border-gray-200 p-5">
       <div className="flex items-center justify-between mb-4">
@@ -458,16 +459,16 @@ export function DownloadProgressStep() {
         <div className="mt-2 p-3 bg-red-50 border border-red-200 rounded-md">
           <p className="text-sm text-red-600 font-medium">{t('downloads.error')}</p>
           <p className="text-xs text-red-500 mt-1">{state.error}</p>
-          {(title === 'Transcription Engine' || title === 'Summary Engine') && (
+          {(title === t('onboarding.transcription_engine') || title === t('onboarding.summary_engine')) && (
             <button
-              onClick={title === 'Transcription Engine' ? handleRetryDownload : handleRetrySummaryDownload}
+              onClick={title === t('onboarding.transcription_engine') ? handleRetryDownload : handleRetrySummaryDownload}
               className="mt-3 w-full h-9 px-4 bg-gray-900 hover:bg-gray-800 text-white text-sm font-medium rounded-md transition-colors flex items-center justify-center gap-2"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
                       d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
               </svg>
-              Try Again
+              {t('onboarding.try_again')}
             </button>
           )}
         </div>
@@ -478,7 +479,7 @@ export function DownloadProgressStep() {
   return (
     <OnboardingContainer
       title="正在准备环境"
-      description="You can start using Meetily after downloading the Transcription Engine."
+      description={t("onboarding.downloads_intro")}
       step={3}
       totalSteps={isMac ? 4 : 3}
     >
@@ -486,18 +487,21 @@ export function DownloadProgressStep() {
         {/* Download Cards */}
         <div className="w-full max-w-lg space-y-4">
           {renderDownloadCard(
-            'Transcription Engine',
+            t('onboarding.transcription_engine'),
             <Mic className="w-5 h-5 text-gray-600" />,
             parakeetState,
-            '~670 MB'
+            '~670 MB',
+            'MB',
+            handleRetryDownload
           )}
 
           {renderDownloadCard(
-            'Summary Engine',
+            t('onboarding.summary_engine'),
             <Sparkles className="w-5 h-5 text-gray-600" />,
             summaryState,
             getSummaryModelSizeLabel(selectedSummaryModel || recommendedSummaryModel),
-            'MiB'
+            'MiB',
+            handleRetrySummaryDownload
           )}
         </div>
 

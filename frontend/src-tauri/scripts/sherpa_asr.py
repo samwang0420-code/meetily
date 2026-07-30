@@ -999,6 +999,12 @@ def _stream_session_finalize(req):
 def transcribe(req):
     rid = req.get("id", "")
     tag = req.get("model", "paraformer-zh")
+    # v0.7.0+: 客户端透传的 language hint, recognizer 在 init 时固定 (sensevoice=auto, paraformer=zh, funasr_nano=zh).
+    # 这里只记日志, 帮助排查"为什么我设了 en 没用". 真正改 recognizer 需要重新 init, 当前不在 per-call 范围.
+    req_lang = req.get("language")
+    if req_lang and req_lang not in ("zh", "auto"):
+        sys.stderr.write(f"[sherpa_asr] client requested language='{req_lang}', recognizer language is fixed at init time. Effective: sensevoice=auto (zh+en+yue+ja), others=zh-only.\n")
+        sys.stderr.flush()
     t0 = time.time()
 
     arr, sr = _load_audio(req)

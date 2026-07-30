@@ -349,7 +349,7 @@ impl ParallelProcessor {
         let transcription_future = tokio::task::spawn_blocking(move || {
             tokio::task::block_in_place(|| {
                 let daemon = crate::audio::sherpa_daemon::global();
-                daemon.transcribe_blocking("sensevoice-zh", &pcm_b64, sample_rate, false, &hotwords_pack, &hotwords_custom, None, None)
+                daemon.transcribe_blocking("sensevoice-zh", &pcm_b64, sample_rate, false, &hotwords_pack, &hotwords_custom, None, None, None)
             })
         });
         let timeout_duration = tokio::time::Duration::from_secs(120); // 2 minute timeout per chunk

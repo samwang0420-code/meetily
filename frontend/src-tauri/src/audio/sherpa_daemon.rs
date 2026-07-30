@@ -268,6 +268,8 @@ impl SherpaDaemon {
         meeting_id: Option<&str>,
         // v0.7.1+: chunk 在整段录音中的开始偏移秒数, 用于长会议 diar pickup 写库
         audio_start_offset_seconds: Option<f64>,
+        // v0.7.0+: 语言透传. None 表示 "auto", 让 sherpa-onnx 自动检测 (Chinese 模型默认 zh, 英文 Whisper 用).
+        language: Option<&str>,
     ) -> Result<SherpaResponse> {
         let t0 = std::time::Instant::now();
         info!(
@@ -298,7 +300,7 @@ impl SherpaDaemon {
             model,
             audio_b64,
             sample_rate,
-            language: "zh",
+            language: language.unwrap_or("zh"),
             timestamps,
             hotwords_pack,
             hotwords_custom,
@@ -617,5 +619,48 @@ mod tests {
         let resp: SherpaResponse = serde_json::from_str(json_str).expect("parse");
         assert!(resp.segments.is_empty());
         assert_eq!(resp.text, "hello");
+    }
+
+    /// v0.7.0+ regression: language parameter must propagate to daemon, not be hardcoded to "zh".
+    /// 旧实现: SherpaRequest.language 永远 = "zh", 客户端传的 language="en" 完全丢失.
+    /// 新实现: SherpaRequest.language = language.unwrap_or("zh"), 默认 zh 但客户端可覆盖.
+    #[test]
+    fn language_param_is_propagated_to_request_payload() {
+        let req = SherpaRequest {
+            id: "ut-en",
+            model: "paraformer-zh",
+            audio_b64: "AAAA",
+            sample_rate: 16000,
+            language: "en",
+            timestamps: false,
+            hotwords_pack: "",
+            hotwords_custom: "",
+            meeting_id: None,
+            audio_start_offset_seconds: None,
+        };
+        let v = serde_json::to_value(&req).expect("serialize");
+        assert_eq!(
+            v.get("language").and_then(|x| x.as_str()),
+            Some("en"),
+            "客户端传的 language 必须出现在 request payload, 不能被硬编码覆盖"
+        );
+    }
+
+    /// v0.7.0+ 默认 fallback 顺序: paraformer 必须优先于 funasr-nano (Nano 是 §29 Pro gate).
+    #[test]
+    fn sherpa_fallback_order_prioritizes_paraformer_over_nano() {
+        let order = crate::config::SHERPA_MODEL_FALLBACK_ORDER;
+        let pos_paraformer = order.iter().position(|&t| t == "paraformer-zh");
+        let pos_nano = order.iter().position(|&t| t == "funasr-nano-zh");
+        assert!(pos_paraformer.is_some(), "paraformer-zh 必须在 fallback 列表");
+        assert!(pos_nano.is_some(), "funasr-nano-zh 必须在 fallback 列表 (兜底)");
+        assert!(
+            pos_paraformer.unwrap() < pos_nano.unwrap(),
+            "paraformer-zh 必须排在 funasr-nano-zh 前面 (§29 Pro gate)"
+        );
+        assert_eq!(
+            crate::config::DEFAULT_SHERPA_MODEL, "paraformer-zh",
+            "DEFAULT_SHERPA_MODEL 必须是 paraformer-zh (fc2a24c 修复)"
+        );
     }
 }

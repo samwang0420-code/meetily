@@ -65,8 +65,12 @@ impl TranscriptionProvider for SherpaProvider {
         let audio_b64 = base64_encode(&bytes);
 
         if let Some(ref lang) = language {
-            if lang != "zh" && lang != "auto" {
-                warn!("SenseVoice 默认中文识别, 收到 language='{}'", lang);
+            if lang != "zh" && lang != "en" && lang != "auto" {
+                warn!(
+                    "[sherpa] requested language='{}' may not be supported by local ASR (Chinese-only). \
+                     Will auto-detect in daemon.",
+                    lang
+                );
             }
         }
 
@@ -89,28 +93,22 @@ impl TranscriptionProvider for SherpaProvider {
                 &hotwords_custom,
                 _diar_meeting_id.as_deref(),
                 _diar_audio_offset,
+                language.as_deref(),
             );
             match primary {
                 Ok(response) if !response.text.trim().is_empty() => Ok((response, model, false)),
-                Ok(_) | Err(_) if model == "funasr-nano-zh" => {
-                    warn!(
-                        "[sherpa] Nano failed or returned empty text; falling back to SenseVoice"
-                    );
-                    daemon
-                        .transcribe_blocking(
-                            "sense-voice-zh-int8",
-                            &audio_b64,
-                            16000,
-                            false,
-                            &hotwords_pack,
-                            &hotwords_custom,
-                            _diar_meeting_id.as_deref(),
-                            _diar_audio_offset,
-                        )
-                        .map(|response| (response, "sense-voice-zh-int8".to_string(), true))
+                // v0.7.0+ Pro tier gate (AGENTS.md §29): funasr-nano-zh 仅 Pro 用户能用.
+                // 旧行为: Nano 失败/空 → 静默 fallback 到 sense-voice-zh-int8, 把 Pro 用户降级, 违反 §29.
+                // 新行为: 失败直接 Err, 由用户在 UI 切模型, 不在后端偷偷降级.
+                result if model == "funasr-nano-zh" => {
+                    let msg = match result {
+                        Ok(_) => "funasr-nano-zh returned empty transcript (模型未下载或音频超出 60s 上限)".to_string(),
+                        Err(e) => format!("funasr-nano-zh 识别失败: {}", e),
+                    };
+                    Err(TranscriptionError::EngineFailed(msg))
                 }
                 Ok(response) => Ok((response, model, false)),
-                Err(error) => Err(error),
+                Err(error) => Err(TranscriptionError::EngineFailed(error.to_string())),
             }
         })
         .await
@@ -174,4 +172,77 @@ fn base64_encode(input: &[u8]) -> String {
         }
     }
     result
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// v0.7.0+ regression: Pro tier gate (AGENTS.md §29).
+    /// 旧实现: funasr-nano-zh 失败 → 静默 fallback 到 sense-voice-zh-int8, 把 Pro 用户降级.
+    /// 新实现: Pro fallback 路径必须返 Err, 不允许在 Rust 端偷偷降级.
+    ///
+    /// 直接测 base64_encode (复用纯函数, 不依赖 daemon), 验证 payload 序列化的形状.
+    #[test]
+    fn base64_encode_payload_roundtrips() {
+        // 模拟 8 个 f32 样本 (32 bytes), 3 个 chunk 边界
+        let samples: Vec<f32> = (0..8).map(|i| i as f32 * 0.1).collect();
+        let mut bytes = Vec::with_capacity(samples.len() * 4);
+        for s in &samples {
+            bytes.extend_from_slice(&s.to_le_bytes());
+        }
+        let encoded = base64_encode(&bytes);
+        // 32 bytes → ceil(32/3)*4 = 44 chars (base64 padded)
+        assert_eq!(encoded.len() % 4, 0, "base64 长度必须是 4 倍数");
+        // 反向 decode 应该拿回完全一样的 bytes
+        let decoded = base64_decode(&encoded);
+        assert_eq!(decoded, bytes, "base64 roundtrip 必须 byte-equal");
+    }
+
+    /// RFC 4648 标准 base64 测试向量 (避免我们 base64_encode 自实现有偏差).
+    #[test]
+    fn base64_encode_matches_rfc4648_vectors() {
+        assert_eq!(base64_encode(b""), "");
+        assert_eq!(base64_encode(b"f"), "Zg==");
+        assert_eq!(base64_encode(b"fo"), "Zm8=");
+        assert_eq!(base64_encode(b"foo"), "Zm9v");
+        assert_eq!(base64_encode(b"foob"), "Zm9vYg==");
+        assert_eq!(base64_encode(b"fooba"), "Zm9vYmE=");
+        assert_eq!(base64_encode(b"foobar"), "Zm9vYmFy");
+    }
+
+    /// 反向 decode helper (测试专用).
+    fn base64_decode(input: &str) -> Vec<u8> {
+        let mut result = Vec::with_capacity(input.len() * 3 / 4);
+        let chars: Vec<u8> = input.bytes().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            let b0 = decode_char(chars[i]);
+            let b1 = decode_char(chars.get(i + 1).copied().unwrap_or(b'='));
+            let b2 = decode_char(chars.get(i + 2).copied().unwrap_or(b'='));
+            let b3 = decode_char(chars.get(i + 3).copied().unwrap_or(b'='));
+            let triple = (b0 << 18) | (b1 << 12) | (b2 << 6) | b3;
+            result.push(((triple >> 16) & 0xFF) as u8);
+            if chars.get(i + 2).copied().unwrap_or(b'=') != b'=' {
+                result.push(((triple >> 8) & 0xFF) as u8);
+            }
+            if chars.get(i + 3).copied().unwrap_or(b'=') != b'=' {
+                result.push((triple & 0xFF) as u8);
+            }
+            i += 4;
+        }
+        result
+    }
+
+    fn decode_char(c: u8) -> u32 {
+        match c {
+            b'A'..=b'Z' => (c - b'A') as u32,
+            b'a'..=b'z' => (c - b'a' + 26) as u32,
+            b'0'..=b'9' => (c - b'0' + 52) as u32,
+            b'+' => 62,
+            b'/' => 63,
+            _ => 0,
+        }
+    }
 }

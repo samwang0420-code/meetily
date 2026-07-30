@@ -32,12 +32,12 @@ export function SetupOverviewStep() {
     {
       number: 1,
       type: 'transcription',
-      title: 'Download Transcription Engine',
+      title: t('onboarding.download_transcription_engine'),
     },
     {
       number: 2,
       type: 'summarization',
-      title: 'Download Summarization Engine',
+      title: t('onboarding.download_summary_engine'),
     },
   ];
 

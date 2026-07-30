@@ -531,7 +531,7 @@ async fn run_retranscription<R: Runtime>(
             let result: anyhow::Result<crate::audio::sherpa_daemon::SherpaResponse> = tokio::task::block_in_place(|| {
                 let daemon = crate::audio::sherpa_daemon::global();
                 // Level 3: 总是请求 timestamps (RAM<8GB 时 daemon 端自动降级为不返回)
-                daemon.transcribe_blocking(backend, &pcm_b64, 16000, true, hotwords_pack_str, hotwords_custom_str, None, None)
+                daemon.transcribe_blocking(backend, &pcm_b64, 16000, true, hotwords_pack_str, hotwords_custom_str, None, None, None)
             });
             match result {
                 Ok(resp) if !resp.text.trim().is_empty() => {

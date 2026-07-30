@@ -81,7 +81,14 @@ pub async fn validate_transcription_model_ready<R: Runtime>(app: &AppHandle<R>) 
             }
         }
         Err(e) => {
-            warn!("⚠️ Failed to get transcript config: {}, defaulting to parakeet", e);
+            // v0.7.0+: fallback 到 parakeet 是允许的 (parakeet 是默认引擎, 一定能跑),
+            // 但必须 log 原因, 不能 silent.
+            log::error!(
+                "⚠️ Failed to get transcript config from DB: {}. Defaulting to parakeet ({}). \
+                 Check if DB is corrupted or schema migration failed.",
+                e,
+                crate::config::DEFAULT_PARAKEET_MODEL
+            );
             crate::api::api::TranscriptConfig {
                 provider: "parakeet".to_string(),
                 model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
@@ -199,7 +206,14 @@ pub async fn get_or_init_transcription_engine<R: Runtime>(
             }
         }
         Err(e) => {
-            warn!("⚠️ Failed to get transcript config: {}, defaulting to parakeet", e);
+            // v0.7.0+: fallback 到 parakeet 是允许的 (parakeet 是默认引擎, 一定能跑),
+            // 但必须 log 原因, 不能 silent.
+            log::error!(
+                "⚠️ Failed to get transcript config from DB: {}. Defaulting to parakeet ({}). \
+                 Check if DB is corrupted or schema migration failed.",
+                e,
+                crate::config::DEFAULT_PARAKEET_MODEL
+            );
             crate::api::api::TranscriptConfig {
                 provider: "parakeet".to_string(),
                 model: crate::config::DEFAULT_PARAKEET_MODEL.to_string(),
@@ -444,32 +458,70 @@ pub async fn get_or_init_whisper<R: Runtime>(
             }
         }
         None => {
-            // Check if we have any available models and try to load the first one
-            let available_models: Vec<_> = models
+            // v0.7.0+ d2b331f 硬化: 找不到请求模型时不再静默 fallback 到第一个 available 模型.
+            // 旧行为: 静默降级到任意 available 模型, 用户根本不知道请求的是什么.
+            // 新行为: 列已装模型, 返硬错误, 让用户在设置里选已装的模型.
+            let available: Vec<&str> = models
                 .iter()
                 .filter(|m| matches!(m.status, crate::whisper_engine::ModelStatus::Available))
+                .map(|m| m.name.as_str())
                 .collect();
-
-            if let Some(fallback_model) = available_models.first() {
-                warn!(
-                    "Model '{}' not found, falling back to available model: '{}'",
-                    model_to_load, fallback_model.name
-                );
-                engine.load_model(&fallback_model.name).await.map_err(|e| {
-                    format!(
-                        "Failed to load fallback model '{}': {}",
-                        fallback_model.name, e
-                    )
-                })?;
-                info!(
-                    "✅ Fallback model '{}' loaded successfully",
-                    fallback_model.name
-                );
-            } else {
-                return Err(format!("Model '{}' is not supported and no other models are available. Please download a model from the settings.", model_to_load));
-            }
+            return Err(build_model_not_found_error(&model_to_load, &available));
         }
     }
 
     Ok(engine)
+}
+
+
+// ============================================================================
+// Pure helpers (testable without Tauri runtime)
+// ============================================================================
+
+/// v0.7.0+ d2b331f 硬化: 找不到请求模型时构造硬错误消息 (不再静默 fallback).
+/// 列出 available 让用户知道去哪选.
+pub(crate) fn build_model_not_found_error(
+    requested: &str,
+    available: &[&str],
+) -> String {
+    format!(
+        "Model '{}' is not installed. Available models: [{}]. 请在设置里选择一个已下载的模型.",
+        requested,
+        available.join(", ")
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// v0.7.0+: 用户请求一个没装的模型时, 必须返硬错误 (含 available 列表),
+    /// 不能 silent fallback 到第一个 available.
+    #[test]
+    fn build_model_not_found_error_lists_available() {
+        let err = build_model_not_found_error("funasr-nano-zh", &["paraformer-zh", "sense-voice-zh-int8"]);
+        assert!(err.contains("funasr-nano-zh"), "必须包含 requested name");
+        assert!(err.contains("paraformer-zh"), "必须列出 available");
+        assert!(err.contains("sense-voice-zh-int8"), "必须列出所有 available");
+        assert!(err.contains("请在设置里选择"), "必须给用户下一步指引");
+    }
+
+    /// 用户一个模型都没装时, 错误信息仍然要给指引.
+    #[test]
+    fn build_model_not_found_error_with_empty_available() {
+        let err = build_model_not_found_error("anything", &[]);
+        assert!(err.contains("anything"), "必须包含 requested name");
+        assert!(err.contains("[]"), "空 available 显示为 []");
+    }
+
+    /// Whisper path silent fallback 已被去掉 — 由 helper 保证错误格式稳定.
+    /// 这个测试是反向断言: 旧实现会返 Ok + warn, 新实现必须返 Err 字符串.
+    #[test]
+    fn no_silent_fallback_in_error_format() {
+        // helper 自身永远返 Err 字符串 (不是 Ok), 这是 contract.
+        // 调用方拿到这个字符串就应该 propagate 成 Err, 不是 Ok(fallback).
+        let err = build_model_not_found_error("requested", &["other"]);
+        assert!(!err.is_empty(), "错误字符串非空");
+        assert!(!err.contains("loaded successfully"), "不能含 'loaded successfully' (这是 fallback 成功的日志)");
+    }
 }

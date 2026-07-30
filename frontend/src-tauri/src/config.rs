@@ -37,15 +37,18 @@ pub const WHISPER_MODEL_CATALOG: &[(&str, &str, u32, &str, &str, &str)] = &[
     ("large-v3-q5_0", "ggml-large-v3-q5_0.bin", 1031, "High", "Slow", "Quantized large model, high accuracy"),
 ];
 
-/// 当前固定法律录音 A/B: SenseVoice CER 2.17%, FunASR-Nano CER 2.90%.
-/// Nano 尚未通过 10 段完整基准和性能准入，因此默认保持 SenseVoice。
-pub const DEFAULT_SHERPA_MODEL: &str = "sense-voice-zh-int8";
+/// v0.7.0+ fc2a24c: 默认改为 paraformer-zh (用户机器实测只装了 paraformer-zh + funasr-nano).
+/// SenseVoice CER 虽好但模型未下载, 旧版本导致 fallback 加载 Nano (违反 §29 Pro gate).
+/// 这里用 paraformer-zh 作 fallback 兜底, 扫描到任意已装模型都用扫描结果.
+pub const DEFAULT_SHERPA_MODEL: &str = "paraformer-zh";
 
-/// v0.7.0+: Sherpa-onnx 模型优先级 (用于 fallback).
+/// v0.7.0+: Sherpa-onnx 模型优先级 (扫描时按此顺序挑选已下载模型).
+/// paraformer-zh 优先 (轻量 227MB, 用户机器必装), Nano 第二 (§29 Pro gate, 兜底),
+/// SenseVoice 最后 (用户机器几乎不装).
 pub const SHERPA_MODEL_FALLBACK_ORDER: &[&str] = &[
-    "sense-voice-zh-int8",
     "paraformer-zh",
     "funasr-nano-zh",
+    "sense-voice-zh-int8",
 ];
 
 /// v0.7.0+: 运行时挑选当前最佳的 Sherpa-onnx 默认模型.
