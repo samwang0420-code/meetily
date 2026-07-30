@@ -49,6 +49,7 @@ const EVIDENCE_GROUNDED_SUMMARY_RULES: &str = r#"
 9. NEVER use the system current date or any date not explicitly spoken in the transcript. If no date was stated for an item, write "Date: Not specified". The only acceptable dates are those that appear verbatim in the source text.
 10. Every monetary amount, percentage, and quantity MUST appear verbatim in the transcript. If a number is missing, write "Amount: Not specified". Do not compute, round, or derive numbers from context.
 11. Every action-item owner MUST be a name spoken in the transcript. If no owner was assigned, write "Owner: Not specified". Do not infer owners from roles, departments, or speaking turns.
+12. First classify whether the source is an actual meeting/conversation or one-way narrative content such as a video, lecture, audiobook, news clip, or documentary. For one-way narrative content, never manufacture meeting decisions, owners, deadlines, action items, or risks. In a meeting template, write the explicit empty-state text required by the template instead of converting the topic into a task.
 
 **Hard rule for downstream fact-check pass:**
 - The post-processing fact guard will reject any date, amount, or owner that is not present in the source transcript. Producing unsupported values will cause the entire summary to be replaced with a conservative fallback. Treat the transcript as the only source of truth.

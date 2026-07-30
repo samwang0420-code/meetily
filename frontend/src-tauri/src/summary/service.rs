@@ -37,6 +37,12 @@ static METADATA_CACHE: Lazy<ModelMetadataCache> = Lazy::new(|| {
 static CANCELLATION_REGISTRY: Lazy<Arc<Mutex<HashMap<String, CancellationToken>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
+const LOCAL_SUMMARY_CHUNK_THRESHOLD: usize = 1800;
+
+fn local_summary_token_threshold(context_threshold: usize) -> usize {
+    context_threshold.min(LOCAL_SUMMARY_CHUNK_THRESHOLD)
+}
+
 /// Strips the first `#` heading line; returns "" if no `#` is found.
 fn strip_leading_title(markdown: &str) -> String {
     if let Some(hash_pos) = markdown.find('#') {
@@ -434,9 +440,12 @@ impl SummaryService {
             api_key
         };
 
-        // Dynamically fetch context size based on provider and model
+        // Local 2B models may advertise a 32K context, but feeding a whole 30-60 minute
+        // transcript in one pass loses detail and bypasses the Map-Reduce evidence ledger.
+        // Keep cloud providers dynamic; force local providers through the proven 1800-token
+        // chunk path whenever the transcript is longer than one evidence chunk.
         let token_threshold = if provider == LLMProvider::Ollama {
-            match METADATA_CACHE.get_or_fetch(&model_name, ollama_endpoint.as_deref()).await {
+            let context_threshold = match METADATA_CACHE.get_or_fetch(&model_name, ollama_endpoint.as_deref()).await {
                 Ok(metadata) => {
                     // Reserve 300 tokens for prompt overhead
                     let optimal = metadata.context_size.saturating_sub(300);
@@ -453,14 +462,15 @@ impl SummaryService {
                     );
                     4000  // Fallback to safe default
                 }
-            }
+            };
+            local_summary_token_threshold(context_threshold)
         } else if provider == LLMProvider::BuiltInAI {
             // Get model's context size from registry
             use crate::summary::summary_engine::models;
             let model = models::get_model_by_name(&model_name)
                 .ok_or_else(|| format!("Unknown model: {}", model_name));
 
-            match model {
+            let context_threshold = match model {
                 Ok(model_def) => {
                     // Reserve 300 tokens for prompt overhead
                     let optimal = model_def.context_size.saturating_sub(300) as usize;
@@ -474,7 +484,8 @@ impl SummaryService {
                     warn!("{}, using default 2048", e);
                     1748  // 2048 - 300 for overhead
                 }
-            }
+            };
+            local_summary_token_threshold(context_threshold)
         } else {
             // Cloud providers (OpenAI, Claude, Groq, CustomOpenAI) handle large contexts automatically
             100000  // Effectively unlimited for single-pass processing
@@ -849,6 +860,13 @@ mod tests {
             }],
             required_tier: crate::summary::templates::TemplateTier::Free,
         }
+    }
+
+    #[test]
+    fn local_models_use_map_reduce_before_context_limit() {
+        assert_eq!(local_summary_token_threshold(32_468), 1_800);
+        assert_eq!(local_summary_token_threshold(4_000), 1_800);
+        assert_eq!(local_summary_token_threshold(1_748), 1_748);
     }
 
     #[test]

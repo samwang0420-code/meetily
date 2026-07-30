@@ -352,7 +352,12 @@ pub fn start_transcription_task<R: Runtime>(
                                         }
                                         _ => {
                                             warn!("Worker {}: Transcription failed: {}", worker_id, e);
-                                            let _ = app_clone.emit("transcription-warning", e.to_string());
+                                            let error_message = e.to_string();
+                                            let _ = app_clone.emit("transcription-error", serde_json::json!({
+                                                "error": error_message,
+                                                "userMessage": "语音识别失败，请检查模型后重试。",
+                                                "actionable": false
+                                            }));
                                         }
                                     }
                                 }

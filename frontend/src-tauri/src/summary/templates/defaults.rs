@@ -101,6 +101,23 @@ mod tests {
         assert!(medical.is_available_for("member"));
     }
 
+    /// v0.7.0-rc8: 防 standard_meeting 回退到含 "会议" 默认假设的旧版.
+    /// 关键决议 / 行动事项 / 遗留与风险 三段必须显式要求 LLM 在单向叙事
+    /// (视频 / 讲座 / 旁白等) 下写"本次无"空状态, 而非把主题梳理虚构成决议 / 任务.
+    /// include_str! 在编译期内嵌, 所以缓存回退只能通过改源 + 不重建触发;
+    /// 此测试就是那种重建的硬闸门.
+    #[test]
+    fn test_standard_meeting_has_narrative_empty_states() {
+        let std_json = get_builtin_template("standard_meeting")
+            .expect("standard_meeting exists");
+        for phrase in ["仅列出", "本次无新决议", "本次无行动事项", "单向叙事"] {
+            assert!(
+                std_json.contains(phrase),
+                "standard_meeting embedded template missing phrase {:?}, source may have silently reverted",
+                phrase
+            );
+        }
+    }
     /// §31 P1: standard_meeting 保持 free tier (默认免费可用).
     #[test]
     fn test_standard_meeting_remains_free() {
