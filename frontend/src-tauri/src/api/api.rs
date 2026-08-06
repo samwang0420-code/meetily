@@ -12,6 +12,7 @@ use crate::{
             transcript::TranscriptsRepository,
         },
     },
+    speaker_auto_attach,
     state::AppState,
     summary::CustomOpenAIConfig,
 };
@@ -137,6 +138,11 @@ pub struct MeetingTranscript {
     pub audio_end_time: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<f64>,
+    // §91 P1-B UI 完整化: alias lookup 拼上的显示名. None = fallback 到 speaker_id / "Speaker N".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speaker_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speaker_id: Option<i64>,
 }
 
 /// Meeting metadata without transcripts (for pagination)
@@ -868,7 +874,7 @@ pub async fn api_get_meeting_transcripts<R: Runtime>(
                 total_count
             );
 
-            // Convert Transcript to MeetingTranscript
+            // §91 P1-B: 同样 LEFT JOIN speaker_aliases
             let meeting_transcripts = transcripts
                 .into_iter()
                 .map(|t| MeetingTranscript {
@@ -878,6 +884,8 @@ pub async fn api_get_meeting_transcripts<R: Runtime>(
                     audio_start_time: t.audio_start_time,
                     audio_end_time: t.audio_end_time,
                     duration: t.duration,
+                    speaker_label: t.speaker_label,
+                    speaker_id: t.speaker_id,
                 })
                 .collect::<Vec<_>>();
 
@@ -994,6 +1002,40 @@ pub async fn api_save_transcript<R: Runtime>(
             // 把这个 meeting 的 segments 标到新插入的 transcripts.speaker 行.
             if let Err(e) = apply_diar_pickup_to_meeting(&meeting_id, true).await {
                 log_warn!("diar pickup apply failed (non-fatal) for {}: {}", meeting_id, e);
+            }
+            // §91 P1-B: auto-attach speaker names from self-intro keywords
+            // transcripts API 段的 speaker_id 字段不在 input, 必须从 DB 拉
+            {
+                use sqlx::Row;
+                let rows = sqlx::query(
+                    "SELECT id, transcript, speaker_id FROM transcripts WHERE meeting_id = ?1 ORDER BY id ASC LIMIT 200",
+                )
+                .bind(&meeting_id)
+                .fetch_all(pool)
+                .await
+                .map_err(|e| format!("auto_attach fetch: {e}"));
+                if let Ok(rows) = rows {
+                    let simple_segs: Vec<speaker_auto_attach::TranscriptSegment> = rows
+                        .iter()
+                        .map(|r| speaker_auto_attach::TranscriptSegment {
+                            speaker_id: r.try_get::<Option<i64>, _>("speaker_id").unwrap_or(None),
+                            text: r.try_get::<String, _>("transcript").unwrap_or_default(),
+                        })
+                        .collect();
+                    let hits = speaker_auto_attach::detect_intros_in_segments(&simple_segs);
+                    if !hits.is_empty() {
+                        match speaker_auto_attach::apply_intro_hits(pool, &meeting_id, &hits).await {
+                            Ok(n) if n > 0 => log_info!(
+                                "[api_save_transcript] auto-attached {} speaker names for meeting {}",
+                                n, meeting_id
+                            ),
+                            Ok(_) => {}
+                            Err(e) => log_warn!(
+                                "speaker_auto_attach failed (non-fatal) for {}: {}", meeting_id, e
+                            ),
+                        }
+                    }
+                }
             }
             Ok(serde_json::json!({
                 "status": "success",

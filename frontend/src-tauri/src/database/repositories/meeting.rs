@@ -73,12 +73,13 @@ impl MeetingsRepository {
         }
 
         if let Some(meeting) = meeting {
-            // Get all transcripts for this meeting
-            let transcripts =
-                sqlx::query_as::<_, Transcript>("SELECT * FROM transcripts WHERE meeting_id = ?")
-                    .bind(meeting_id)
-                    .fetch_all(&mut *transaction)
-                    .await?;
+            // §91 P1-B UI 完整化: LEFT JOIN speaker_aliases 把 label 一起返回, 前端直接用.
+            let transcripts = sqlx::query_as::<_, Transcript>(
+                "SELECT t.id, t.meeting_id, t.transcript, t.timestamp, t.summary, t.action_items, t.key_points,                  t.audio_start_time, t.audio_end_time, t.duration, sa.label AS speaker_label, t.speaker_id                  FROM transcripts t LEFT JOIN speaker_aliases sa ON sa.meeting_id = t.meeting_id AND sa.speaker_id = t.speaker_id                  WHERE t.meeting_id = ?"
+            )
+                .bind(meeting_id)
+                .fetch_all(&mut *transaction)
+                .await?;
 
             transaction.commit().await?;
 
@@ -92,6 +93,8 @@ impl MeetingsRepository {
                     audio_start_time: t.audio_start_time,
                     audio_end_time: t.audio_end_time,
                     duration: t.duration,
+                    speaker_label: t.speaker_label,
+                    speaker_id: t.speaker_id,
                 })
                 .collect::<Vec<_>>();
 
@@ -149,12 +152,9 @@ impl MeetingsRepository {
         .fetch_one(pool)
         .await?;
 
-        // Get paginated transcripts ordered by audio_start_time
+        // §91 P1-B UI 完整化: LEFT JOIN speaker_aliases 把 label 一起拉
         let transcripts = sqlx::query_as::<_, Transcript>(
-            "SELECT * FROM transcripts
-             WHERE meeting_id = ?
-             ORDER BY audio_start_time ASC
-             LIMIT ? OFFSET ?"
+            "SELECT t.id, t.meeting_id, t.transcript, t.timestamp, t.summary, t.action_items, t.key_points,              t.audio_start_time, t.audio_end_time, t.duration, sa.label AS speaker_label, t.speaker_id              FROM transcripts t LEFT JOIN speaker_aliases sa ON sa.meeting_id = t.meeting_id AND sa.speaker_id = t.speaker_id              WHERE t.meeting_id = ?              ORDER BY t.audio_start_time ASC              LIMIT ? OFFSET ?"
         )
         .bind(meeting_id)
         .bind(limit)

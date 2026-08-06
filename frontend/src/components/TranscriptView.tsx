@@ -288,11 +288,21 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({ transcripts, isR
             <div className="flex items-start gap-2">
               <Tooltip>
                 <TooltipTrigger>
-                  <span className="text-xs text-gray-400 mt-1 flex-shrink-0 min-w-[50px]">
-                    {transcript.audio_start_time !== undefined
-                      ? formatRecordingTime(transcript.audio_start_time)
-                      : transcript.timestamp}
-                  </span>
+                  <div className="flex flex-col items-start min-w-[80px] mt-1 flex-shrink-0">
+                    {/* §91 P1-B: 显示 speaker. 优先 alias ("王伟"), 否则 "Speaker N" */}
+                    {(transcript.speaker_label || transcript.speaker_id !== undefined) && (
+                      <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                        {transcript.speaker_label
+                          ? transcript.speaker_label
+                          : `Speaker ${transcript.speaker_id}`}
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-400">
+                      {transcript.audio_start_time !== undefined
+                        ? formatRecordingTime(transcript.audio_start_time)
+                        : transcript.timestamp}
+                    </span>
+                  </div>
                 </TooltipTrigger>
                 <TooltipContent>
                   {transcript.duration !== undefined && (

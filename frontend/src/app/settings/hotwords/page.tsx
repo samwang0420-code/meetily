@@ -11,12 +11,17 @@ import { Loader2, ArrowLeft, LayoutDashboard } from 'lucide-react';
 // v0.7.0+: 选词/勾选/输入自动保存 (debounce 500ms), 不依赖底部"保存"按钮.
 type HotwordsConfig = { builtin: string; custom: string; enabled: boolean };
 
-// v0.7.0+: 精简到 2 个对上线内容最敏感的行业 (法律诉讼 + 医疗会诊).
-// 技术 / 通用工程词已挪到 daemon STATIC_HOMO 通用段, 任何 pack 都生效.
-const PACKS = [
-  { value: 'none', i18n: 'hotwords.none' },
-  { value: 'legal', i18n: 'hotwords.builtin_legal' },
-  { value: 'medical', i18n: 'hotwords.builtin_medical' },
+// v0.8.6+: §91 P0-P2 完整化. 6 个开源 pack (THUOCL + LaWGPT + OMAHA),
+// 后端 hotwords_list_packs 动态拉取. UI 用 packs[id].name 显示真实名称 + 词数 + license.
+type PackInfo = { id: string; name: string; word_count: number; license: string };
+
+// 默认 fallback (后端 invoke 失败时)
+const DEFAULT_PACKS: PackInfo[] = [
+  { id: 'none', name: '不使用内置', word_count: 0, license: '' },
+  { id: 'general', name: 'THUOCL IT/技术工程', word_count: 300, license: 'Apache-2.0' },
+  { id: 'legal', name: 'LaWGPT + THUOCL 法律精选', word_count: 538, license: 'Apache-2.0 + MIT' },
+  { id: 'medical', name: 'OMAHA + THUOCL 医疗精选', word_count: 488, license: 'CC-BY-4.0 + Apache-2.0' },
+  { id: 'finance', name: 'THUOCL 财经', word_count: 176, license: 'Apache-2.0' },
 ];
 
 export default function HotwordsPage() {
@@ -32,7 +37,20 @@ export default function HotwordsPage() {
   }, [authLoading, user]);
 
   const [cfg, setCfg] = useState<HotwordsConfig>({ builtin: 'none', custom: '', enabled: false });
+  const [packs, setPacks] = useState<PackInfo[]>(DEFAULT_PACKS);
   const [loadingCfg, setLoadingCfg] = useState(true);  // loading initial config from DB
+
+  // §91 P0-P2 完整化: 拉取可用 pack 列表
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await invoke<PackInfo[]>('hotwords_list_packs');
+        if (Array.isArray(r) && r.length > 0) setPacks(r);
+      } catch (e) {
+        console.error('hotwords_list_packs failed, use default', e);
+      }
+    })();
+  }, []);
   const [saving, setSaving] = useState(false);
   const [savedTick, setSavedTick] = useState(0);  // 显示"已保存"提示
   const loadedRef = useRef(false);  // 防止初次 load 触发 auto-save 回写
@@ -177,18 +195,24 @@ export default function HotwordsPage() {
 
       <section className="bg-white border border-gray-200 rounded-xl p-5 space-y-3">
         <h2 className="text-sm font-medium text-gray-700">{t('hotwords.builtin')}</h2>
+        <p className="text-[11px] text-gray-500">{t('hotwords.packs_intro')}</p>
         <div className="grid grid-cols-2 gap-2">
-          {PACKS.map(p => (
+          {packs.map(p => (
             <button
-              key={p.value}
-              onClick={() => pickBuiltin(p.value)}
+              key={p.id}
+              onClick={() => pickBuiltin(p.id)}
               className={`text-left text-xs px-3 py-2.5 rounded-lg border transition-colors ${
-                cfg.builtin === p.value
+                cfg.builtin === p.id
                   ? 'border-blue-500 bg-blue-50 text-blue-700 font-medium'
                   : 'border-gray-200 hover:border-gray-300'
               }`}
             >
-              {t(p.i18n)}
+              <div className="font-medium">{p.id === 'none' ? t('hotwords.none') : p.name}</div>
+              {p.id !== 'none' && (
+                <div className="text-[10px] text-gray-500 mt-0.5">
+                  {p.word_count} 词 · {p.license}
+                </div>
+              )}
             </button>
           ))}
         </div>

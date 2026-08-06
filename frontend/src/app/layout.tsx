@@ -2,6 +2,7 @@
 
 import './globals.css'
 import { TopicSearchModal } from '@/components/TopicSearch/TopicSearchModal'
+import { TopicRecallPopup } from '@/components/TopicRecall/TopicRecallPopup' 
 import { Source_Sans_3 } from 'next/font/google'
 import Sidebar from '@/components/Sidebar'
 import { SidebarProvider } from '@/components/Sidebar/SidebarProvider'
@@ -347,5 +348,10 @@ function TopicSearchLauncher() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [open]);
-  return <TopicSearchModal open={open} onOpenChange={setOpen} />;
+  return (
+    <>
+      <TopicSearchModal open={open} onOpenChange={setOpen} />
+      <TopicRecallPopup />
+    </>
+  );
 }

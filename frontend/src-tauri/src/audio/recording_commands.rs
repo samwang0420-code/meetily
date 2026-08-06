@@ -489,8 +489,10 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     }
 
     // Emit success event
+    // §91 Bug 4: 第二个 emit (devices path) 漏 meeting_id, TopicRecallPopup 1s 后查不到 api_topic_recent.
     app.emit("recording-started", serde_json::json!({
         "message": "Recording started with custom devices and parallel processing",
+        "meeting_id": meeting_id.clone(),
         "devices": [
             mic_device_name.unwrap_or_else(|| "Default Microphone".to_string()),
             system_device_name.unwrap_or_else(|| "Default System Audio".to_string())

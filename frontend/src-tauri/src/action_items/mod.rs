@@ -27,25 +27,78 @@ pub struct ActionItem {
     pub updated_at: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct SummaryBlocks {
-    summary: Option<SummarySection>,
-    raw_summary: Option<String>,
-}
+// §91 Bug 5 fix: 不再用 SummaryBlocks JSON 路径. 从 markdown 直接解析"行动事项"表格.
+// 占位行 ("无行动事项" / "无明确事项" / "本节无相关事项") 自动跳过.
+const ACTION_ITEMS_PLACEHOLDERS: &[&str] = &[
+    "无行动事项",
+    "无明确事项",
+    "本节无相关事项",
+    "本次无行动事项",
+    "Owner: Not specified",
+    "Deadline: Not specified",
+];
 
-#[derive(Debug, Deserialize)]
-struct SummarySection {
-    action_items: Option<BlocksSection>,
-}
+fn parse_markdown_action_items(md: &str) -> Vec<String> {
+    let mut start = None;
+    for marker in &["**行动事项**", "## 行动事项"] {
+        if let Some(pos) = md.find(marker) {
+            start = Some(pos + marker.len());
+            break;
+        }
+    }
+    let Some(start) = start else { return Vec::new() };
+    let tail = &md[start..];
+    let end = tail
+        .find("
+**")
+        .or_else(|| tail.find("
+## "))
+        .unwrap_or(tail.len());
+    let section = &tail[..end];
 
-#[derive(Debug, Deserialize)]
-struct BlocksSection {
-    blocks: Vec<ContentBlock>,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct ContentBlock {
-    content: String,
+    let mut items = Vec::new();
+    let mut in_table = false;
+    for line in section.lines() {
+        let line = line.trim();
+        if line.starts_with('|') {
+            if line.contains("---") && line.chars().all(|c| c == '|' || c == '-' || c == ' ' || c == ':') {
+                in_table = true;
+                continue;
+            }
+            if !in_table { continue; }
+            let cols: Vec<String> = line
+                .trim_matches('|')
+                .split('|')
+                .map(|c| c.trim().to_string())
+                .collect();
+            if cols.is_empty() { continue; }
+            let first = cols[0].clone();
+            if first.contains("事项") || first.contains("Action") || first.contains("Item") {
+                continue;
+            }
+            let placeholder = ACTION_ITEMS_PLACEHOLDERS.iter().any(|p| first.contains(p));
+            if placeholder { continue; }
+            let content = if cols.len() >= 3 {
+                let owner = &cols[1];
+                let deadline = &cols[2];
+                if owner == "未明确" || owner.contains("Not specified") {
+                    first.clone()
+                } else if deadline == "未明确" || deadline.contains("Not specified") {
+                    format!("{} — {}", first, owner)
+                } else {
+                    format!("{} — {} — {}", first, owner, deadline)
+                }
+            } else {
+                first.clone()
+            };
+            items.push(content);
+        } else if !line.is_empty() {
+            if ACTION_ITEMS_PLACEHOLDERS.iter().any(|p| line.contains(p)) {
+                return items;
+            }
+        }
+    }
+    items
 }
 
 /// 摘要完成后由 service.rs spawn 调用.
@@ -75,31 +128,22 @@ pub async fn extract_action_items_from_summary<R: Runtime>(
         return;
     };
 
-    // Parse JSON (best-effort)
-    let parsed: SummaryBlocks = match serde_json::from_str(&json_str) {
-        Ok(v) => v,
-        Err(e) => {
-            log::warn!("[action_items] {meeting_id} parse summary JSON error: {e}");
-            return;
-        }
-    };
-    let action_items_blocks = parsed
-        .summary
-        .as_ref()
-        .and_then(|s| s.action_items.as_ref())
-        .map(|b| b.blocks.clone())
-        .unwrap_or_default();
+    // §91 Bug 5: 旧版只解析 JSON summary.action_items.blocks 路径. 但 build_summary_result_json
+    // 实际上只写 markdown 字段 (含 "**行动事项**\n\n| 事项 | ... |" 表格). 旧路径永远空数组.
+    // 修复: 直接从 markdown 提取"行动事项"段落的表格行, 跳过"无行动事项"/"无明确事项"等占位.
+    let action_items_blocks = parse_markdown_action_items(&json_str);
     if action_items_blocks.is_empty() {
-        log::info!("[action_items] {meeting_id} no action_items blocks");
+        log::info!("[action_items] {meeting_id} no action_items in markdown (无行动事项/无明确事项/本节无相关事项)");
         return;
     }
     let now = Utc::now().to_rfc3339();
     let mut inserted = 0usize;
-    for (idx, block) in action_items_blocks.iter().enumerate() {
-        let content = block.content.trim();
-        if content.is_empty() {
+    for (idx, content) in action_items_blocks.iter().enumerate() {
+        let content_str = content.trim().to_string();
+        if content_str.is_empty() {
             continue;
         }
+        let content = &content_str;
         // INSERT OR IGNORE — 已经存在的 (meeting_id, item_index) 行不动,
         // 保留用户已 toggle 的 done 状态, 不覆盖
         let res = sqlx::query(
@@ -108,7 +152,7 @@ pub async fn extract_action_items_from_summary<R: Runtime>(
         )
         .bind(&meeting_id)
         .bind(idx as i64)
-        .bind(content)
+        .bind(content.clone())
         .bind(&now)
         .execute(&pool)
         .await;
@@ -197,6 +241,51 @@ pub async fn api_action_item_toggle<R: Runtime>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_parse_e5b78a31_real_meeting() {
+        let md = r#"**会议摘要**
+本次会议...
+**行动事项**
+
+| **事项** | **负责人** | **截止时间** |
+| :--- | :--- | :--- |
+| 资金汇兑与现金准备 | 杨未央、潘潘 | 立即执行 |
+| 物资采购下单（水、食物、设备） | 杨未央 | 6 月 10 日之后 24 小时内完成 |
+| 房屋改造施工（密封隔热层） | 潘潘 | 6 月 11 日深夜前完工 |
+| 物资分拣与分区收纳 | 杨未央 | 6 月 11 日深夜前完成 |
+
+**遗留与风险**
+问题"#;
+        let items = parse_markdown_action_items(md);
+        assert_eq!(items.len(), 4, "expected 4 items, got {}: {:?}", items.len(), items);
+        assert!(items[0].contains("资金汇兑"));
+        assert!(items[0].contains("杨未央"));
+        assert!(items[0].contains("立即执行"));
+        assert!(items[1].contains("6 月 10 日"));
+    }
+
+    #[test]
+    fn test_parse_no_action_items_placeholder() {
+        let md = "**会议摘要**\n...\n**行动事项**\n本次无行动事项。\n\n**遗留**\n无遗留问题。";
+        let items = parse_markdown_action_items(md);
+        assert_eq!(items.len(), 0, "placeholder must be skipped");
+    }
+
+    #[test]
+    fn test_parse_no_action_items_section() {
+        let md = "**会议摘要**\n...\n**遗留**\n";
+        let items = parse_markdown_action_items(md);
+        assert_eq!(items.len(), 0);
+    }
+
+    #[test]
+    fn test_parse_unknown_owner_keeps_item() {
+        let md = "**行动事项**\n\n| 事项 | 负责人 | 截止 |\n| --- | --- | --- |\n| 和珅生平梳理 | 未明确 | 未明确 |\n";
+        let items = parse_markdown_action_items(md);
+        assert_eq!(items.len(), 1);
+        assert_eq!(items[0], "和珅生平梳理");
+    }
 
     #[tokio::test]
     async fn test_insert_ignores_duplicate_keeps_done_state() {

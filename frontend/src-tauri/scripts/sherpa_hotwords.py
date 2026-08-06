@@ -1,21 +1,76 @@
 """
-离线会记 v0.7.0+: 内置热词词库 (W1 P0 D3+)
-精简到 2 个对上线内容最敏感的行业:
-  - legal  法律诉讼  (条款错字 → 案件错判风险)
-  - medical 医疗会诊  (药名/术式错字 → 医疗事故风险)
-技术/通用词已经挪到 sherpa_asr.py 的 STATIC_HOMO 通用段, 不需要专门内置行业词库.
-每词库 80-100 词, 用户界面可切换, daemon 端按需加载.
+言镜 AI v0.8.6+: 热词词库 (开源精选 + 内置行业 + 用户自定义)
 
-sensevoice 模型对"领域词"识别比通用模型准确率显著提升,
-例如: "张某向李某某主张违约金" 这类法律术语.
+开源词库来源:
+- THUOCL (清华大学开源中文词库, Apache-2.0): https://github.com/thunlp/THUOCL
+  - THUOCL_IT.txt 1.6万 → 精选 300 词 (DF>=5000)
+  - THUOCL_law.txt 9896 → 精选 257 词 (DF>=50000)
+  - THUOCL_medical.txt 18749 → 精选 249 词 (DF>=10000)
+  - THUOCL_caijing.txt 3830 → 精选 176 词
+- LaWGPT legal_vocab.txt (MIT): https://github.com/pengxiao-song/LaWGPT
+  - 公开核心精选 538 词 (THUOCL_law + LaWGPT + LexPredict 合并去重)
+- OMAHA 七巧板医学知识图谱 (CC-BY-4.0): https://github.com/OMAHA/Clinical-Coding
+  - 公开核心精选 488 词 (THUOCL_medical + OMAHA 合并去重)
+
+所有词库预打包为 JSON, 跟产品一起 ship, 不依赖运行时网络下载.
+词库文件: scripts/hotwords_data/{pack_name}.json
+
+pack 命名约定:
+  none: 不启用
+  general: THUOCL IT 通用工程 (300 词)
+  legal: LaWGPT 法律精选 (538 词)
+  medical: OMAHA 医疗精选 (488 词)
+  finance: THUOCL 财经 (176 词)
 """
+import json
+import os
 import re
-from typing import Dict, List
+from typing import Dict, List, Optional
 
-BUILTIN_HOTWORDS: Dict[str, List[str]] = {
-    # 法律：合同条款 / 诉讼法 / 律所常用词
-    "legal": [
-        # 民商事
+# 词库 JSON 路径
+_HOTWORDS_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "hotwords_data")
+
+# 6 个内置 pack (name -> file)
+PACK_FILES = {
+    "general": "thuocl_it.json",
+    "legal": "lawgpt_legal_vocab.json",
+    "medical": "omaha_medical.json",
+    "finance": "thuocl_caijing.json",
+    # legacy 内置 (保持向后兼容, 不动 sherpa_hotwords API)
+    "legacy_legal": "thuocl_law.json",
+    "legacy_medical": "thuocl_medical.json",
+}
+
+# 缓存 (避免每次都读 JSON)
+_PACK_CACHE: Dict[str, List[str]] = {}
+
+
+def _load_pack_from_json(pack: str) -> Optional[List[str]]:
+    """加载指定 pack 的 JSON 词库, 缓存到 _PACK_CACHE"""
+    if pack in _PACK_CACHE:
+        return _PACK_CACHE[pack]
+    file_name = PACK_FILES.get(pack)
+    if not file_name:
+        return None
+    path = os.path.join(_HOTWORDS_DATA_DIR, file_name)
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        words = data.get("words", [])
+        _PACK_CACHE[pack] = words
+        return words
+    except (OSError, json.JSONDecodeError) as e:
+        import sys
+        sys.stderr.write(f"[sherpa_hotwords] failed to load {pack} from {path}: {e}\n")
+        return None
+
+
+# 兼容旧 hardcoded legal/medical (sherpa_hotwords.py 之前内置的 80-100 词精简版)
+# 这些是 §40 v0.8.4 实装, 保留作为 fallback, 永不删除
+LEGACY_BUILTIN_HOTWORDS = {
+    "legal_legacy": [
         "原告", "被告", "第三人", "代理人", "诉讼代理人", "法定代表人", "委托代理人",
         "请求", "诉请", "答辩", "反诉", "管辖", "管辖权", "移送管辖", "指定管辖",
         "举证", "质证", "认证", "证据保全", "鉴定", "公证", "证人", "证言",
@@ -25,37 +80,28 @@ BUILTIN_HOTWORDS: Dict[str, List[str]] = {
         "违约责任", "侵权责任", "缔约过失责任", "合同解除", "合同无效", "合同撤销",
         "租赁合同", "买卖合同", "借款合同", "担保合同", "委托合同", "服务合同",
         "知识产权", "专利", "商标", "著作权", "商业秘密", "不正当竞争", "垄断",
-        # 程序法
         "一审", "二审", "再审", "终审", "上诉", "申诉", "抗诉", "申请执行",
         "强制执行", "执行和解", "财产保全", "行为保全", "先予执行",
         "仲裁", "仲裁协议", "仲裁机构", "仲裁员", "仲裁裁决", "司法解释",
         "开庭", "庭前调解", "调解书", "判决书", "裁定书", "决定书",
-        # 律所
         "律师事务所", "律师函", "法律意见书", "尽职调查", "合同审查", "合规",
     ],
-
-    # 医学：临床 / 药品 / 诊断
-    "medical": [
-        # 诊断
+    "medical_legacy": [
         "主诉", "现病史", "既往史", "个人史", "家族史", "体格检查", "专科检查",
         "初步诊断", "鉴别诊断", "临床诊断", "修正诊断", "出院诊断",
         "主诊医师", "主治医师", "住院医师", "主任医师", "副主任医师",
         "医嘱", "长期医嘱", "临时医嘱", "处方", "电子病历",
-        # 检查 / 治疗
         "血常规", "尿常规", "便常规", "生化全套", "凝血功能", "感染四项",
         "胸片", "CT", "核磁共振", "MRI", "B超", "彩超", "心电图", "动态心电图",
         "胃镜", "肠镜", "支气管镜", "膀胱镜",
         "病理", "活检", "穿刺", "切片",
         "手术", "微创手术", "介入治疗", "保守治疗", "对症治疗", "支持治疗",
-        # 疾病
         "高血压", "糖尿病", "冠心病", "心肌梗塞", "脑梗塞", "脑出血",
         "肺炎", "哮喘", "慢性阻塞性肺疾病", "肺结节",
         "肝炎", "肝硬化", "脂肪肝", "胆囊炎", "胆结石", "胰腺炎",
         "胃炎", "胃溃疡", "胃癌", "结肠癌", "直肠癌",
-        # 药品
         "阿司匹林", "他汀类", "二甲双胍", "胰岛素", "降压药", "抗生素",
         "头孢", "青霉素", "阿莫西林", "左氧氟沙星",
-        # 医院
         "门诊", "急诊", "住院部", "ICU", "CCU", "手术室", "麻醉科",
     ],
 }
@@ -63,17 +109,75 @@ BUILTIN_HOTWORDS: Dict[str, List[str]] = {
 
 def get_hotwords(pack: str, custom: str = "") -> List[str]:
     """
-    pack: 'none' | 'legal' | 'medical'
+    pack: 'none' | 'general' | 'legal' | 'medical' | 'finance' | 'legacy_legal' | 'legacy_medical'
     custom: 用户自定义热词 (逗号或换行分隔)
     返回: 完整热词列表 (含 builtin + custom 去重)
     """
     out: List[str] = []
+
+    # 1) 加载主 pack
     if pack and pack != "none":
-        out.extend(BUILTIN_HOTWORDS.get(pack, []))
+        # legacy fallback (hardcoded, 永远可工作)
+        if pack == "legal_legacy":
+            out.extend(LEGACY_BUILTIN_HOTWORDS["legal_legacy"])
+        elif pack == "medical_legacy":
+            out.extend(LEGACY_BUILTIN_HOTWORDS["medical_legacy"])
+        else:
+            # JSON pack
+            words = _load_pack_from_json(pack)
+            if words:
+                out.extend(words)
+
+    # 2) 自定义词
     if custom:
-        words = re.split(r"[,;\n\s]+", custom)
-        for w in words:
+        for w in re.split(r"[,;\n\s]+", custom):
             w = w.strip()
             if w and w not in out:
                 out.append(w)
     return out
+
+
+def list_available_packs() -> List[Dict[str, str]]:
+    """列出所有可用 pack (含元信息, UI 用)"""
+    out = []
+    for pack, file_name in PACK_FILES.items():
+        path = os.path.join(_HOTWORDS_DATA_DIR, file_name)
+        if not os.path.exists(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+            out.append({
+                "id": pack,
+                "name": data.get("name", pack),
+                "source": data.get("source", ""),
+                "license": data.get("license", ""),
+                "word_count": data.get("filtered_count", len(data.get("words", []))),
+            })
+        except (OSError, json.JSONDecodeError):
+            continue
+    return out
+
+
+# 单元测试
+if __name__ == "__main__":
+    import sys
+    print("=== Available packs ===")
+    for pack in list_available_packs():
+        print(f"  [{pack['id']}] {pack['name']} ({pack['word_count']} words, {pack['license']})")
+
+    print("\n=== get_hotwords('legal') ===")
+    legal = get_hotwords("legal", "王伟, 言镜AI")
+    print(f"  count={len(legal)}, samples: {legal[:5]} ... {legal[-5:]}")
+
+    print("\n=== get_hotwords('medical') ===")
+    med = get_hotwords("medical", "")
+    print(f"  count={len(med)}, samples: {med[:5]} ... {med[-5:]}")
+
+    print("\n=== get_hotwords('general') ===")
+    gen = get_hotwords("general", "")
+    print(f"  count={len(gen)}, samples: {gen[:5]} ... {gen[-5:]}")
+
+    print("\n=== get_hotwords('none', '自定义词1 自定义词2') ===")
+    none_pack = get_hotwords("none", "自定义词1 自定义词2")
+    print(f"  count={len(none_pack)}, samples: {none_pack}")

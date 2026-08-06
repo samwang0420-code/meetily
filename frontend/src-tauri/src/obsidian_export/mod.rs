@@ -307,7 +307,7 @@ async fn trigger_inner<R: Runtime>(
     pool: &SqlitePool,
     meeting_id: &str,
 ) -> Result<(), String> {
-    // 1) enabled settings (any user)
+    // 1) enabled settings (any user) — §91 P0-B: 没配过自动建默认 enabled
     let enabled_row: Option<(i64,)> = sqlx::query_as(
         "SELECT user_id FROM obsidian_export_settings WHERE enabled = 1 LIMIT 1",
     )
@@ -317,8 +317,33 @@ async fn trigger_inner<R: Runtime>(
     let settings_user_id = match enabled_row {
         Some((uid,)) => uid,
         None => {
-            log::debug!("[obsidian] no enabled user, skip {meeting_id}");
-            return Ok(());
+            // 找任一有效 user (有会议记录的), 自动为他建默认 enabled settings
+            // 这样 §P0-B 默认对所有用户生效, 不需要先手动开设置
+            let fallback_user: Option<(i64,)> = sqlx::query_as(
+                "SELECT user_id FROM meetings WHERE user_id > 0 ORDER BY created_at DESC LIMIT 1",
+            )
+            .fetch_optional(pool)
+            .await
+            .map_err(|e| format!("db obsidian fallback user: {e}"))?;
+            let uid = match fallback_user {
+                Some((u,)) => u,
+                None => {
+                    log::debug!("[obsidian] no user with meetings, skip {meeting_id}");
+                    return Ok(());
+                }
+            };
+            // 插入默认 enabled settings
+            let default_path = "~/Documents/Obsidian Vault".to_string();
+            sqlx::query(
+                "INSERT OR IGNORE INTO obsidian_export_settings                  (user_id, enabled, vault_path, subdir, template_id, updated_at)                  VALUES (?1, 1, ?2, '会议', 'default', datetime('now'))",
+            )
+            .bind(uid)
+            .bind(&default_path)
+            .execute(pool)
+            .await
+            .map_err(|e| format!("db obsidian create default: {e}"))?;
+            log::info!("[obsidian] auto-created default enabled settings for user {uid}");
+            uid
         }
     };
     let settings = get_settings(pool, settings_user_id).await?;
@@ -365,10 +390,16 @@ async fn trigger_inner<R: Runtime>(
     .await
     .map_err(|e| format!("db transcripts: {e}"))?;
     let transcript_count = transcript_rows.len() as i64;
-    let audio_total_seconds = transcript_rows
-        .iter()
-        .filter_map(|(_, _, s, e)| if *e > *s { Some(e - s) } else { None })
-        .fold(0.0_f64, f64::max);
+    // §91 Bug 3: 旧版 f64::max 每段差 = 单段最长, 不代表会议总长. 改为 MAX(end_time)-MIN(start_time).
+    let audio_total_seconds = {
+        let mut min_start = f64::INFINITY;
+        let mut max_end: f64 = 0.0;
+        for (_, _, s, e) in &transcript_rows {
+            if *s > 0.0 && *s < min_start { min_start = *s; }
+            if *e > max_end { max_end = *e; }
+        }
+        if min_start.is_finite() && max_end > min_start { max_end - min_start } else { 0.0 }
+    };
 
     let mut transcript_md = String::new();
     for (text, ts, _s, _e) in &transcript_rows {

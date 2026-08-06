@@ -396,6 +396,49 @@ pub async fn hotwords_save<R: Runtime>(
 }
 
 
+/// §91 P0-P2 hotwords: 列出所有可用 pack + 词数, UI 渲染下拉.
+#[tauri::command]
+pub async fn hotwords_list_packs() -> Result<Vec<serde_json::Value>, String> {
+    use std::path::PathBuf;
+    use std::fs;
+    // hotwords_data/ 路径: src-tauri/scripts/hotwords_data/ (运行时从 src/ 旁)
+    let candidates = vec![
+        PathBuf::from("scripts/hotwords_data"),
+        PathBuf::from("../scripts/hotwords_data"),
+        PathBuf::from("frontend/src-tauri/scripts/hotwords_data"),
+    ];
+    let data_dir = candidates.into_iter().find(|p| p.exists()).unwrap_or_else(|| PathBuf::from("scripts/hotwords_data"));
+    let packs = vec![
+        ("none", "hotwords.none", 0, ""),
+        ("general", "THUOCL IT/技术工程", 300, "Apache-2.0"),
+        ("legal", "LaWGPT + THUOCL 法律精选", 538, "Apache-2.0 + MIT"),
+        ("medical", "OMAHA + THUOCL 医疗精选", 488, "CC-BY-4.0 + Apache-2.0"),
+        ("finance", "THUOCL 财经", 176, "Apache-2.0"),
+    ];
+    let mut out = vec![];
+    for (id, name, count, license) in packs {
+        // 验证文件存在
+        let json_path = match id {
+            "general" => data_dir.join("thuocl_it.json"),
+            "legal" => data_dir.join("lawgpt_legal_vocab.json"),
+            "medical" => data_dir.join("omaha_medical.json"),
+            "finance" => data_dir.join("thuocl_caijing.json"),
+            _ => continue,
+        };
+        if !json_path.exists() {
+            continue;
+        }
+        out.push(serde_json::json!({
+            "id": id,
+            "name": name,
+            "word_count": count,
+            "license": license,
+        }));
+    }
+    let _ = fs::metadata(&data_dir); // 避免 unused warning
+    Ok(out)
+}
+
 #[tauri::command]
 pub async fn hotwords_set_globals(pack: String, custom: String) -> Result<(), String> {
     crate::audio::hotwords_globals::set(pack, custom);

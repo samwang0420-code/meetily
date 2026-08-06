@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "generated_from": "THUOCL (清华大学开源中文词库, Apache-2.0, https://github.com/thunlp/THUOCL)",
+  "min_df_strategy": "IT>=5000 / Law>=50000 / Medical>=10000 / Caijing>=100000",
+  "packs": {
+    "general": "thuocl_it.json",
+    "thuocl_law": "thuocl_law.json",
+    "thuocl_medical": "thuocl_medical.json",
+    "thuocl_caijing": "thuocl_caijing.json"
+  }
+}

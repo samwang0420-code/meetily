@@ -42,6 +42,31 @@ struct ActionItem {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+struct TopicStatus {
+    topic_id: i64,
+    canonical_name: String,
+    topic_type: String,
+    mention_count: i64,
+    last_touched_at: String,
+    dossier_status: Option<String>,
+    dossier_summary: Option<String>,
+    dossier_open_questions: Option<String>,
+    dossier_last_decided: Option<String>,
+    dossier_last_updated_at: Option<String>,
+    rebuild_count: i64,
+    sample_excerpts: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CreateMeetingNoteResult {
+    meeting_id: String,
+    title: String,
+    created_at: String,
+    transcript_count: i64,
+    summary: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 struct MeetingSummary {
     meeting_id: String,
     title: String,
@@ -104,7 +129,7 @@ impl AppState {
     fn new(db_path: PathBuf) -> Result<Self> {
         let conn = Connection::open_with_flags(
             &db_path,
-            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_URI,
+            OpenFlags::SQLITE_OPEN_READ_WRITE | OpenFlags::SQLITE_OPEN_URI,
         )
         .with_context(|| format!("open db: {}", db_path.display()))?;
         Ok(Self { conn: Arc::new(Mutex::new(conn)) })
@@ -237,6 +262,86 @@ impl AppState {
         }
         Ok(out)
     }
+
+    // §91 P1-A: create_meeting_note (MCP tool #4)
+    // 创建草稿 meeting (无 transcript), 用作"AI assistant 替用户开新会议占位"
+    async fn create_meeting_note(
+        &self,
+        title: String,
+        initial_note: Option<String>,
+    ) -> Result<CreateMeetingNoteResult> {
+        let conn = self.conn.lock().await;
+        let meeting_id = format!("mcp-{}", chrono::Utc::now().timestamp_millis());
+        let now = chrono::Utc::now().to_rfc3339();
+        // 落库: title 必填, transcript 空 (草稿)
+        conn.execute(
+            "INSERT INTO meetings (id, title, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)",
+            rusqlite::params![&meeting_id, &title, &now],
+        )?;
+        // 如果给了 initial_note, 写一条 transcript (speaker='mcp' 占位)
+        let transcript_count = if let Some(note) = &initial_note {
+            if !note.trim().is_empty() {
+                conn.execute(
+                    "INSERT INTO transcripts (id, meeting_id, speaker, transcript, created_at) VALUES (?1, ?2, 'mcp', ?3, ?4)",
+                    rusqlite::params![format!("{}-t0", meeting_id), &meeting_id, note, &now],
+                )?;
+                1
+            } else { 0 }
+        } else { 0 };
+        Ok(CreateMeetingNoteResult {
+            meeting_id,
+            title,
+            created_at: now,
+            transcript_count,
+            summary: None,
+        })
+    }
+
+    // §91 P1-A: get_topic_status (MCP tool #5) — 接 P0-A 知识图谱
+    async fn get_topic_status(
+        &self,
+        topic_query: &str,
+        limit: usize,
+    ) -> Result<Vec<TopicStatus>> {
+        let conn = self.conn.lock().await;
+        // 模糊匹配 canonical_name
+        let pattern = format!("%{}%", topic_query);
+        let mut stmt = conn.prepare(
+            "SELECT t.id, t.canonical_name, t.topic_type, t.mention_count, t.last_touched_at,                     d.status, d.summary, d.open_questions, d.last_decided, d.last_updated_at, d.rebuild_count              FROM topic_node t              LEFT JOIN topic_dossier d ON d.topic_id = t.id              WHERE t.canonical_name LIKE ?1              ORDER BY t.mention_count DESC, t.last_touched_at DESC              LIMIT ?2",
+        )?;
+        let topics: Vec<TopicStatus> = stmt
+            .query_map(rusqlite::params![pattern, limit as i64], |row| {
+                Ok(TopicStatus {
+                    topic_id: row.get(0)?,
+                    canonical_name: row.get(1)?,
+                    topic_type: row.get(2)?,
+                    mention_count: row.get(3)?,
+                    last_touched_at: row.get(4)?,
+                    dossier_status: row.get(5)?,
+                    dossier_summary: row.get(6)?,
+                    dossier_open_questions: row.get(7)?,
+                    dossier_last_decided: row.get(8)?,
+                    dossier_last_updated_at: row.get(9)?,
+                    rebuild_count: row.get(10)?,
+                    sample_excerpts: Vec::new(),
+                })
+            })?
+            .collect::<Result<Vec<_>, _>>()?;
+        drop(stmt);
+        // 每个 topic 拉 3 条 sample_excerpt
+        let mut out = topics;
+        for t in out.iter_mut() {
+            let mut stmt2 = conn.prepare(
+                "SELECT COALESCE(excerpt, '') FROM meeting_episode_node                  WHERE topic_id = ?1 AND excerpt IS NOT NULL AND excerpt != ''                  ORDER BY created_at DESC LIMIT 3",
+            )?;
+            let excerpts: Vec<String> = stmt2
+                .query_map(rusqlite::params![t.topic_id], |row| row.get(0))?
+                .filter_map(|r| r.ok())
+                .collect();
+            t.sample_excerpts = excerpts;
+        }
+        Ok(out)
+    }
 }
 
 fn parse_csv_field(s: Option<&str>) -> Vec<String> {
@@ -296,6 +401,30 @@ fn handle_tools_list() -> Value {
                         "limit": { "type": "number", "description": "Max action items to return (default 100, max 500)" }
                     }
                 }
+            },
+            {
+                "name": "create_meeting_note",
+                "description": "Create a draft meeting (no transcript yet) — useful when an AI assistant wants to start a new meeting context or take a quick note. Returns the new meeting id, title, created_at and transcript count (0 or 1 if initial_note was provided).",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "title": { "type": "string", "description": "Meeting title (required, will be used as filename in Obsidian export too)" },
+                        "initial_note": { "type": "string", "description": "Optional first transcript line (e.g. quick context dump from AI)" }
+                    },
+                    "required": ["title"]
+                }
+            },
+            {
+                "name": "get_topic_status",
+                "description": "Query the cross-meeting knowledge graph for a topic. Returns topics matching the query string (fuzzy match on canonical_name) with mention_count, last_touched_at, dossier summary/open_questions/last_decided, and 3 sample excerpts. Connects to P0-A topic graph.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "topic_query": { "type": "string", "description": "Topic name or keyword (fuzzy match on canonical_name, e.g. 'API 限流')" },
+                        "limit": { "type": "number", "description": "Max topics to return (default 5, max 20)" }
+                    },
+                    "required": ["topic_query"]
+                }
             }
         ]
     })
@@ -327,6 +456,28 @@ async fn handle_tools_call(state: Arc<AppState>, req: &JsonRpcRequest) -> Result
                 Ok(Some(s)) => Ok(json!({ "content": [{ "type": "text", "text": serde_json::to_string_pretty(&s).unwrap_or_default() }] })),
                 Ok(None) => Err((-32004, format!("meeting {meeting_id} not found"))),
                 Err(e) => Err((-32603, format!("get_meeting_summary failed: {e}"))),
+            }
+        }
+        "create_meeting_note" => {
+            let title = params.get("title").and_then(|v| v.as_str()).unwrap_or("");
+            if title.trim().is_empty() {
+                return Err((-32602, "create_meeting_note: 'title' is required".into()));
+            }
+            let initial_note = params.get("initial_note").and_then(|v| v.as_str());
+            match state.create_meeting_note(title.to_string(), initial_note.map(|s| s.to_string())).await {
+                Ok(r) => Ok(json!({ "content": [{ "type": "text", "text": serde_json::to_string(&r).unwrap_or_default() }] })),
+                Err(e) => Err((-32603, format!("create_meeting_note failed: {e}"))),
+            }
+        }
+        "get_topic_status" => {
+            let topic_query = params.get("topic_query").and_then(|v| v.as_str()).unwrap_or("");
+            if topic_query.trim().is_empty() {
+                return Err((-32602, "get_topic_status: 'topic_query' is required".into()));
+            }
+            let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(5) as usize;
+            match state.get_topic_status(topic_query, limit).await {
+                Ok(r) => Ok(json!({ "content": [{ "type": "text", "text": serde_json::to_string(&r).unwrap_or_default() }] })),
+                Err(e) => Err((-32603, format!("get_topic_status failed: {e}"))),
             }
         }
         "get_action_items" => {

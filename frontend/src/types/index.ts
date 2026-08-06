@@ -16,6 +16,10 @@ export interface Transcript {
   audio_start_time?: number; // Seconds from recording start (e.g., 125.3)
   audio_end_time?: number;   // Seconds from recording start (e.g., 128.6)
   duration?: number;          // Segment duration in seconds (e.g., 3.3)
+  // §91 P1-B UI 完整化: 后端 JOIN speaker_aliases 后填入.
+  // 显示优先级: speaker_label (用户设的 alias) > speaker_id ("Speaker N") > 无
+  speaker_label?: string | null;
+  speaker_id?: number | null;
 }
 
 export interface TranscriptUpdate {

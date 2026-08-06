@@ -35,6 +35,11 @@ pub struct Transcript {
     pub audio_start_time: Option<f64>,
     pub audio_end_time: Option<f64>,
     pub duration: Option<f64>,
+    // §91 P1-B UI 完整化: speaker_aliases.label JOIN 后填入. 前端用这个显示"王伟"而不是"Speaker 1".
+    #[serde(default)]
+    pub speaker_label: Option<String>,
+    #[serde(default)]
+    pub speaker_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]

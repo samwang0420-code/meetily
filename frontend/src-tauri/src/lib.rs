@@ -56,6 +56,7 @@ pub mod tray;
 pub mod utils;
 pub mod user;
 pub mod whisper_engine;
+pub mod speaker_auto_attach;
 
 pub mod hardware;
 pub mod action_items;
@@ -616,6 +617,7 @@ pub fn run() {
             user::commands::hotwords_get,
             user::commands::hotwords_save,
             user::commands::hotwords_set_globals,
+            user::commands::hotwords_list_packs,
 
             // v0.6.10+: 商业化
             user::commands::quota_get_status,
