@@ -8,13 +8,14 @@ import { EmptyStateSummary } from '@/components/EmptyStateSummary';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 import { SummaryGeneratorButtonGroup } from './SummaryGeneratorButtonGroup';
 import { ActionItemsList } from './ActionItemsList';
+import { SpeakerRosterDrawer } from '@/components/SpeakerRoster/SpeakerRosterDrawer';
 import { SummaryUpdaterButtonGroup } from './SummaryUpdaterButtonGroup';
 import Analytics from '@/lib/analytics';
 import { useEffect, useRef, useState, RefObject } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
 import { safeToast } from '@/lib/safeToast';
-import { Languages, ChevronDown } from 'lucide-react';
+import { Languages, ChevronDown, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { LanguagePickerPopover } from '@/components/LanguagePickerPopover';
@@ -108,6 +109,7 @@ export function SummaryPanel({
   const { t, locale } = useTranslation();
   const [summaryLang, setSummaryLang] = useState<string | null>(null);
   const [summaryLangStorage, setSummaryLangStorage] = useState<SummaryLanguageStorage>('metadata');
+  const [speakerDrawerOpen, setSpeakerDrawerOpen] = useState(false);
   const [langPickerOpen, setLangPickerOpen] = useState(false);
   const [streamedMarkdown, setStreamedMarkdown] = useState('');
   // v0.7.0+ P0-1: Map-Reduce 阶段显示
@@ -321,6 +323,18 @@ export function SummaryPanel({
           <div className="flex items-center justify-center w-full pt-0 gap-2">
             {/* Left-aligned: Summary Generator Button Group */}
             <div className="flex-shrink-0">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSpeakerDrawerOpen(true)}
+                className="flex items-center gap-2 ml-2"
+                data-testid="open-speaker-roster"
+              >
+                <Users className="w-4 h-4" />
+                {t('common.speaker_title_short')}
+              </Button>
+            </div>
+            <div className="flex items-center gap-2 mb-2">
               <SummaryGeneratorButtonGroup
                 modelConfig={modelConfig}
                 setModelConfig={setModelConfig}
@@ -502,6 +516,11 @@ export function SummaryPanel({
           )}
         </div>
       )}
+      <SpeakerRosterDrawer
+        open={speakerDrawerOpen}
+        onOpenChange={setSpeakerDrawerOpen}
+        meetingId={meeting.id}
+      />
     </div>
   );
 }

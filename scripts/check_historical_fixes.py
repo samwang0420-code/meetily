@@ -174,6 +174,11 @@ ANCHORS = [
      "frontend/src/components/SpeakerRoster/SpeakerRosterDrawer.tsx",
      r"api_speaker_alias_set"),
 
+    # §P1-B: SummaryPanel mounts the drawer trigger
+    ("p1b_speaker_drawer_in_summary",
+     "frontend/src/components/MeetingDetails/SummaryPanel.tsx",
+     r"SpeakerRosterDrawer|open-speaker-roster"),
+
     # §78 fix P0-A: topic_graph commands also must be registered (was missed in §78)
     ("78_topic_graph_commands_registered",
      "frontend/src-tauri/src/lib.rs",
