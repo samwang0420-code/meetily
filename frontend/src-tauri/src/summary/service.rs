@@ -1,3 +1,4 @@
+use crate::obsidian_export;
 use crate::database::repositories::{
     meeting::MeetingsRepository, setting::SettingsRepository, summary::SummaryProcessesRepository,
 };
@@ -687,6 +688,13 @@ impl SummaryService {
                         "Summary saved successfully for meeting_id: {}",
                         meeting_id
                     );
+                    // §P0-B Phase 2: summary completed -> spawn Obsidian export
+                    let obs_app = app.clone();
+                    let obs_pool = pool.clone();
+                    let obs_meeting_id = meeting_id.clone();
+                    tokio::spawn(async move {
+                        obsidian_export::trigger_after_summary(obs_app, obs_pool, obs_meeting_id).await;
+                    });
                 }
             }
             Err(e) => {

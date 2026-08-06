@@ -13,6 +13,8 @@ pub mod markdown;
 
 use crate::state::AppState;
 use chrono::Utc;
+use crate::user::commands::latest_session_in_db;
+use tauri::AppHandle;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use std::path::PathBuf;
@@ -279,3 +281,133 @@ mod tests {
         assert_eq!(ctx.user_id, 1);
     }
 }
+
+// ============== Phase 2: trigger after summary completed ==============
+
+#[derive(Debug, Clone, Deserialize)]
+struct SummaryResultJson {
+    #[serde(default)]
+    markdown: Option<String>,
+}
+
+/// Phase 2: 在 summary_processes.status='completed' 后 spawn 这个函数.
+/// 失败不阻塞主流程, 写 last_export_error 落 DB, 用户在 settings 卡片可看.
+pub async fn trigger_after_summary<R: Runtime>(
+    app: AppHandle<R>,
+    pool: SqlitePool,
+    meeting_id: String,
+) {
+    if let Err(e) = trigger_inner(&app, &pool, &meeting_id).await {
+        log::warn!("[obsidian] trigger_after_summary failed for {meeting_id}: {e}");
+    }
+}
+
+async fn trigger_inner<R: Runtime>(
+    app: &AppHandle<R>,
+    pool: &SqlitePool,
+    meeting_id: &str,
+) -> Result<(), String> {
+    // 1) enabled settings (any user)
+    let enabled_row: Option<(i64,)> = sqlx::query_as(
+        "SELECT user_id FROM obsidian_export_settings WHERE enabled = 1 LIMIT 1",
+    )
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("db obsidian enabled: {e}"))?;
+    let settings_user_id = match enabled_row {
+        Some((uid,)) => uid,
+        None => {
+            log::debug!("[obsidian] no enabled user, skip {meeting_id}");
+            return Ok(());
+        }
+    };
+    let settings = get_settings(pool, settings_user_id).await?;
+    if !settings.enabled {
+        return Ok(());
+    }
+
+    // 2) 查 meeting
+    let meeting_row: Option<(String, String, Option<String>)> = sqlx::query_as(
+        "SELECT id, title, created_at FROM meetings WHERE id = ?",
+    )
+    .bind(meeting_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("db meeting: {e}"))?;
+    let (_id, title, _created_at) = match meeting_row {
+        Some(m) => m,
+        None => {
+            log::warn!("[obsidian] meeting {meeting_id} not found, skip");
+            return Ok(());
+        }
+    };
+
+    // 3) 查 summary_processes.result JSON
+    let summary_row: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT result FROM summary_processes WHERE meeting_id = ? AND status = \'completed\'",
+    )
+    .bind(meeting_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("db summary: {e}"))?;
+    let summary_text = summary_row
+        .and_then(|(r,)| r)
+        .and_then(|json| serde_json::from_str::<SummaryResultJson>(&json).ok())
+        .and_then(|p| p.markdown);
+
+    // 4) 查 transcripts
+    let transcript_rows: Vec<(String, String, f64, f64)> = sqlx::query_as(
+        "SELECT transcript, timestamp, COALESCE(audio_start_time, 0.0), COALESCE(audio_end_time, 0.0) \
+         FROM transcripts WHERE meeting_id = ? ORDER BY audio_start_time ASC",
+    )
+    .bind(meeting_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("db transcripts: {e}"))?;
+    let transcript_count = transcript_rows.len() as i64;
+    let audio_total_seconds = transcript_rows
+        .iter()
+        .filter_map(|(_, _, s, e)| if *e > *s { Some(e - s) } else { None })
+        .fold(0.0_f64, f64::max);
+
+    let mut transcript_md = String::new();
+    for (text, ts, _s, _e) in &transcript_rows {
+        transcript_md.push_str(&format!("- [{}] {}\n", ts, text));
+    }
+
+    // 5) asr config
+    let asr_row: Option<(String, String)> = sqlx::query_as(
+        "SELECT provider, model FROM transcript_settings WHERE id = \'default\'",
+    )
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("db transcript_settings: {e}"))?;
+    let (asr_provider, asr_model) = asr_row.unwrap_or_else(|| ("sherpa_funasr_nano".into(), "funasr-nano-zh".into()));
+
+    let now_iso = chrono::Utc::now().format("%Y-%m-%dT%H:%M:%S+00:00").to_string();
+    let duration_minutes = (audio_total_seconds / 60.0).round() as i64;
+
+    let ctx = MeetingExportContext {
+        meeting_id: meeting_id.to_string(),
+        user_id: settings_user_id,
+        title,
+        created_at: now_iso,
+        duration_minutes,
+        audio_total_seconds,
+        transcript_count,
+        asr_provider,
+        asr_model,
+        summary_text,
+        minutes_text: None,
+        transcript_text: if transcript_md.is_empty() { None } else { Some(transcript_md) },
+    };
+
+    let result = export_meeting(pool, &ctx, &settings).await?;
+    log::info!(
+        "[obsidian] exported {meeting_id} -> {} ({} bytes, {} ms)",
+        result.path, result.bytes_written, result.duration_ms
+    );
+    let _ = (app, latest_session_in_db::<tauri::Wry>); // suppress unused warning when no session
+    Ok(())
+}
+

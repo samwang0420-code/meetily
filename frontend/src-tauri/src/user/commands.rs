@@ -123,7 +123,7 @@ async fn delete_session_in_db<R: Runtime>(
     Ok(())
 }
 
-async fn latest_session_in_db<R: Runtime>(
+pub(crate) async fn latest_session_in_db<R: Runtime>(
     app: &AppHandle<R>,
 ) -> Result<Option<(String, i64)>, String> {
     let pool = db_pool(app)?;
