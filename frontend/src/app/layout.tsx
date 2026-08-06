@@ -1,6 +1,7 @@
 'use client'
 
 import './globals.css'
+import { TopicSearchModal } from '@/components/TopicSearch/TopicSearchModal'
 import { Source_Sans_3 } from 'next/font/google'
 import Sidebar from '@/components/Sidebar'
 import { SidebarProvider } from '@/components/Sidebar/SidebarProvider'
@@ -305,7 +306,8 @@ export default function RootLayout({
           </RecordingStateProvider>
         </AnalyticsProvider>
 
-      <SafeToastBinder />
+      <TopicSearchLauncher />
+          <SafeToastBinder />
 
           <Toaster position="bottom-center" richColors closeButton />
           </AuthProvider>
@@ -327,4 +329,23 @@ function SafeToastBinder() {
     });
   }, []);
   return null;
+}
+
+function TopicSearchLauncher() {
+  const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || '');
+      const mod = isMac ? e.metaKey : e.ctrlKey;
+      if (mod && (e.key === 'k' || e.key === 'K')) {
+        e.preventDefault();
+        setOpen((v) => !v);
+      } else if (e.key === 'Escape' && open) {
+        setOpen(false);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [open]);
+  return <TopicSearchModal open={open} onOpenChange={setOpen} />;
 }

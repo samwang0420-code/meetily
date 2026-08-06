@@ -577,6 +577,7 @@ pub fn run() {
 
             // §P0-A 跨会议知识图谱 (Phase 1 §78 + Phase 2 §79)
             topic_graph::api_topic_search,
+            topic_graph::api_topic_recent,
             topic_graph::api_topic_get_dossier,
             // §P0-B Obsidian vault 写入
             obsidian_export::api_obsidian_get_settings,

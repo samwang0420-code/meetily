@@ -185,7 +185,7 @@ pub async fn search_topics(
         .fetch_all(pool)
         .await
         .map_err(|e| format!("search_topics excerpts: {e}"))?;
-        let sample = excerpts.into_iter().flatten().collect();
+        let sample: Vec<String> = excerpts.into_iter().flatten().collect();
         hits.push(TopicSearchHit {
             topic_id: id,
             canonical_name: name,
@@ -248,6 +248,73 @@ pub async fn get_topic_dossier(pool: &SqlitePool, topic_id: i64) -> Result<Optio
 }
 
 // ============== Tauri commands ==============
+
+// ============== 近期活跃 topic（last_touched_at DESC）==============
+/// 跨会议知识图谱里, 找最近被 mention 的 topic.
+/// 用于 Sidebar / Header "Topic Search" 面板的初始显示 + "近期相关" 提示.
+pub async fn recent_topics(pool: &SqlitePool, limit: i64) -> Result<Vec<TopicSearchHit>, String> {
+    let rows: Vec<(i64, String, String, i64, String)> = sqlx::query_as(
+        "SELECT id, canonical_name, topic_type, mention_count, last_touched_at          FROM topic_node ORDER BY last_touched_at DESC LIMIT ?1",
+    )
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("recent_topics: {e}"))?;
+
+    let mut hits = Vec::with_capacity(rows.len());
+    for (id, name, ty, count, last_touch) in rows {
+        // 兼容 schema: meeting_episode_node 与 topic_dossier 都可能有 last_decided / status
+        let decided: Option<String> = sqlx::query_scalar(
+            "SELECT last_decided FROM topic_dossier WHERE topic_id = ?1",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+        let status: Option<String> = sqlx::query_scalar(
+            "SELECT status FROM topic_dossier WHERE topic_id = ?1",
+        )
+        .bind(id)
+        .fetch_optional(pool)
+        .await
+        .ok()
+        .flatten();
+        let excerpts: Vec<String> = sqlx::query_as::<_, (String,)>(
+            "SELECT excerpt FROM meeting_episode_node WHERE topic_id = ?1              AND excerpt IS NOT NULL ORDER BY created_at DESC LIMIT 3",
+        )
+        .bind(id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("recent_topics excerpts: {e}"))?
+        .into_iter()
+        .map(|(s,)| s)
+        .collect();
+        hits.push(TopicSearchHit {
+            topic_id: id,
+            canonical_name: name,
+            topic_type: ty,
+            mention_count: count,
+            last_touched_at: last_touch,
+            last_decided: decided,
+            status,
+            sample_excerpts: excerpts,
+        });
+    }
+    Ok(hits)
+}
+
+
+
+#[tauri::command]
+pub async fn api_topic_recent<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    limit: Option<i64>,
+) -> Result<Vec<TopicSearchHit>, String> {
+    let state: State<'_, AppState> = app.state();
+    let pool = state.db_manager.pool();
+    recent_topics(pool, limit.unwrap_or(8)).await
+}
 
 #[tauri::command]
 pub async fn api_topic_search<R: Runtime>(

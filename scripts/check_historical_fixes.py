@@ -124,6 +124,21 @@ ANCHORS = [
      "frontend/src-tauri/src/lib.rs",
      r"action_items::api_action_item_(list|toggle)"),
 
+    # §83 P2-C: topic recent backend command
+    ("83_topic_recent_command",
+     "frontend/src-tauri/src/topic_graph/mod.rs",
+     r"pub async fn api_topic_recent"),
+
+    # §83 P2-C: TopicSearchModal frontend
+    ("83_topic_search_modal",
+     "frontend/src/components/TopicSearch/TopicSearchModal.tsx",
+     r"api_topic_search|api_topic_recent"),
+
+    # §83 P2-C: layout.tsx mounts Cmd/Ctrl+K launcher
+    ("83_topic_search_layout_launcher",
+     "frontend/src/app/layout.tsx",
+     r"TopicSearchLauncher"),
+
     # §78 fix P0-A: topic_graph commands also must be registered (was missed in §78)
     ("78_topic_graph_commands_registered",
      "frontend/src-tauri/src/lib.rs",
