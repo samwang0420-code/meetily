@@ -242,7 +242,7 @@ export const en: Record<string, unknown> = {
     just_now: 'Just now', minutes_ago: '{count} min ago', hours_ago: '{count} hr ago', days_ago: '{count} days ago', date_md: '{month}/{day}',
     model_local_whisper: 'Local Whisper', model_funasr_nano: 'FunASR-Nano high-precision', model_sensevoice: 'SenseVoice live', model_cloud: 'Cloud transcription', model_none: 'No model selected',
     welcome: 'Welcome to 言镜 AI', subtitle: 'Local AI meeting transcription · Fully offline · Private', record_hint: 'Click the microphone to record · Live transcription and AI minutes are generated automatically',
-    transcript_model: 'Transcription model', microphone: 'Microphone', default_input: 'Default input', hotwords: 'Hotword library', settings: 'System settings', recent: 'Recent meetings',
+    transcript_model: 'Transcription model', microphone: 'Microphone', default_input: 'Default input', hotwords: 'Hotword library', settings: 'System settings', recent: 'Recent meetings', qa_import: 'Import Audio', qa_hotwords: 'Hotwords', qa_settings: 'Settings', local_first: '100% on-device, your data stays local',
     recent_count: '{total} meetings · Showing the latest {recent}', first_meeting: 'Start your first meeting', unknown_meeting: 'Unknown meeting', segments: '{count} segments', unknown_time: 'Unknown time', approx_minutes: '~{count} min',
     empty_title: 'No meetings yet', empty_desc: 'Click the red microphone above to start your first recording', empty_action: 'Start first recording',
   },

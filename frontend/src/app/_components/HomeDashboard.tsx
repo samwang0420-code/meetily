@@ -5,12 +5,13 @@ import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import {
   Mic, Headphones, FileText, Clock, ChevronRight, Sparkles,
-  Settings as SettingsIcon, Languages, Plus, BookOpen
+  Settings as SettingsIcon, Languages, Plus, BookOpen, Upload
 } from 'lucide-react';
 import { RecordingControls } from '@/components/RecordingControls';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useRecordingState, RecordingStatus } from '@/contexts/RecordingStateContext';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
+import { useImportDialog } from '@/contexts/ImportDialogContext';
 import { indexedDBService, type MeetingMetadata } from '@/services/indexedDBService';
 import { CardBoundary } from './CardBoundary';
 import { useTranslation } from '@/i18n';
@@ -64,6 +65,7 @@ export function HomeDashboard({
   const { transcriptModelConfig } = useConfig();
   const recordingState = useRecordingState();
   const { meetings: sidebarMeetings } = useSidebar();
+  const { openImportDialog } = useImportDialog();
   const { status } = recordingState;
 
   const [recentMeetings, setRecentMeetings] = useState<MeetingMetadata[]>([]);
@@ -118,8 +120,8 @@ export function HomeDashboard({
   const totalRecent = recentMeetings.length;
 
   return (
-    <div className="flex-1 overflow-y-auto bg-gradient-to-b from-neutral-50 to-white">
-      <div className="mx-auto max-w-5xl px-8 py-12">
+    <div className="flex-1 overflow-y-auto bg-gradient-to-b from-teal-50/40 via-white to-white">
+      <div className="mx-auto max-w-3xl px-6 py-16">
 
         {/* ── Hero ────────────────────────────── */}
         <motion.section
@@ -167,7 +169,7 @@ export function HomeDashboard({
             icon={<Languages className="h-3.5 w-3.5" />}
             label={t('dashboard.transcript_model')}
             value={modelLabel(t, transcriptModelConfig?.provider, transcriptModelConfig?.model)}
-            tone="blue"
+            tone="teal"
           />
           <StatusChip
             icon={<Mic className="h-3.5 w-3.5" />}
@@ -194,49 +196,46 @@ export function HomeDashboard({
           </button>
         </motion.section>
 
-        {/* ── Recent meetings ────────────────────────────────── */}
+        {/* ── Quick actions ─────────────────────────────────── */}
         <motion.section
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, delay: 0.1 }}
+          className="mt-2"
         >
-          <div className="flex items-end justify-between border-b border-neutral-200 pb-3">
-            <div>
-              <h2 className="text-[15px] font-semibold tracking-tight text-neutral-900">
-                {t('dashboard.recent')}
-              </h2>
-              <p className="mt-0.5 text-xs text-neutral-500">
-                {totalRecent > 0
-                  ? t('dashboard.recent_count', { total: totalMeetings, recent: totalRecent })
-                  : t('dashboard.first_meeting')}
-              </p>
-            </div>
+          <div className="mx-auto grid max-w-md grid-cols-3 gap-2 pt-2">
+            <QuickAction
+              icon={<Upload className="h-5 w-5" />}
+              label={t('dashboard.qa_import')}
+              onClick={() => openImportDialog()}
+              accent="teal"
+            />
+            <QuickAction
+              icon={<BookOpen className="h-5 w-5" />}
+              label={t('dashboard.qa_hotwords')}
+              onClick={() => router.push('/settings/hotwords')}
+              accent="amber"
+            />
+            <QuickAction
+              icon={<SettingsIcon className="h-5 w-5" />}
+              label={t('dashboard.qa_settings')}
+              onClick={() => router.push('/settings')}
+              accent="slate"
+            />
           </div>
+        </motion.section>
 
-          {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-4">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="h-28 rounded-lg border border-neutral-200 bg-white animate-pulse" />
-              ))}
-            </div>
-          ) : recentMeetings.length === 0 ? (
-            <EmptyState onStart={onRecordingStart} />
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-4">
-              {recentMeetings.map((m) => (
-                <CardBoundary key={typeof m?.meetingId === 'string' ? m.meetingId : `idx-${(recentMeetings.indexOf(m))}`} title={m?.title ?? t('dashboard.unknown_meeting')}>
-                  <MeetingCard
-                    meeting={m}
-                    onClick={() => {
-                      if (typeof m?.meetingId === 'string') {
-                        router.push(`/meeting-details?id=${encodeURIComponent(m.meetingId)}`)
-                      }
-                    }}
-                  />
-                </CardBoundary>
-              ))}
-            </div>
-          )}
+        {/* ── Tip footer ─────────────────────────────────── */}
+        <motion.section
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.4, delay: 0.2 }}
+          className="mt-12 flex items-center justify-center gap-2 text-[11px] text-neutral-400"
+        >
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+          <span>{t('dashboard.local_first')}</span>
+          <span className="text-neutral-300">·</span>
+          <span className="font-mono">v0.8.5</span>
         </motion.section>
       </div>
     </div>
@@ -251,13 +250,14 @@ function StatusChip({
   icon: React.ReactNode
   label: string
   value: string
-  tone: 'blue' | 'emerald' | 'violet'
+  tone: 'blue' | 'emerald' | 'violet' | 'teal'
   maxChars?: number
 }) {
   const toneMap = {
     blue: 'bg-blue-50/80 text-blue-700 border-blue-100',
     emerald: 'bg-emerald-50/80 text-emerald-700 border-emerald-100',
     violet: 'bg-violet-50/80 text-violet-700 border-violet-100',
+    teal: 'bg-teal-50/80 text-teal-700 border-teal-100',
   }
   const display = maxChars && value.length > maxChars ? value.slice(0, maxChars - 1) + '…' : value
   return (
@@ -302,6 +302,31 @@ function MeetingCard({
         </span>
         {total > 0 && <span>{t('dashboard.approx_minutes', { count: approxMinutes })}</span>}
       </div>
+    </button>
+  )
+}
+
+
+function QuickAction({ icon, label, onClick, accent }: {
+  icon: React.ReactNode
+  label: string
+  onClick: () => void
+  accent: 'teal' | 'amber' | 'slate'
+}) {
+  const accentMap = {
+    teal: 'text-teal-700 group-hover:bg-teal-50 group-hover:border-teal-200',
+    amber: 'text-amber-600 group-hover:bg-amber-50 group-hover:border-amber-200',
+    slate: 'text-neutral-500 group-hover:bg-neutral-50 group-hover:border-neutral-300',
+  }
+  return (
+    <button
+      onClick={onClick}
+      className="group flex flex-col items-center gap-2.5 rounded-xl border border-neutral-200/70 bg-white px-4 py-5 transition-all hover:-translate-y-0.5 hover:shadow-md"
+    >
+      <span className={`flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 bg-neutral-50 transition-colors ${accentMap[accent]}`}>
+        {icon}
+      </span>
+      <span className="text-[12px] font-medium tracking-tight text-neutral-700">{label}</span>
     </button>
   )
 }

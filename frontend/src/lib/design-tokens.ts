@@ -57,6 +57,23 @@ export const TYPOGRAPHY = {
   fontFeature: { defaults: '"calt", "kern", "liga", "ss03"' },
 };
 
+/**
+ * v0.8.5 §69: 言镜 AI 品牌色 (同心圆 logo 配色)
+ * - brand.primary: 深 teal (主色)
+ * - brand.deep: 深 navy (深度色)
+ * - brand.light: 浅 teal (背景/hover)
+ * - brand.surface: teal-50 极浅背景
+ */
+export const BRAND = {
+  primary: '#1d6f80',         // teal-700
+  primaryHover: '#155a68',
+  deep: '#0B2545',             // navy-900
+  light: '#13A89E',            // teal-500
+  soft: 'rgba(29,111,128,0.10)',
+  surface: '#f0fdfa',          // teal-50
+  surfaceHover: '#ccfbf1',     // teal-100
+};
+
 export const RADIUS = {
   xs: '4px', sm: '6px', md: '8px', lg: '12px', xl: '16px', xxl: '24px', pill: '9999px',
 };
