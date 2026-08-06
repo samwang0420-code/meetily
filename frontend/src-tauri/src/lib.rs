@@ -168,6 +168,9 @@ async fn stop_recording<R: Runtime>(app: AppHandle<R>, args: RecordingArgs) -> R
             RECORDING_FLAG.store(false, Ordering::SeqCst);
             tray::update_tray_menu(&app);
 
+            // v0.8.5 §23: Release sherpa daemon to free ~700MB Python + onnx models
+            crate::audio::sherpa_daemon::shutdown_global_daemon();
+
             // Create the save directory if it doesn't exist
             if let Some(parent) = std::path::Path::new(&args.save_path).parent() {
                 if !parent.exists() {
@@ -811,6 +814,10 @@ pub fn run() {
                         } else {
                             log::warn!("AppState not available for database cleanup (likely first launch)");
                         }
+
+                        // v0.8.5 §23: Release sherpa daemon (kill Python child + onnx models)
+                        log::info!("Cleaning up sherpa daemon...");
+                        crate::audio::sherpa_daemon::shutdown_global_daemon();
 
                         // Clean up sidecar
                         log::info!("Cleaning up sidecar...");

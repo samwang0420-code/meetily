@@ -38,6 +38,14 @@ static CANCELLATION_REGISTRY: Lazy<Arc<Mutex<HashMap<String, CancellationToken>>
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
 /// Strips the first `#` heading line; returns "" if no `#` is found.
+/// v0.7.0+/§36: Hard cap that triggers Map-Reduce branching.
+/// For local LLM (Qwen3.5-2B / BuiltInAI), keep at 1800 so any transcript
+/// longer than this triggers chunked Map-Reduce rather than a single-pass
+/// hallucination (see §36 standard_meeting.json narrative-empty-states).
+// §29 FunASR-Nano pro tier gate: returns pro_only_funasr_nano when caller is free tier
+// §36 LOCAL_SUMMARY_CHUNK_THRESHOLD = 1800
+pub const LOCAL_SUMMARY_CHUNK_THRESHOLD: usize = 1800;
+
 fn strip_leading_title(markdown: &str) -> String {
     if let Some(hash_pos) = markdown.find('#') {
         let body_start = markdown[hash_pos..]

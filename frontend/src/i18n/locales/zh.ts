@@ -576,7 +576,7 @@ export const zh: Record<string, unknown> = {
     meeting_save_failed: '保存会议失败',
     transcript_engine_failed: '转录失败,正在切换备用引擎',
     model_load_failed: '模型加载失败,请重新下载',
-    file_too_large: '文件过大 (最大 50MB)',
+    file_too_large: '文件过大 (最大 5 GB)',
     unsupported_format: '不支持的音频格式',
     model_download_failed: '模型下载失败,请检查网络',
     recording_in_progress: '正在录音中,请先结束当前录音',

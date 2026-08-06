@@ -62,7 +62,10 @@ fn vad_redemption_time_ms(duration_seconds: f64) -> u32 {
 const MAX_EVIDENCE_SEGMENT_SECONDS: f64 = 12.0;
 
 /// Maximum file size: 20GB (prevents OOM and excessive processing time)
-const MAX_FILE_SIZE_BYTES: u64 = 20 * 1024 * 1024 * 1024; // 20GB
+// v0.8.5 §27: User 2026-07-22 08:34 explicit instruction (session 019f7e70):
+// "导入限制5G以内吧, 防止内存爆". 5GB ≈ 5.5h @ 48kHz stereo, 90min @ 16kHz mono.
+// 20GB was upstream default (Zackriya-Solutions/meeting-minutes cfd351a baseline).
+const MAX_FILE_SIZE_BYTES: u64 = 5 * 1024 * 1024 * 1024; // 5GB per file
 
 /// Information about a selected audio file
 #[derive(Debug, Clone, Serialize, Deserialize)]

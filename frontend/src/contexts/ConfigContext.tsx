@@ -110,10 +110,10 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   });
 
   // Transcript model configuration state
-  // 言镜 AI W2.5: 默认 SenseVoice-zh INT8 (23 段按句切 / 中文 SOTA / 比 Whisper 强)
+  // v0.8.5 §38: Default funasr-nano-zh (高精度) per AGENTS.md §29/§38 商业化承诺
   const [transcriptModelConfig, setTranscriptModelConfig] = useState<TranscriptModelProps>({
     provider: 'sherpa_funasr_nano',
-    model: 'sense-voice-zh-int8',
+    model: 'funasr-nano-zh',
     apiKey: null
   });
 
@@ -225,12 +225,12 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         if (config) {
           console.log('[ConfigContext] Loaded saved transcript config:', config);
           // 兼容老数据: 如果 DB 里是 localWhisper / parakeet, 重置为 SenseVoice
+          // v0.8.5 §38: only fallback to default when provider is truly missing.
+          // Preserve user's chosen model (funasr-nano-zh / sense-voice-zh-int8 / etc).
           const provider = (config.provider === 'localWhisper' || config.provider === 'parakeet')
             ? 'sherpa_funasr_nano'
             : (config.provider || 'sherpa_funasr_nano');
-          const model = (provider === 'sherpa_funasr_nano')
-            ? 'sense-voice-zh-int8'
-            : (config.model || 'paraformer-zh-int8');
+          const model = config.model || 'funasr-nano-zh';
           setTranscriptModelConfig({
             provider,
             model,

@@ -574,7 +574,7 @@ export const en: Record<string, unknown> = {
     meeting_save_failed: 'Failed to save meeting',
     transcript_engine_failed: 'Transcription failed, switching to fallback',
     model_load_failed: 'Model failed to load, please redownload',
-    file_too_large: 'File too large (max 50MB)',
+    file_too_large: 'File too large (max 5 GB)',
     unsupported_format: 'Unsupported audio format',
     model_download_failed: 'Model download failed, please check connection',
     recording_in_progress: 'Recording in progress. Please stop first.',

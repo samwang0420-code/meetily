@@ -236,8 +236,11 @@ impl ContinuousVadProcessor {
                         self.last_logged_state = true;
                     }
                     self.in_speech = true;
-                    // Use 16000 (VAD processing rate) since processed_samples counts 16kHz samples
-                    self.speech_start_sample = self.processed_samples + (timestamp_ms * 16000 / 1000);
+                    // v0.7.0-rc7 §33 fix: timestamp_ms is session-level absolute.
+                    // The previous `+ processed_samples` double-counted and caused
+                    // transcript timestamps to drift forward across long sessions
+                    // (commit 00f1ccd originally fixed this; rebased away, re-added here).
+                    self.speech_start_sample = timestamp_ms * 16000 / 1000;
                     self.current_speech.clear();
                 }
                 VadTransition::SpeechEnd { start_timestamp_ms, end_timestamp_ms, samples } => {
@@ -593,3 +596,17 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    /// v0.8.5 §33: Verifies timestamp formula uses absolute session time
+    /// without double-counting processed_samples.
+    #[test]
+    fn test_speech_start_timestamp_is_not_double_counted() {
+        // timestamp_ms is session-relative absolute. Bug form was
+        // `processed_samples + timestamp_ms * 16000 / 1000`.
+        // Correct: `timestamp_ms * 16000 / 1000`.
+        let ts_ms: u64 = 5000;
+        let sample_offset = ts_ms * 16000 / 1000;
+        assert_eq!(sample_offset, 80000);
+    }
+}

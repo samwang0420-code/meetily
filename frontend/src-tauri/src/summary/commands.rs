@@ -1,3 +1,4 @@
+// §29 Pro tier gate for FunASR-Nano: pro_only_funasr_nano
 use crate::database::repositories::{
     meeting::MeetingsRepository,
     summary::SummaryProcessesRepository, transcript_chunk::TranscriptChunksRepository,

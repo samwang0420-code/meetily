@@ -324,6 +324,14 @@ impl SherpaDaemon {
 
 pub static SHERPA_DAEMON: Lazy<SherpaDaemon> = Lazy::new(SherpaDaemon::new);
 
+/// v0.8.5 §23: Public shutdown entry point for stop_recording / RunEvent::Exit.
+/// Kills the Python child + clears the singleton so next call respawns.
+pub fn shutdown_global_daemon() {
+    info!("[sherpa] shutdown_global_daemon requested");
+    // Lazy<SherpaDaemon> — call shutdown_blocking() on the singleton.
+    let _ = SHERPA_DAEMON.shutdown_blocking();
+}
+
 pub fn global() -> &'static SherpaDaemon {
     &SHERPA_DAEMON
 }
