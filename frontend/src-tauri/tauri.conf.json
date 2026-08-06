@@ -100,7 +100,8 @@
         "macOS": {
             "entitlements": "entitlements.plist",
             "signingIdentity": "-",
-            "hardenedRuntime": true
+            "hardenedRuntime": true,
+            "bundleName": "言镜 AI"
         },
         "windows": {
             "signCommand": "powershell -ExecutionPolicy Bypass -File scripts/sign-windows.ps1 -FilePath %1"

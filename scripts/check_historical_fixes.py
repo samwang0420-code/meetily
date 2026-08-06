@@ -243,6 +243,29 @@ ANCHORS = [
     ("p2c_live_qa_mounted",
      "frontend/src/app/meeting-details/page.tsx",
      r"LiveQAOverlay"),
+
+    # §90 app name: tauri.conf.json bundleName + Info.plist CFBundleDisplayName 都是 言镜 AI
+    ("90_app_name_bundle",
+     "frontend/src-tauri/tauri.conf.json",
+     r'"bundleName": "言镜 AI"'),
+    ("90_app_name_info_plist",
+     "frontend/src-tauri/Info.plist",
+     r"CFBundleDisplayName|言镜 AI"),
+
+    # §90 transcript model: v0.8+ 列表 (FunASR-Nano 947MB / SenseVoice 228MB / Paraformer 216MB)
+    ("90_transcript_models_v08",
+     "frontend/src/hooks/useTranscriptionModels.ts",
+     r"947MB|216MB|228MB"),
+
+    # §90 summary models: 隐藏未下载, 默认只显示 available
+    ("90_summary_models_filter",
+     "frontend/src/components/BuiltInModelManager.tsx",
+     r"showAllModels|not_downloaded"),
+
+    # §90 pricing scroll: main 加 h-screen overflow-y-auto
+    ("90_pricing_page_scroll",
+     "frontend/src/components/MainContent/index.tsx",
+     r"h-screen overflow-y-auto"),
 ]
 
 

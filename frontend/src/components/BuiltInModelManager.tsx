@@ -49,6 +49,8 @@ export function BuiltInModelManager({
   const [downloadProgressInfo, setDownloadProgressInfo] = useState<Record<string, DownloadProgressInfo>>({});
   const { t } = useTranslation();
   const [downloadingModels, setDownloadingModels] = useState<Set<string>>(new Set());
+  // §90: 默认隐藏未下载模型, 用户要"显示所有"才展开下载列表
+  const [showAllModels, setShowAllModels] = useState<boolean>(false);
 
   const fetchModels = async () => {
     try {
@@ -284,13 +286,36 @@ export function BuiltInModelManager({
         <h4 className="text-sm font-bold">内置 AI 模型</h4>
       </div>
 
+      <div className="mb-3 flex items-center justify-between text-xs text-neutral-500">
+        <span>
+          {showAllModels
+            ? t('models.showing_all')
+            : t('models.showing_available')}
+        </span>
+        <button
+          onClick={() => setShowAllModels((v) => !v)}
+          className="text-blue-600 hover:underline"
+          data-testid="toggle-show-all-models"
+        >
+          {showAllModels
+            ? t('models.hide_undownloaded')
+            : t('models.show_undownloaded')}
+        </button>
+      </div>
       <div
         className={cn(
           'grid gap-4',
           layout === 'dialog' && 'max-h-[50vh] overflow-y-auto pr-2 pb-2'
         )}
       >
-        {models.map((model) => {
+        {models
+          .filter((m) => {
+            // §90: 默认只显示已下载 (available / downloading / corrupted / error)
+            // 不显示 not_downloaded 直到用户点 "显示所有"
+            if (showAllModels) return true;
+            return m.status.type !== 'not_downloaded';
+          })
+          .map((model) => {
           const progress = downloadProgress[model.name];
           const progressInfo = downloadProgressInfo[model.name];
           const modelIsDownloading = downloadingModels.has(model.name);

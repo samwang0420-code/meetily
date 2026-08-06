@@ -203,10 +203,10 @@ export function TranscriptSettings({
                         <div className="mt-6 p-4 bg-blue-50 rounded-lg">
                             <p className="text-sm text-blue-900">
                                 ✅ sherpa-onnx 模型自动从 <code className="bg-white px-1 rounded">~/Library/Application Support/cn.lixianhuiji.app/models/sherpa/</code> 加载,
-                                无需额外下载。当前已安装: SenseVoice-zh INT8 (228MB) + Paraformer-zh INT8 (217MB)。
+                                无需额外下载。当前已安装: SenseVoice-zh INT8 (228MB) + Paraformer-zh INT8 (216MB) + FunASR-Nano (947MB, Pro 专属)。
                             </p>
                             <p className="text-xs text-blue-700 mt-2">
-                                模型由 daemon 自动发现, 切到 ✨ SenseVoice-zh 立即可用。
+                                v0.8+ 默认推荐 ✨ SenseVoice-zh (按句切 + 字级 timestamp), 中文 SOTA 体验最好。
                             </p>
                         </div>
                     )}
