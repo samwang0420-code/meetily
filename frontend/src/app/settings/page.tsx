@@ -8,6 +8,7 @@ import { motion } from 'framer-motion';
 import { TranscriptSettings } from '@/components/TranscriptSettings';
 import { RecordingSettings } from '@/components/RecordingSettings';
 import { PreferenceSettings } from '@/components/PreferenceSettings';
+import { ObsidianSettings } from '@/components/ObsidianSettings';
 import { SummaryModelSettings } from '@/components/SummaryModelSettings';
 import { BetaSettings } from '@/components/BetaSettings';
 import { HardwareStatusBadge } from '@/components/HardwareProfile/HardwareStatusBadge';
@@ -133,6 +134,7 @@ export default function SettingsPage() {
 
             <TabsContent value="general">
               <PreferenceSettings />
+              <ObsidianSettings />
             </TabsContent>
             <TabsContent value="recording">
               <RecordingSettings />

@@ -58,6 +58,7 @@ pub mod user;
 pub mod whisper_engine;
 
 pub mod hardware;
+pub mod obsidian_export;
 
 use audio::{list_audio_devices, AudioDevice, trigger_audio_permission};
 use log::{error as log_error, info as log_info};
@@ -571,6 +572,12 @@ pub fn run() {
             hardware::device_detect_profile,
             hardware::device_current_memory_mb,
             hardware::device_memory_pressure,
+
+            // §P0-B Obsidian vault 写入
+            obsidian_export::api_obsidian_get_settings,
+            obsidian_export::api_obsidian_set_settings,
+            obsidian_export::api_obsidian_export_meeting,
+            obsidian_export::api_obsidian_preview_markdown,
 
             // 离线会记 v0.5.0: 用户/会员管理
             user::commands::user_register,

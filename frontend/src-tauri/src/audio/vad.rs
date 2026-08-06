@@ -597,7 +597,7 @@ mod tests {
 }
 
 #[cfg(test)]
-mod tests {
+mod timestamp_tests_v33 {
     /// v0.8.5 §33: Verifies timestamp formula uses absolute session time
     /// without double-counting processed_samples.
     #[test]
