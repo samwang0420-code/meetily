@@ -89,6 +89,21 @@ ANCHORS = [
      "frontend/src/contexts/ConfigContext.tsx",
      r"funasr-nano-zh"),
 
+    # §79 P0-A Phase 2: topic graph LLM extract via BuiltInAI spawn
+    ("79_topic_graph_llm_extract_spawn",
+     "frontend/src-tauri/src/topic_graph/mod.rs",
+     r"trigger_after_summary"),
+
+    # §79 P0-A: summary service spawn topic graph extract
+    ("79_topic_graph_spawn_in_service",
+     "frontend/src-tauri/src/summary/service.rs",
+     r"crate::topic_graph::trigger_after_summary"),
+
+    # §79 P0-A: prompt builder still 1:1 (no regression)
+    ("79_topic_extract_prompt_intact",
+     "frontend/src-tauri/src/topic_graph/extract.rs",
+     r"PROMPT_INSTRUCTIONS|逐行 JSON"),
+
     # §15: Rust integration tests under #[cfg(test)]
     ("15_rust_tests_compile",
      "frontend/src-tauri/src/audio/transcription/worker.rs",

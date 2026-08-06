@@ -25,8 +25,10 @@ use sqlx::SqlitePool;
 use tauri::{Manager, Runtime, State};
 
 use crate::state::AppState;
+use crate::summary::llm_client::{generate_summary, LLMProvider};
 
 pub use extract::{ExtractedTopic, ExtractPromptBuilder, parse_extract_response};
+
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TopicNode {
@@ -267,6 +269,108 @@ pub async fn api_topic_get_dossier<R: Runtime>(
     let pool = state.db_manager.pool();
     get_topic_dossier(pool, topic_id).await
 }
+
+
+// ============== Phase 2: spawn hook (LLM extract + DB link) ==============
+
+/// 摘要完成时由 summary/service.rs spawn 调用.
+/// 实际调 BuiltInAI (Qwen 3.5 2B) 提取 topic, upsert 进 topic_node + link meeting_episode_node.
+/// 失败 / 用户没启用 LLM / 模型尚未下载 都 swallow log, 永不 panic.
+pub async fn trigger_after_summary<R: Runtime>(
+    #[allow(unused_variables)] app: tauri::AppHandle<R>,
+    pool: SqlitePool,
+    meeting_id: String,
+    summary_markdown: String,
+) {
+    log::info!("[topic_graph] spawn for meeting={} (summary={} chars)", meeting_id, summary_markdown.len());
+
+    // 1) Dedup: 已经 link 过 episode 的 meeting 不再提取.
+    let already: Option<i64> = sqlx::query_scalar(
+        "SELECT 1 FROM meeting_episode_node WHERE meeting_id = ?1 LIMIT 1",
+    )
+    .bind(&meeting_id)
+    .fetch_optional(&pool)
+    .await
+    .ok()
+    .flatten();
+    if already.is_some() {
+        log::info!("[topic_graph] {meeting_id} already has episodes, skip extract");
+        return;
+    }
+
+    // 2) 摘要太短 (< 50 字) 不提取, 提示用户开会时间太短.
+    if summary_markdown.trim().len() < 50 {
+        log::info!("[topic_graph] {meeting_id} summary too short, skip");
+        return;
+    }
+
+    // 3) Build prompt.
+    let prompt = ExtractPromptBuilder::build(&summary_markdown);
+
+    // 4) Call BuiltInAI (best-effort). 失败仅 log warn, 不影响主流程.
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(120))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+    let response = match generate_summary(
+        &client,
+        &LLMProvider::BuiltInAI,
+        "qwen3.5:2b",
+        "",          // api_key unused for BuiltInAI
+        "",          // system_prompt (instructions already in user prompt)
+        &prompt,
+        None,        // ollama_endpoint
+        None,        // custom_openai_endpoint
+        Some(800),   // max_tokens (per AGENTS.md §52)
+        None,        // temperature
+        None,        // top_p
+        None,        // app_data_dir (BuiltInAI uses platform default)
+        None,        // cancellation_token
+    )
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            log::warn!("[topic_graph] {meeting_id} llm extract failed: {e} (skip)");
+            return;
+        }
+    };
+
+    // 5) Parse response.
+    let topics = parse_extract_response(&response);
+    if topics.is_empty() {
+        log::info!("[topic_graph] {meeting_id} parsed 0 topics");
+        return;
+    }
+    log::info!("[topic_graph] {meeting_id} parsed {} topics", topics.len());
+
+    // 6) Upsert topic_node + link meeting_episode_node (cap 8 per meeting).
+    let mut linked = 0usize;
+    for t in topics.into_iter().take(8) {
+        let topic_type = if matches!(t.topic_type.as_str(), "general" | "project" | "person" | "decision") {
+            t.topic_type
+        } else {
+            "general".to_string()
+        };
+        let sentiment = if matches!(t.sentiment.as_str(), "positive" | "negative" | "neutral") {
+            t.sentiment
+        } else {
+            "neutral".to_string()
+        };
+        match upsert_topic(&pool, &t.canonical_name, &topic_type).await {
+            Ok((tid, _created)) => {
+                if let Err(e) = link_meeting(&pool, tid, &meeting_id, Some(&t.excerpt), &sentiment).await {
+                    log::warn!("[topic_graph] link_meeting failed for tid={tid}: {e}");
+                } else {
+                    linked += 1;
+                }
+            }
+            Err(e) => log::warn!("[topic_graph] upsert_topic failed for '{}': {e}", t.canonical_name),
+        }
+    }
+    log::info!("[topic_graph] {meeting_id} linked {linked} episodes to topic_node");
+}
+
 
 #[cfg(test)]
 mod tests {

@@ -695,6 +695,14 @@ impl SummaryService {
                     tokio::spawn(async move {
                         obsidian_export::trigger_after_summary(obs_app, obs_pool, obs_meeting_id).await;
                     });
+                    // §P0-A Phase 2: summary completed -> spawn topic graph extract + link
+                    let tg_app = app.clone();
+                    let tg_pool = pool.clone();
+                    let tg_meeting_id = meeting_id.clone();
+                    let tg_summary = final_markdown.clone();
+                    tokio::spawn(async move {
+                        crate::topic_graph::trigger_after_summary(tg_app, tg_pool, tg_meeting_id, tg_summary).await;
+                    });
                 }
             }
             Err(e) => {
