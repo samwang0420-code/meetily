@@ -703,6 +703,13 @@ impl SummaryService {
                     tokio::spawn(async move {
                         crate::topic_graph::trigger_after_summary(tg_app, tg_pool, tg_meeting_id, tg_summary).await;
                     });
+                    // §P2-A: 摘要完成 -> spawn action_items 表写入
+                    let ai_app = app.clone();
+                    let ai_pool = pool.clone();
+                    let ai_meeting_id = meeting_id.clone();
+                    tokio::spawn(async move {
+                        crate::action_items::extract_action_items_from_summary(ai_app, ai_pool, ai_meeting_id).await;
+                    });
                 }
             }
             Err(e) => {

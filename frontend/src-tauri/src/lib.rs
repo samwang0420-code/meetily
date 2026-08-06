@@ -58,6 +58,7 @@ pub mod user;
 pub mod whisper_engine;
 
 pub mod hardware;
+pub mod action_items;
 pub mod obsidian_export;
 pub mod topic_graph;
 
@@ -574,11 +575,17 @@ pub fn run() {
             hardware::device_current_memory_mb,
             hardware::device_memory_pressure,
 
+            // §P0-A 跨会议知识图谱 (Phase 1 §78 + Phase 2 §79)
+            topic_graph::api_topic_search,
+            topic_graph::api_topic_get_dossier,
             // §P0-B Obsidian vault 写入
             obsidian_export::api_obsidian_get_settings,
             obsidian_export::api_obsidian_set_settings,
             obsidian_export::api_obsidian_export_meeting,
             obsidian_export::api_obsidian_preview_markdown,
+            // §P2-A 行动项可点击完成
+            action_items::api_action_item_list,
+            action_items::api_action_item_toggle,
 
             // 离线会记 v0.5.0: 用户/会员管理
             user::commands::user_register,

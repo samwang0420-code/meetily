@@ -104,6 +104,31 @@ ANCHORS = [
      "frontend/src-tauri/src/topic_graph/extract.rs",
      r"PROMPT_INSTRUCTIONS|逐行 JSON"),
 
+    # §81 P2-A: action_items table migration
+    ("81_action_items_migration",
+     "frontend/src-tauri/migrations/20260807000000_action_items.sql",
+     r"CREATE TABLE IF NOT EXISTS action_items"),
+
+    # §81 P2-A: action_items mod.rs exists with toggle fn
+    ("81_action_items_module",
+     "frontend/src-tauri/src/action_items/mod.rs",
+     r"pub async fn toggle_action_item"),
+
+    # §81 P2-A: ActionItemsList frontend component
+    ("81_action_items_ui",
+     "frontend/src/components/MeetingDetails/ActionItemsList.tsx",
+     r"api_action_item_toggle"),
+
+    # §81 P2-A: invoke_handler registers action_items commands
+    ("81_action_items_commands_registered",
+     "frontend/src-tauri/src/lib.rs",
+     r"action_items::api_action_item_(list|toggle)"),
+
+    # §78 fix P0-A: topic_graph commands also must be registered (was missed in §78)
+    ("78_topic_graph_commands_registered",
+     "frontend/src-tauri/src/lib.rs",
+     r"topic_graph::api_topic_"),
+
     # §15: Rust integration tests under #[cfg(test)]
     ("15_rust_tests_compile",
      "frontend/src-tauri/src/audio/transcription/worker.rs",

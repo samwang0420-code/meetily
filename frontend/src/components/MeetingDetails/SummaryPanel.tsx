@@ -7,6 +7,7 @@ import { BlockNoteSummaryView, BlockNoteSummaryViewRef } from '@/components/AISu
 import { EmptyStateSummary } from '@/components/EmptyStateSummary';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 import { SummaryGeneratorButtonGroup } from './SummaryGeneratorButtonGroup';
+import { ActionItemsList } from './ActionItemsList';
 import { SummaryUpdaterButtonGroup } from './SummaryUpdaterButtonGroup';
 import Analytics from '@/lib/analytics';
 import { useEffect, useRef, useState, RefObject } from 'react';
@@ -444,11 +445,7 @@ export function SummaryPanel({
                 </div>
                 <div className="bg-white p-4 rounded-lg shadow-sm mt-4">
                   <h4 className="font-medium mb-1">{t('summary.action_items')}</h4>
-                  <ul className="list-disc pl-4">
-                    {summaryResponse.summary.action_items.blocks.map((block, i) => (
-                      <li key={i} className="text-sm">{block.content}</li>
-                    ))}
-                  </ul>
+                  <ActionItemsList meetingId={meeting.id} />
                 </div>
                 <div className="bg-white p-4 rounded-lg shadow-sm mt-4">
                   <h4 className="font-medium mb-1">{t('summary.decisions')}</h4>
