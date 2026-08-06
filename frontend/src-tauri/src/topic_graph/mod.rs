@@ -1,0 +1,284 @@
+// §P0-A 跨会议知识图谱 (Phase 1: schema + DB CRUD + Tauri command + LLM extract 骨架)
+//
+// 4 张表 (see migration 20260806000001):
+//   topic_node              — 持久化 topic 实体 (canonical_name 去重)
+//   meeting_episode_node    — 单场会议对某 topic 的提及 (excerpt + sentiment)
+//   relates_to              — topic 之间的关系 (related / causes / supersedes / ...)
+//   topic_dossier           — topic 的累积状态 (status / summary / open_questions)
+//
+// Phase 1 范围:
+//   - 纯函数 LLM extract 骨架 (extract.rs) — 不实际调 LLM, 仅 prompt + JSON 解析
+//   - DB CRUD: upsert_topic, link_meeting, search_topics, get_topic_dossier
+//   - Tauri command: api_topic_search(query, limit) 返 [{name, mention_count, last_decided, sample_excerpts}]
+//
+// Phase 2 后续 (估时 5-10 天):
+//   - service.rs 摘要完成时 spawn extract_and_link
+//   - LLM 调 BuiltInAI (Qwen 3.5 2B) 实际提取
+//   - topic_dossier 夜间增量 rebuild
+//   - 会议开始时弹"⏮ 7/15 讨论过 Topic X, 当时状态 Y"
+
+pub mod extract;
+
+use chrono::Utc;
+use serde::{Deserialize, Serialize};
+use sqlx::SqlitePool;
+use tauri::{Manager, Runtime, State};
+
+use crate::state::AppState;
+
+pub use extract::{ExtractedTopic, ExtractPromptBuilder, parse_extract_response};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopicNode {
+    pub id: i64,
+    pub canonical_name: String,
+    pub topic_type: String,
+    pub first_seen_at: String,
+    pub last_touched_at: String,
+    pub mention_count: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeetingEpisode {
+    pub id: i64,
+    pub topic_id: i64,
+    pub meeting_id: String,
+    pub excerpt: Option<String>,
+    pub sentiment: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopicSearchHit {
+    pub topic_id: i64,
+    pub canonical_name: String,
+    pub topic_type: String,
+    pub mention_count: i64,
+    pub last_touched_at: String,
+    pub last_decided: Option<String>,
+    pub status: Option<String>,
+    pub sample_excerpts: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TopicDossier {
+    pub topic_id: i64,
+    pub canonical_name: String,
+    pub status: String,
+    pub summary: Option<String>,
+    pub open_questions: Option<String>,
+    pub last_decided: Option<String>,
+    pub last_updated_at: String,
+    pub rebuild_count: i64,
+    pub episodes: Vec<MeetingEpisode>,
+}
+
+// ============== DB CRUD ==============
+
+/// 规范化 topic 名: lowercase + 去除多余空白 + 去除常见标点, 用于 dedupe.
+/// 例: "API 限流" -> "api 限流", "API 限流!" -> "api 限流"
+pub fn normalize_topic_name(name: &str) -> String {
+    name.trim()
+        .to_lowercase()
+        .chars()
+        .map(|c| if c.is_alphanumeric() || (c >= '\u{4e00}' && c <= '\u{9fff}') || c.is_whitespace() { c } else { ' ' })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// upsert 一条 topic (canonical_name 唯一), 返 (id, was_created)
+pub async fn upsert_topic(pool: &SqlitePool, canonical_name: &str, topic_type: &str) -> Result<(i64, bool), String> {
+    let now = Utc::now().to_rfc3339();
+    let normalized = normalize_topic_name(canonical_name);
+    if normalized.is_empty() {
+        return Err("empty topic name".to_string());
+    }
+    // Try insert
+    let inserted = sqlx::query(
+        "INSERT OR IGNORE INTO topic_node (canonical_name, topic_type, first_seen_at, last_touched_at, mention_count) \
+         VALUES (?1, ?2, ?3, ?3, 1)",
+    )
+    .bind(&normalized)
+    .bind(topic_type)
+    .bind(&now)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("upsert_topic insert: {e}"))?;
+    if inserted.rows_affected() == 1 {
+        let id: i64 = sqlx::query_scalar("SELECT id FROM topic_node WHERE canonical_name = ?1")
+            .bind(&normalized)
+            .fetch_one(pool)
+            .await
+            .map_err(|e| format!("upsert_topic fetch id: {e}"))?;
+        return Ok((id, true));
+    }
+    // Conflict -> bump mention_count + last_touched_at
+    sqlx::query(
+        "UPDATE topic_node SET mention_count = mention_count + 1, last_touched_at = ?1 WHERE canonical_name = ?2",
+    )
+    .bind(&now)
+    .bind(&normalized)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("upsert_topic update: {e}"))?;
+    let id: i64 = sqlx::query_scalar("SELECT id FROM topic_node WHERE canonical_name = ?1")
+        .bind(&normalized)
+        .fetch_one(pool)
+        .await
+        .map_err(|e| format!("upsert_topic fetch id 2: {e}"))?;
+    Ok((id, false))
+}
+
+/// 链接 meeting 到 topic (幂等, UNIQUE(topic_id, meeting_id))
+pub async fn link_meeting(
+    pool: &SqlitePool,
+    topic_id: i64,
+    meeting_id: &str,
+    excerpt: Option<&str>,
+    sentiment: &str,
+) -> Result<(), String> {
+    sqlx::query(
+        "INSERT OR IGNORE INTO meeting_episode_node (topic_id, meeting_id, excerpt, sentiment) \
+         VALUES (?1, ?2, ?3, ?4)",
+    )
+    .bind(topic_id)
+    .bind(meeting_id)
+    .bind(excerpt)
+    .bind(sentiment)
+    .execute(pool)
+    .await
+    .map_err(|e| format!("link_meeting: {e}"))?;
+    Ok(())
+}
+
+/// 搜索 topic (LIKE 模糊匹配), 返 mention_count 排序, 带 sample_excerpts (前 3 段)
+pub async fn search_topics(
+    pool: &SqlitePool,
+    query: &str,
+    limit: usize,
+) -> Result<Vec<TopicSearchHit>, String> {
+    let like = format!("%{}%", normalize_topic_name(query));
+    let limit = limit.min(50) as i64;
+    let topics: Vec<(i64, String, String, i64, String, Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT t.id, t.canonical_name, t.topic_type, t.mention_count, t.last_touched_at, \
+                d.last_decided, d.status \
+         FROM topic_node t LEFT JOIN topic_dossier d ON d.topic_id = t.id \
+         WHERE t.canonical_name LIKE ?1 \
+         ORDER BY t.mention_count DESC, t.last_touched_at DESC LIMIT ?2",
+    )
+    .bind(&like)
+    .bind(limit)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("search_topics query: {e}"))?;
+    let mut hits = Vec::new();
+    for (id, name, ty, count, last_touch, decided, status) in topics {
+        let excerpts: Vec<Option<String>> = sqlx::query_scalar(
+            "SELECT excerpt FROM meeting_episode_node WHERE topic_id = ?1 \
+             AND excerpt IS NOT NULL ORDER BY created_at DESC LIMIT 3",
+        )
+        .bind(id)
+        .fetch_all(pool)
+        .await
+        .map_err(|e| format!("search_topics excerpts: {e}"))?;
+        let sample = excerpts.into_iter().flatten().collect();
+        hits.push(TopicSearchHit {
+            topic_id: id,
+            canonical_name: name,
+            topic_type: ty,
+            mention_count: count,
+            last_touched_at: last_touch,
+            last_decided: decided,
+            status,
+            sample_excerpts: sample,
+        });
+    }
+    Ok(hits)
+}
+
+pub async fn get_topic_dossier(pool: &SqlitePool, topic_id: i64) -> Result<Option<TopicDossier>, String> {
+    let topic: Option<(i64, String)> = sqlx::query_as("SELECT id, canonical_name FROM topic_node WHERE id = ?1")
+        .bind(topic_id)
+        .fetch_optional(pool)
+        .await
+        .map_err(|e| format!("get_topic_dossier topic: {e}"))?;
+    let (id, name) = match topic {
+        Some(t) => t,
+        None => return Ok(None),
+    };
+    let dossier: Option<(String, Option<String>, Option<String>, Option<String>, String, i64)> = sqlx::query_as(
+        "SELECT status, summary, open_questions, last_decided, last_updated_at, rebuild_count \
+         FROM topic_dossier WHERE topic_id = ?1",
+    )
+    .bind(id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("get_topic_dossier dossier: {e}"))?;
+    let (status, summary, questions, decided, updated, rebuild) = dossier
+        .unwrap_or_else(|| ("open".to_string(), None, None, None, Utc::now().to_rfc3339(), 0));
+    let episodes: Vec<(i64, i64, String, Option<String>, String, String)> = sqlx::query_as(
+        "SELECT id, topic_id, meeting_id, excerpt, sentiment, created_at \
+         FROM meeting_episode_node WHERE topic_id = ?1 ORDER BY created_at DESC",
+    )
+    .bind(id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("get_topic_dossier episodes: {e}"))?;
+    let episodes = episodes
+        .into_iter()
+        .map(|(eid, tid, mid, exc, sent, ts)| MeetingEpisode {
+            id: eid, topic_id: tid, meeting_id: mid, excerpt: exc, sentiment: sent, created_at: ts,
+        })
+        .collect();
+    Ok(Some(TopicDossier {
+        topic_id: id,
+        canonical_name: name,
+        status,
+        summary,
+        open_questions: questions,
+        last_decided: decided,
+        last_updated_at: updated,
+        rebuild_count: rebuild,
+        episodes,
+    }))
+}
+
+// ============== Tauri commands ==============
+
+#[tauri::command]
+pub async fn api_topic_search<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    query: String,
+    limit: Option<usize>,
+) -> Result<Vec<TopicSearchHit>, String> {
+    let state: State<'_, AppState> = app.state();
+    let pool = state.db_manager.pool();
+    search_topics(pool, &query, limit.unwrap_or(20)).await
+}
+
+#[tauri::command]
+pub async fn api_topic_get_dossier<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    topic_id: i64,
+) -> Result<Option<TopicDossier>, String> {
+    let state: State<'_, AppState> = app.state();
+    let pool = state.db_manager.pool();
+    get_topic_dossier(pool, topic_id).await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_normalize_topic_name() {
+        assert_eq!(normalize_topic_name("API 限流"), "api 限流");
+        assert_eq!(normalize_topic_name("  API  限流!  "), "api 限流");
+        assert_eq!(normalize_topic_name("Q3 OKR"), "q3 okr");
+        assert_eq!(normalize_topic_name(""), "");
+        // 标点 + 空白归一
+        assert_eq!(normalize_topic_name("API限流（性能）"), "api限流 性能");
+    }
+}
