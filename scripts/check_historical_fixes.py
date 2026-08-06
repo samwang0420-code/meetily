@@ -154,6 +154,26 @@ ANCHORS = [
      "frontend/src/components/TopicSearch/TopicSearchModal.tsx",
      r"api_topic_rebuild_dossier"),
 
+    # §P1-B: speaker aliases migration
+    ("p1b_speaker_aliases_migration",
+     "frontend/src-tauri/migrations/20260807000001_speaker_aliases.sql",
+     r"CREATE TABLE IF NOT EXISTS speaker_aliases"),
+
+    # §P1-B: speaker_aliases backend module + set_alias
+    ("p1b_speaker_aliases_backend",
+     "frontend/src-tauri/src/speaker_aliases/mod.rs",
+     r"pub async fn set_alias"),
+
+    # §P1-B: speaker commands registered
+    ("p1b_speaker_commands",
+     "frontend/src-tauri/src/lib.rs",
+     r"speaker_aliases::api_speaker_alias_(list|set)"),
+
+    # §P1-B: SpeakerRosterDrawer exists
+    ("p1b_speaker_roster_drawer",
+     "frontend/src/components/SpeakerRoster/SpeakerRosterDrawer.tsx",
+     r"api_speaker_alias_set"),
+
     # §78 fix P0-A: topic_graph commands also must be registered (was missed in §78)
     ("78_topic_graph_commands_registered",
      "frontend/src-tauri/src/lib.rs",

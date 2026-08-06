@@ -573,6 +573,22 @@ export const zh: Record<string, unknown> = {
     select_model_placeholder: '请选择模型',
   },
 
+  speaker: {
+    title: '说话人名单',
+    hint: 'MVP: 在此为当前会议的 cam++ speaker_X 起名. 跨会议声音追踪会在完整版上线.',
+    label_placeholder: '例如: 王伟 / 张总 / 客户A',
+    save: '保存',
+    saving: '保存中…',
+    clear: '清除',
+    saved: '已设',
+    empty: '尚未命名任何说话人',
+    load_failed: '加载说话人名单失败: {{error}}',
+    save_success: '已命名 {{speaker}}',
+    save_failed: '保存失败: {{error}}',
+    delete_failed: '清除失败: {{error}}',
+    total_saved: '共 {{count}} 个 alias',
+    footer_note: '下次重录同会议时, 命名自动 apply.',
+  },
   errors: {
     unknown: '出现未知错误',
     generic: '操作失败,请重试',

@@ -60,6 +60,7 @@ pub mod whisper_engine;
 pub mod hardware;
 pub mod action_items;
 pub mod obsidian_export;
+pub mod speaker_aliases;
 pub mod topic_graph;
 
 use audio::{list_audio_devices, AudioDevice, trigger_audio_permission};
@@ -588,6 +589,9 @@ pub fn run() {
             // §P2-A 行动项可点击完成
             action_items::api_action_item_list,
             action_items::api_action_item_toggle,
+            // §P1-B speaker alias (MVP)
+            speaker_aliases::api_speaker_alias_list,
+            speaker_aliases::api_speaker_alias_set,
 
             // 离线会记 v0.5.0: 用户/会员管理
             user::commands::user_register,
