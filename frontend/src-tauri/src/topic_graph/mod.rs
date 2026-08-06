@@ -22,7 +22,7 @@ pub mod extract;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
-use tauri::{Manager, Runtime, State};
+use tauri::{Emitter, Manager, Runtime, State};
 
 use crate::state::AppState;
 use crate::summary::llm_client::{generate_summary, LLMProvider};
@@ -328,6 +328,18 @@ pub async fn api_topic_search<R: Runtime>(
 }
 
 #[tauri::command]
+pub async fn api_topic_rebuild_dossier<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    topic_id: i64,
+) -> Result<(), String> {
+    let pool = {
+        let state: State<'_, AppState> = app.state();
+        state.db_manager.pool().clone()
+    };
+    rebuild_topic_dossier(app, pool, topic_id).await
+}
+
+#[tauri::command]
 pub async fn api_topic_get_dossier<R: Runtime>(
     app: tauri::AppHandle<R>,
     topic_id: i64,
@@ -452,4 +464,127 @@ mod tests {
         // 标点 + 空白归一
         assert_eq!(normalize_topic_name("API限流（性能）"), "api限流 性能");
     }
+}
+
+
+// ============== §P2-B Topic dossier 重建 ==============
+
+/// 跨会议知识图谱的累积 dossier 重建.
+/// 拉取某 topic 所有 episode + sample excerpts, 调 BuiltInAI 合成
+/// summary / open_questions / last_decided, 写回 topic_dossier.
+/// 失败 swallow log warn, never panic.
+pub async fn rebuild_topic_dossier<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    pool: SqlitePool,
+    topic_id: i64,
+) -> Result<(), String> {
+    // 1) topic name
+    let canonical: Option<(String,)> = sqlx::query_as(
+        "SELECT canonical_name FROM topic_node WHERE id = ?1",
+    )
+    .bind(topic_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| format!("rebuild_topic_dossier name: {e}"))?;
+    let canonical = match canonical {
+        Some(t) => t.0,
+        None => return Err(format!("topic {topic_id} not found")),
+    };
+
+    // 2) aggregate all episodes (limit 64 latest) excerpts into a single input
+    let rows: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT meeting_id, COALESCE(excerpt, ''), sentiment          FROM meeting_episode_node WHERE topic_id = ?1          ORDER BY created_at DESC LIMIT 64",
+    )
+    .bind(topic_id)
+    .fetch_all(&pool)
+    .await
+    .map_err(|e| format!("rebuild_topic_dossier eps: {e}"))?;
+    if rows.is_empty() {
+        log::info!("[topic_graph] rebuild {} no episodes", canonical);
+        return Ok(());
+    }
+    let mut body = String::new();
+    body.push_str(&format!("主题: {canonical}\n\n跨会议片段 (新→旧, 最多 64 条):\n\n"));
+    for (mid, exc, sent) in rows.iter().rev() {
+        body.push_str(&format!(
+            "[meeting={} sentiment={}] {}\n",
+            &mid[..12.min(mid.len())],
+            sent,
+            exc.chars().take(140).collect::<String>()
+        ));
+    }
+
+    // 3) prompt LLM
+    const DOSSIER_PROMPT_INSTRUCTIONS: &str = r#"你是跨会议知识助手。
+
+请基于下面提供的历史会议片段, 用中文输出三段, 每段不超过 80 字:
+ 1. summary - 这个主题的累积背景 (只描述新进展)
+ 2. open_questions - 仍未解决的问题 (没有就写 "无待解决问题")
+ 3. last_decided - 上次明确做出的决议 (没有就写 "尚无决议")
+
+三段用一行 --- 分隔, 不要 markdown 标题, 不要其他废话."#;
+    let prompt = format!("{DOSSIER_PROMPT_INSTRUCTIONS}{body}");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(180))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+
+    let response = match generate_summary(
+        &client,
+        &LLMProvider::BuiltInAI,
+        "qwen3.5:2b",
+        "",
+        "",
+        &prompt,
+        None, None,
+        Some(400),
+        None, None, None, None,
+    )
+    .await
+    {
+        Ok(s) => s,
+        Err(e) => {
+            log::warn!("[topic_graph] dossier LLM failed for {topic_id}: {e}");
+            return Ok(()); // swallow
+        }
+    };
+
+    // 4) parse 3 sections split by "---"
+    let mut sections = response.splitn(3, "\n---\n");
+    let summary = sections.next().unwrap_or("").trim().to_string();
+    let open_q = sections.next().unwrap_or("").trim().to_string();
+    let last_dec = sections.next().unwrap_or("").trim().to_string();
+    if summary.is_empty() && open_q.is_empty() && last_dec.is_empty() {
+        log::info!("[topic_graph] dossier LLM returned empty for {topic_id}");
+        return Ok(());
+    }
+    let now = Utc::now().to_rfc3339();
+
+    sqlx::query(
+        "INSERT INTO topic_dossier (topic_id, status, summary, open_questions, last_decided, last_updated_at, rebuild_count)          VALUES (?1, 'open', ?2, ?3, ?4, ?5, 1)          ON CONFLICT(topic_id) DO UPDATE SET            summary = excluded.summary,            open_questions = excluded.open_questions,            last_decided = excluded.last_decided,            last_updated_at = excluded.last_updated_at,            rebuild_count = topic_dossier.rebuild_count + 1",
+    )
+    .bind(topic_id)
+    .bind(&summary)
+    .bind(&open_q)
+    .bind(&last_dec)
+    .bind(&now)
+    .execute(&pool)
+    .await
+    .map_err(|e| format!("rebuild_topic_dossier upsert: {e}"))?;
+
+    log::info!(
+        "[topic_graph] dossier rebuilt tid={} ({}) summary={}c openq={}c decided={}c",
+        topic_id,
+        canonical,
+        summary.len(),
+        open_q.len(),
+        last_dec.len()
+    );
+
+    let _ = app.emit(
+        "topic-dossier-updated",
+        serde_json::json!({ "topic_id": topic_id, "at": now }),
+    );
+    Ok(())
 }

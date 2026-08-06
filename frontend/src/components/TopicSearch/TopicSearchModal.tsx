@@ -60,6 +60,8 @@ export function TopicSearchModal({ open, onOpenChange, onSelectTopic }: Props) {
   const [selectedTopic, setSelectedTopic] = useState<TopicDossier | null>(null);
   const [searching, setSearching] = useState(false);
   const [loadingDossier, setLoadingDossier] = useState(false);
+  const [rebuilding, setRebuilding] = useState(false);
+  const [rebuildError, setRebuildError] = useState<string | null>(null);
 
   const isZh = locale === 'zh';
 
@@ -120,10 +122,32 @@ export function TopicSearchModal({ open, onOpenChange, onSelectTopic }: Props) {
       })) as TopicDossier | null;
       setSelectedTopic(ds);
       onSelectTopic?.(topicId);
+      setRebuildError(null);
     } finally {
       setLoadingDossier(false);
     }
   }, [onSelectTopic]);
+
+  const triggerRebuild = useCallback(async () => {
+    if (!selectedTopic) return;
+    setRebuilding(true);
+    setRebuildError(null);
+    try {
+      await invoke('api_topic_rebuild_dossier', {
+        topicId: selectedTopic.topic_id,
+      });
+      // re-fetch dossier
+      const ds = (await invoke('api_topic_get_dossier', {
+        topicId: selectedTopic.topic_id,
+      })) as TopicDossier | null;
+      setSelectedTopic(ds);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setRebuildError(msg);
+    } finally {
+      setRebuilding(false);
+    }
+  }, [selectedTopic]);
 
   const visible = useMemo(
     () => (query.trim() ? results : recent),
@@ -269,6 +293,19 @@ export function TopicSearchModal({ open, onOpenChange, onSelectTopic }: Props) {
                     ? `更新于 ${selectedTopic.last_updated_at} · 已聚集 ${selectedTopic.episodes.length} 段`
                     : `Updated ${selectedTopic.last_updated_at} · ${selectedTopic.episodes.length} episodes`}
                 </div>
+                <button
+                  onClick={() => void triggerRebuild()}
+                  disabled={rebuilding}
+                  data-testid="topic-search-rebuild"
+                  className="text-xs px-3 py-1 rounded border border-blue-200 hover:bg-blue-50 disabled:opacity-50 text-blue-700"
+                >
+                  {rebuilding
+                    ? (isZh ? '重建中…' : 'Rebuilding…')
+                    : (isZh ? '重建档案' : 'Rebuild dossier')}
+                </button>
+                {rebuildError && (
+                  <div className="text-xs text-red-600">{rebuildError}</div>
+                )}
 
                 {selectedTopic.summary && (
                   <Section title={isZh ? '背景' : 'Summary'}>

@@ -579,6 +579,7 @@ pub fn run() {
             topic_graph::api_topic_search,
             topic_graph::api_topic_recent,
             topic_graph::api_topic_get_dossier,
+            topic_graph::api_topic_rebuild_dossier,
             // §P0-B Obsidian vault 写入
             obsidian_export::api_obsidian_get_settings,
             obsidian_export::api_obsidian_set_settings,
