@@ -542,6 +542,10 @@ export const en: Record<string, unknown> = {
     pending: 'Pending',
     failed: 'Failed',
   },
+  recording: {
+    memory_warning: 'Memory pressure ({{rss}} MB). Suggestion: disable cam++ speaker diarization.',
+    memory_critical: 'Memory critical ({{rss}} MB). Auto-switched to sense-voice, speaker diarization off.',
+  },
   common: {
 
     import_db: 'Import database',

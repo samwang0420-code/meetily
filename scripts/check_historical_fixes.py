@@ -179,6 +179,21 @@ ANCHORS = [
      "frontend/src/components/MeetingDetails/SummaryPanel.tsx",
      r"SpeakerRosterDrawer|open-speaker-roster"),
 
+    # §31 P0: memory_watcher backend module + Tauri command
+    ("31p0_memory_watcher_module",
+     "frontend/src-tauri/src/hardware/memory_watcher.rs",
+     r"device_get_memory_recommendation|start_memory_watcher"),
+
+    # §31 P0: start_recording spawns watcher, stop_recording stops
+    ("31p0_recording_hooks",
+     "frontend/src-tauri/src/audio/recording_commands.rs",
+     r"start_memory_watcher\(app\.clone\(\)\)|stop_memory_watcher\(\);"),
+
+    # §31 P0: RecordingControls listens for memory-pressure toast
+    ("31p0_frontend_listener",
+     "frontend/src/components/RecordingControls.tsx",
+     r"memory-pressure"),
+
     # §78 fix P0-A: topic_graph commands also must be registered (was missed in §78)
     ("78_topic_graph_commands_registered",
      "frontend/src-tauri/src/lib.rs",

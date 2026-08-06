@@ -575,6 +575,8 @@ pub fn run() {
             hardware::device_detect_profile,
             hardware::device_current_memory_mb,
             hardware::device_memory_pressure,
+            // §31 P0 长音频内存自动降级
+            hardware::memory_watcher::device_get_memory_recommendation,
 
             // §P0-A 跨会议知识图谱 (Phase 1 §78 + Phase 2 §79)
             topic_graph::api_topic_search,

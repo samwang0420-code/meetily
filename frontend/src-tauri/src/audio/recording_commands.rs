@@ -27,6 +27,7 @@ use super::transcription::{
     self,
     reset_speech_detected_flag,
 };
+use crate::hardware::memory_watcher::{start_memory_watcher, stop_memory_watcher};
 
 // Re-export TranscriptUpdate for backward compatibility
 pub use super::transcription::TranscriptUpdate;
@@ -292,6 +293,10 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
         "meeting_id": meeting_id,
     })).map_err(|e| e.to_string())?;
 
+    // §31 P0: spawn memory watcher for long-audio recording auto-degrade
+    start_memory_watcher(app.clone());
+    log::info!("[recording] §31 P0 memory watcher started");
+
     // Update tray menu to reflect recording state
     crate::tray::update_tray_menu(&app);
 
@@ -509,6 +514,10 @@ pub async fn stop_recording<R: Runtime>(
     info!(
         "🛑 Starting optimized recording shutdown - ensuring ALL transcript chunks are preserved"
     );
+
+    // §31 P0: stop memory watcher first to avoid late emit after recording stop
+    stop_memory_watcher();
+    log::info!("[recording] §31 P0 memory watcher stopped");
 
     // Check if recording is active
     if !IS_RECORDING.load(Ordering::SeqCst) {

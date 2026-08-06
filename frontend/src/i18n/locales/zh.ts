@@ -542,6 +542,10 @@ export const zh: Record<string, unknown> = {
     failed: '失败',
   },
 
+  recording: {
+    memory_warning: '内存压力 ({{rss}}MB), 已自动建议降级: 关闭 cam++ 说话人分离',
+    memory_critical: '内存严重 ({{rss}}MB), 已自动切换到 sense-voice 轻量识别, 关闭说话人分离',
+  },
   common: {
 
 

@@ -248,3 +248,12 @@ mod tests {
         assert!(p.is_apple_silicon || p.tier == DeviceTier::Medium || p.tier == DeviceTier::Low);
     }
 }
+
+pub mod memory_watcher;
+pub use memory_watcher::{
+    MemoryRecommendation,
+    device_get_memory_recommendation,
+    memory_watcher_running,
+    start_memory_watcher,
+    stop_memory_watcher,
+};
