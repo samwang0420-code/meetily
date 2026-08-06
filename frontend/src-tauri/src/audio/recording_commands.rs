@@ -498,6 +498,10 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
         "workers": 3
     })).map_err(|e| e.to_string())?;
 
+    // §31 P0: spawn memory watcher for long-audio recording auto-degrade
+    start_memory_watcher(app.clone());
+    log::info!("[recording] §31 P0 memory watcher started (devices path)");
+
     // Update tray menu to reflect recording state
     crate::tray::update_tray_menu(&app);
 

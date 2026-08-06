@@ -203,6 +203,16 @@ ANCHORS = [
     ("15_rust_tests_compile",
      "frontend/src-tauri/src/audio/transcription/worker.rs",
      r"#\[cfg\(test\)\]"),
+
+    # §56 §40 follow-up: Bluetooth timeout uses integer math (u128 nanos, no f64/f32)
+    ("56_bluetooth_buffer_timeout_integer",
+     "frontend/src-tauri/src/audio/device_detection.rs",
+     r"with_headroom_nanos: u128|from_secs_f64|mul_f32"),
+
+    # §56 §31 P0 follow-up: devices path also spawns memory watcher
+    ("56_p0_devices_path_memory_watcher",
+     "frontend/src-tauri/src/audio/recording_commands.rs",
+     r"devices path"),
 ]
 
 
