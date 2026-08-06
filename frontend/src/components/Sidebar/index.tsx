@@ -706,53 +706,27 @@ const Sidebar: React.FC = () => {
           <div className="flex min-w-0 items-center gap-2.5">
             <button
               onClick={() => router.push('/')}
-              aria-label="离线会记"
+              aria-label="言镜 AI"
               className="shrink-0 rounded-md transition-opacity hover:opacity-80"
             >
-              <svg viewBox="0 0 100 100" className="h-7 w-7" fill="none" aria-hidden="true">
-                <path d="M50 5 L90 18 L90 50 C90 75 70 90 50 96 C30 90 10 75 10 50 L10 18 Z" fill="#0B2545"/>
-                <path d="M50 9 L86 21 L86 50 C86 73 68 87 50 92 C32 87 14 73 14 50 L14 21 Z" fill="#FFFFFF"/>
-                <path d="M50 9 L86 21 L86 50 C86 73 68 87 50 92 L50 9 Z" fill="#13A89E"/>
-                <path d="M50 9 L14 21 L14 50 C14 73 32 87 50 92 L50 9 Z" fill="#FFFFFF"/>
-                <rect x="2" y="49" width="14" height="3" fill="#0B2545"/>
-                <rect x="84" y="49" width="14" height="3" fill="#0B2545"/>
-                <rect x="29" y="48" width="4" height="4" rx="2" fill="#0B2545"/>
-                <rect x="37" y="42" width="4" height="16" rx="2" fill="#13A89E"/>
-                <rect x="45" y="35" width="4" height="30" rx="2" fill="#0B2545"/>
-                <rect x="53" y="42" width="4" height="16" rx="2" fill="#FFFFFF"/>
-                <rect x="61" y="45" width="4" height="10" rx="2" fill="#FFFFFF"/>
-                <circle cx="69" cy="50" r="2.5" fill="#FFFFFF"/>
-              </svg>
+                              <Image src="/logo.png" alt="言镜 AI" width={28} height={28} className="h-7 w-7 rounded-md" />
             </button>
             <div className="flex min-w-0 items-baseline gap-1.5">
               <span className="truncate text-[14px] font-semibold tracking-[-0.01em] text-neutral-900 dark:text-neutral-50">
-                离线会记
+                言镜 AI
               </span>
               <span className="shrink-0 rounded border border-neutral-200 px-1 py-px font-mono text-[9.5px] uppercase tracking-wider text-neutral-500 dark:border-neutral-700 dark:text-neutral-500">
-                v0.6.10
+                v0.8.5
               </span>
             </div>
           </div>
         ) : (
           <button
             onClick={() => router.push('/')}
-            aria-label="离线会记"
+            aria-label="言镜 AI"
             className="mx-auto rounded-md p-1 transition-opacity hover:opacity-80"
           >
-            <svg viewBox="0 0 100 100" className="h-7 w-7" fill="none" aria-hidden="true">
-              <path d="M50 5 L90 18 L90 50 C90 75 70 90 50 96 C30 90 10 75 10 50 L10 18 Z" fill="#0B2545"/>
-              <path d="M50 9 L86 21 L86 50 C86 73 68 87 50 92 C32 87 14 73 14 50 L14 21 Z" fill="#FFFFFF"/>
-              <path d="M50 9 L86 21 L86 50 C86 73 68 87 50 92 L50 9 Z" fill="#13A89E"/>
-              <path d="M50 9 L14 21 L14 50 C14 73 32 87 50 92 L50 9 Z" fill="#FFFFFF"/>
-              <rect x="2" y="49" width="14" height="3" fill="#0B2545"/>
-              <rect x="84" y="49" width="14" height="3" fill="#0B2545"/>
-              <rect x="29" y="48" width="4" height="4" rx="2" fill="#0B2545"/>
-              <rect x="37" y="42" width="4" height="16" rx="2" fill="#13A89E"/>
-              <rect x="45" y="35" width="4" height="30" rx="2" fill="#0B2545"/>
-              <rect x="53" y="42" width="4" height="16" rx="2" fill="#FFFFFF"/>
-              <rect x="61" y="45" width="4" height="10" rx="2" fill="#FFFFFF"/>
-              <circle cx="69" cy="50" r="2.5" fill="#FFFFFF"/>
-            </svg>
+                          <Image src="/logo.png" alt="言镜 AI" width={28} height={28} className="h-7 w-7 rounded-md" />
           </button>
         )}
       </div>
@@ -856,18 +830,18 @@ const Sidebar: React.FC = () => {
         <div className="flex items-center justify-between">
           {!isCollapsed ? (
             <>
-              <span>v0.6.10 · MIT</span>
+              <span>v0.8.5 · MIT</span>
               <span className="inline-flex items-center gap-1 text-emerald-600">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />offline
               </span>
             </>
           ) : (
-            <span className="mx-auto">v0.6.10</span>
+            <span className="mx-auto">v0.8.5</span>
           )}
         </div>
         {!isCollapsed && (
           <a
-            href="mailto:sam.wang01@icloud.com?subject=离线会记 - 反馈&body=版本 v0.6.10 · macOS"
+            href="mailto:sam.wang01@icloud.com?subject=言镜 AI - 反馈&body=版本 v0.8.5 · macOS"
             className="mt-1.5 flex items-center gap-1 text-[10px] text-neutral-500 hover:text-blue-600 transition-colors truncate"
             title="联系客服: sam.wang01@icloud.com"
           >

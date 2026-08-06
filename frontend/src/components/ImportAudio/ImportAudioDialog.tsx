@@ -183,9 +183,25 @@ export function ImportAudioDialog({
   const handleSelectFile = async () => {
     const info = await selectFile();
     if (info) {
-      setTitle(info.filename);
+      setTitle(friendlyImportTitle(info.filename));
     }
   };
+
+  // v0.8.5 §69: Replace purely numeric / hex filenames with friendly date title
+  // (e.g. "13430280252492828" → "导入音频 2026-08-06 14:30")
+  function friendlyImportTitle(filename: string): string {
+    if (!filename) return '导入音频';
+    const stem = filename.replace(/\.[^.]+$/, '');
+    const allDigits = /^\d{8,}$/.test(stem);
+    const mostlyNoise = /^\d{6,}[A-Za-z0-9_-]*$/.test(stem) && stem.replace(/\D/g, '').length >= stem.length * 0.7;
+    if (allDigits || mostlyNoise) {
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      return `导入音频 ${stamp}`;
+    }
+    return filename;
+  }
 
   const handleStartImport = async () => {
     if (!fileInfo) return;

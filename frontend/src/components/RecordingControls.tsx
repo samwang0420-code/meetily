@@ -3,6 +3,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { appDataDir } from '@tauri-apps/api/path';
 import { useCallback, useEffect, useState, useRef } from 'react';
+import Image from 'next/image';
 import { Play, Pause, Square, Mic, AlertCircle, X } from 'lucide-react';
 import { ProcessRequest, SummaryResponse } from '@/types/summary';
 import { listen } from '@tauri-apps/api/event';
@@ -405,7 +406,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                           {isValidatingModel ? (
                             <div className={`animate-spin rounded-full ${variant === 'hero' ? 'h-8 w-8 border-b-4' : 'h-5 w-5 border-b-2'} border-white`}></div>
                           ) : (
-                            <Mic size={variant === 'hero' ? 36 : 20} />
+                            <Image src="/logo.png" alt="开始录音" width={variant === 'hero' ? 48 : 28} height={variant === 'hero' ? 48 : 28} className="rounded-full" />
                           )}
                         </button>
                       </TooltipTrigger>

@@ -4,7 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { useTranslation } from '@/i18n';
 
-// 离线会记 v0.6.10+: 独立定价页 (C6)
+// 言镜 AI v0.8.5: 独立定价页 (C6)
 // 主要内容: 
 // - 免费档 vs Pro 权益对比表
 // - Pro ¥88/年, 一次性买断 (用户偏好终身一次性, 不订阅)

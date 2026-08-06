@@ -164,7 +164,7 @@ export default function AccountPage() {
         </div>
         <p className="text-xs text-gray-500">
           {locale === 'zh' ? (
-            <>会员与本机绑定, 换机器请重新购买或 <a href="mailto:sam.wang01@icloud.com?subject=离线会记%20-%20会员迁移申请&body=机器ID:%20{machineId ?? '%20'}" className="text-blue-600 hover:underline">联系客服</a> 迁移。</>
+            <>会员与本机绑定, 换机器请重新购买或 <a href="mailto:sam.wang01@icloud.com?subject=言镜 AI%20-%20会员迁移申请&body=机器ID:%20{machineId ?? '%20'}" className="text-blue-600 hover:underline">联系客服</a> 迁移。</>
           ) : (
             <>Membership is bound to this machine. Re-purchase or <a href="mailto:sam.wang01@icloud.com?subject=Offline-Meeting-Notes%20-%20License%20Migration&body=Machine%20ID:%20{machineId ?? '%20'}" className="text-blue-600 hover:underline">contact support</a> to migrate.</>
           )}

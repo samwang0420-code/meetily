@@ -1,7 +1,7 @@
 // English dict (fallback to zh if missing)
 export const en: Record<string, unknown> = {
   app: {
-    name: 'Meetily',
+    name: '言镜 AI',
     tagline: 'On-device AI meeting transcription',
   },
   nav: {
@@ -15,7 +15,7 @@ export const en: Record<string, unknown> = {
     recording_in_progress: 'Recording...',
   },
   home: {
-    welcome: 'Welcome to Meetily!',
+    welcome: 'Welcome to 言镜 AI!',
     hint_record: 'Start recording to see live transcription',
     empty_speech_paused: 'Recording paused',
     empty_speech_listening: 'Listening for speech...',
@@ -236,12 +236,12 @@ export const en: Record<string, unknown> = {
     hide_password: 'Hide password', show_password: 'Show password', password_hint: 'At least 6 characters', confirm_hint: 'Enter again', creating: 'Creating account...',
     consent_prefix: 'By registering, you agree to our', terms: 'Terms of Service', consent_and: 'and', privacy: 'Privacy Policy', local_consent: 'By registering, you consent to local data storage on this device · Nothing is uploaded',
     hero_title: 'Get started', hero_highlight: 'Your local AI meeting assistant', hero_desc: 'Unlock lifetime Pro for ¥88 · All data and model inference stay on your computer',
-    feature_local: 'End-to-end local storage', feature_minutes: 'Live transcription + AI minutes', feature_models: 'Multiple offline engines', feature_buyout: '¥88 lifetime license', copyright: 'Meetily · Local AI meeting transcription',
+    feature_local: 'End-to-end local storage', feature_minutes: 'Live transcription + AI minutes', feature_models: 'Multiple offline engines', feature_buyout: '¥88 lifetime license', copyright: '言镜 AI · Local AI meeting transcription',
   },
   dashboard: {
     just_now: 'Just now', minutes_ago: '{count} min ago', hours_ago: '{count} hr ago', days_ago: '{count} days ago', date_md: '{month}/{day}',
-    model_local_whisper: 'Local Whisper', model_funasr_nano: 'FunASR-Nano experimental', model_sensevoice: 'SenseVoice live', model_cloud: 'Cloud transcription', model_none: 'No model selected',
-    welcome: 'Welcome to Meetily', subtitle: 'Local AI meeting transcription · Fully offline · Private', record_hint: 'Click the microphone to record · Live transcription and AI minutes are generated automatically',
+    model_local_whisper: 'Local Whisper', model_funasr_nano: 'FunASR-Nano high-precision', model_sensevoice: 'SenseVoice live', model_cloud: 'Cloud transcription', model_none: 'No model selected',
+    welcome: 'Welcome to 言镜 AI', subtitle: 'Local AI meeting transcription · Fully offline · Private', record_hint: 'Click the microphone to record · Live transcription and AI minutes are generated automatically',
     transcript_model: 'Transcription model', microphone: 'Microphone', default_input: 'Default input', hotwords: 'Hotword library', settings: 'System settings', recent: 'Recent meetings',
     recent_count: '{total} meetings · Showing the latest {recent}', first_meeting: 'Start your first meeting', unknown_meeting: 'Unknown meeting', segments: '{count} segments', unknown_time: 'Unknown time', approx_minutes: '~{count} min',
     empty_title: 'No meetings yet', empty_desc: 'Click the red microphone above to start your first recording', empty_action: 'Start first recording',
@@ -259,14 +259,14 @@ export const en: Record<string, unknown> = {
     default_badge: 'Recommended',
   },
   onboarding: {
-    welcome_title: 'Welcome to Meetily',
+    welcome_title: 'Welcome to 言镜 AI',
     welcome_desc: 'On-device AI transcription. Audio never leaves your computer.',
     welcome_badge: 'WELCOME',
     tagline_short: 'On-device AI transcription. Your data never leaves your computer.',
     step1_title: 'Download transcription model',
     step1_desc: 'One-time download (~70MB SenseVoice). Works offline forever.',
     step2_title: 'Permissions',
-    step2_desc: 'Meetily needs microphone access to record.',
+    step2_desc: '言镜 AI needs microphone access to record.',
     step3_title: 'Done',
     step3_desc: 'Setup complete — start your first on-device AI meeting.',
     cta_next: 'Next',
@@ -282,7 +282,7 @@ export const en: Record<string, unknown> = {
     checking: 'Checking...',
     update_available: 'New version v{ver}',
     latest_version: 'You are on the latest version',
-    features_title: 'Why Meetily',
+    features_title: 'Why 言镜 AI',
     feature_privacy_title: 'Privacy first',
     feature_privacy_desc: 'Audio and text never leave your device.',
     feature_model_title: 'Model freedom',
@@ -318,7 +318,7 @@ export const en: Record<string, unknown> = {
     builtin_cross_border: 'Cross-border · DTC · overseas warehouse',
     none: 'None (general vocabulary)',
     custom: 'Custom',
-    custom_placeholder: 'Enter hotwords, comma or newline separated. Example: Meetily, DingTalk, Lark',
+    custom_placeholder: 'Enter hotwords, comma or newline separated. Example: 言镜 AI, DingTalk, Lark',
     save: 'Save',
     saved: 'Hotwords saved',
     count_words: '{n} words',
@@ -529,7 +529,7 @@ export const en: Record<string, unknown> = {
     mic_ok: 'Your microphone is connected and powered on',
     mic_granted: 'Microphone permission is granted in System Settings',
     mic_not_busy: 'No other app is exclusively using the microphone',
-    screen_recording: 'Grant Screen Recording permission to Meetily',
+    screen_recording: 'Grant Screen Recording permission to 言镜 AI',
     audio_routing: 'Configure audio routing in Audio MIDI Setup',
   },
   recording_chip: {
@@ -689,7 +689,7 @@ export const en: Record<string, unknown> = {
     tier_free_price_sub: 'Free forever · 5 per month',
     tier_pro_price_sub: 'One-time buyout',
     recommended: 'Recommended',
-    beta_title: 'Beta purchase flow (v0.6.10+)',
+    beta_title: 'Beta purchase flow (v0.8.5)',
     beta_step_1: 'Email lisangjie@icloudsend.com (USDT or WeChat Pay)',
     beta_step_2: 'We reply within 24 hours with an activation code (PROMO-XXXXXXXX-YYYY)',
     beta_step_3: 'In the app, click “Upgrade Pro” → paste the code → activated immediately',
@@ -711,8 +711,8 @@ export const en: Record<string, unknown> = {
     privacy_banner_body: 'Recording, transcription, and summary all run on your computer. Nothing is uploaded. Pro codes are verified locally —',
     footer_privacy: 'Privacy',
     footer_terms: 'Terms',
-    footer_download: 'Download Meetily',
-    footer_copyright: '© 2026 Meetily · v0.6.10+',
+    footer_download: 'Download 言镜 AI',
+    footer_copyright: '© 2026 言镜 AI · v0.8.5',
   },
   admin: {
     th: {
@@ -775,6 +775,6 @@ export const en: Record<string, unknown> = {
     code_unused: 'Unused · valid {days}d · expires {date}',
     orders_title: 'Activated orders',
     success_revenue: '',
-    version_label: 'v0.6.10+',
+    version_label: 'v0.8.5',
   },
 };

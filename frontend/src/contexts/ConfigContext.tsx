@@ -110,7 +110,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   });
 
   // Transcript model configuration state
-  // 离线会记 W2.5: 默认 SenseVoice-zh INT8 (23 段按句切 / 中文 SOTA / 比 Whisper 强)
+  // 言镜 AI W2.5: 默认 SenseVoice-zh INT8 (23 段按句切 / 中文 SOTA / 比 Whisper 强)
   const [transcriptModelConfig, setTranscriptModelConfig] = useState<TranscriptModelProps>({
     provider: 'sherpa_funasr_nano',
     model: 'sense-voice-zh-int8',
@@ -145,7 +145,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const [selectedLanguage, setSelectedLanguage] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('primaryLanguage');
-      // 离线会记: 强制 zh 模式,清掉旧的 auto/auto-translate
+      // 言镜 AI: 强制 zh 模式,清掉旧的 auto/auto-translate
       if (saved === 'auto' || saved === 'auto-translate' || saved === 'en') {
         localStorage.removeItem('primaryLanguage');
         return 'zh';

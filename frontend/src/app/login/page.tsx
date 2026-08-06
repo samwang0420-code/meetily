@@ -85,7 +85,7 @@ export default function LoginPage() {
             <div className="mb-8 flex items-center gap-2.5 lg:hidden">
               <BrandShield size={32} />
               <span className="text-[15px] font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">
-                离线会记
+                言镜 AI
               </span>
             </div>
 
@@ -233,7 +233,7 @@ function BrandPanel() {
       <div className="relative flex items-center gap-3">
         <BrandShield size={36} />
         <div className="flex items-baseline gap-2">
-          <span className="text-[17px] font-semibold tracking-tight text-white">离线会记</span>
+          <span className="text-[17px] font-semibold tracking-tight text-white">言镜 AI</span>
           <span className="rounded border border-white/20 px-1.5 py-px font-mono text-[10px] uppercase tracking-wider text-white/60">
             v0.6.10
           </span>
@@ -261,7 +261,7 @@ function BrandPanel() {
       </div>
 
       <div className="relative text-[11px] text-white/40">
-        © {new Date().getFullYear()} 离线会记 · 本地 AI 会议转录
+        © {new Date().getFullYear()} 言镜 AI · 本地 AI 会议转录
       </div>
     </div>
   );
