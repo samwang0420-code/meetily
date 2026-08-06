@@ -406,7 +406,7 @@ export function ImportAudioDialog({
                             disabled={loadingModels}
                           >
                             <SelectTrigger className="w-full">
-                              <SelectValue placeholder={loadingModels ? 'Loading models...' : 'Select model'} />
+                              <SelectValue placeholder={loadingModels ? t('common.loading_models') : t('common.select_model_placeholder')} />
                             </SelectTrigger>
                             <SelectContent>
                               {availableModels.map((model) => (

@@ -567,6 +567,10 @@ export const zh: Record<string, unknown> = {
     browse: '浏览数据库',
     delete_confirm: '确认删除？此操作不可撤销。',
     required_field: '必填',
+    continue: '继续',
+    select_model: '选择模型',
+    loading_models: '加载模型中...',
+    select_model_placeholder: '请选择模型',
   },
 
   errors: {

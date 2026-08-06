@@ -566,6 +566,10 @@ export const en: Record<string, unknown> = {
     browse: 'Browse for Database',
     delete_confirm: 'Are you sure? This cannot be undone.',
     required_field: 'Required',
+    continue: 'Continue',
+    select_model: 'Select model',
+    loading_models: 'Loading models...',
+    select_model_placeholder: 'Select a model',
   },
   errors: {
     unknown: 'An error occurred',
