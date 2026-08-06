@@ -213,6 +213,36 @@ ANCHORS = [
     ("56_p0_devices_path_memory_watcher",
      "frontend/src-tauri/src/audio/recording_commands.rs",
      r"devices path"),
+
+    # §P2-B nightly scheduler: topic_graph/scheduler.rs 模块 + 启动入口
+    ("p2b_scheduler_module",
+     "frontend/src-tauri/src/topic_graph/scheduler.rs",
+     r"start_topic_dossier_scheduler|run_one_pass"),
+
+    # §P2-B nightly scheduler: lib.rs setup 调用
+    ("p2b_scheduler_spawned",
+     "frontend/src-tauri/src/lib.rs",
+     r"Topic dossier nightly scheduler started"),
+
+    # §P2-C live Q&A: 后端模块 + Tauri command 注册
+    ("p2c_live_qa_module",
+     "frontend/src-tauri/src/live_qa/mod.rs",
+     r"api_meeting_live_qa|ask_live_qa"),
+
+    # §P2-C live Q&A: invoke_handler 注册
+    ("p2c_live_qa_registered",
+     "frontend/src-tauri/src/lib.rs",
+     r"live_qa::api_meeting_live_qa"),
+
+    # §P2-C live Q&A: 前端 overlay 组件 (Alt+Space 弹窗)
+    ("p2c_live_qa_overlay",
+     "frontend/src/components/LiveQA/LiveQAOverlay.tsx",
+     r"api_meeting_live_qa|altKey"),
+
+    # §P2-C live Q&A: meeting-details 页挂载 overlay
+    ("p2c_live_qa_mounted",
+     "frontend/src/app/meeting-details/page.tsx",
+     r"LiveQAOverlay"),
 ]
 
 

@@ -10,6 +10,7 @@ import { listen } from "@tauri-apps/api/event";
 import { LoaderIcon } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import { usePaginatedTranscripts } from "@/hooks/usePaginatedTranscripts";
+import { LiveQAOverlay } from "@/components/LiveQA/LiveQAOverlay";
 
 interface MeetingDetailsResponse {
   id: string;
@@ -382,8 +383,11 @@ function MeetingDetailsContent() {
     </div>;
   }
 
-  return <PageContent
-    meeting={meetingDetails}
+  return (
+    <>
+      <LiveQAOverlay meetingId={meetingId} />
+      <PageContent
+        meeting={meetingDetails}
     summaryData={meetingSummary}
     shouldAutoGenerate={shouldAutoGenerate}
     onAutoGenerateComplete={() => setShouldAutoGenerate(false)}
@@ -401,7 +405,9 @@ function MeetingDetailsContent() {
     totalCount={totalCount}
     loadedCount={loadedCount}
     onLoadMore={loadMore}
-  />;
+      />
+    </>
+  );
 }
 
 export default function MeetingDetails() {

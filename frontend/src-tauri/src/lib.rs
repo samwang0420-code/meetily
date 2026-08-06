@@ -62,6 +62,7 @@ pub mod action_items;
 pub mod obsidian_export;
 pub mod speaker_aliases;
 pub mod topic_graph;
+pub mod live_qa;
 
 use audio::{list_audio_devices, AudioDevice, trigger_audio_permission};
 use log::{error as log_error, info as log_info};
@@ -514,6 +515,14 @@ pub fn run() {
             })
             .expect("Failed to initialize database");
 
+            // §P2-B Topic dossier 夜间重建 scheduler (71 报告 P2-B)
+            // 启动后 spawn 后台 task, 0-6 点 + 用户 idle + DB 有 stale topic 时跑.
+            let app_for_scheduler = _app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                topic_graph::scheduler::start_topic_dossier_scheduler(app_for_scheduler).await;
+            });
+            log::info!("Topic dossier nightly scheduler started (idle-only)");
+
             // Initialize bundled templates directory for dynamic template discovery
             log::info!("Initializing bundled templates directory...");
             if let Ok(resource_path) = _app.handle().path().resource_dir() {
@@ -583,6 +592,7 @@ pub fn run() {
             topic_graph::api_topic_recent,
             topic_graph::api_topic_get_dossier,
             topic_graph::api_topic_rebuild_dossier,
+            live_qa::api_meeting_live_qa,
             // §P0-B Obsidian vault 写入
             obsidian_export::api_obsidian_get_settings,
             obsidian_export::api_obsidian_set_settings,

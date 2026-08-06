@@ -18,6 +18,7 @@
 //   - 会议开始时弹"⏮ 7/15 讨论过 Topic X, 当时状态 Y"
 
 pub mod extract;
+pub mod scheduler;
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
