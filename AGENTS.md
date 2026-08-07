@@ -42,6 +42,29 @@ diff -q /Users/wangwei/Documents/离线会记/outputs/§X-*.md \
 3. **release 前必跑** — `python3 scripts/check_historical_fixes.py --strict` + `cargo test --lib` + `cargo build --release` 三件套
 4. **commit 完整性 CI** — commit message 写"fix §X"前必须 `git log --oneline | grep §X` 看主线真在
 
+## 3.1 §93.1 macOS .app bundle 同步 (用户必走)
+
+**问题**: macOS 上 `cargo build --release` 只更新 `target/release/meetily`. §90 commit 手造了 `target/release/言镜 AI.app/Contents/MacOS/言镜 AI` (独立 binary, 不是 symlink/hardlink), 每次 build 后**不自动同步**, 用户跑 .app bundle 时看到旧 binary.
+
+**新工作流 (3 步, 缺一不可)**:
+```bash
+# 1. build
+cd frontend && cargo build --release
+
+# 2. sync .app bundle  (新!)
+./scripts/sync_app_bundle.sh
+
+# 3. 打开 .app bundle
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+```
+
+**用户直接跑 `target/release/meetily`** 不需要 sync (那个文件已更新). 用户用 `open 言镜 AI.app` 必须 sync.
+
+**验证**:
+- `scripts/sync_app_bundle.sh` 内部做 hash 对比
+- `scripts/check_historical_fixes.py` 含 `93_sync_app_bundle_script` anchor
+- 任何 commit 修改 src-tauri/src 必须重 build + sync 才能让 .app bundle 用户看到
+
 ## 4. 文件结构
 
 ```
