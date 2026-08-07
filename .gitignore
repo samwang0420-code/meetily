@@ -81,3 +81,16 @@ experiments/
 target/
 
 frontend/src-tauri/binaries/
+
+# §94: 防 backup/orig/_old 死代码再生
+*.backup
+*.orig
+*.bak
+*_old.rs
+*-old.rs
+core-old.rs
+lib_old_complex.rs
+lib_old_*.rs
+
+# §94: 防 audio_v2 孤儿模块再生
+audio_v2/

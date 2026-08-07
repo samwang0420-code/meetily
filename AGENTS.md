@@ -65,6 +65,40 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - `scripts/check_historical_fixes.py` 含 `93_sync_app_bundle_script` anchor
 - 任何 commit 修改 src-tauri/src 必须重 build + sync 才能让 .app bundle 用户看到
 
+## 3.2 §94 全面代码审计 (2026-08-07 全面盘点)
+
+**触发**: 用户原话 "我真的不想这些问题再次发生了"
+
+**全盘审计发现** (5 大类):
+1. **死代码**: 6 个 backup/orig 文件 + audio_v2/ 68KB 9 文件孤儿模块
+2. **版本号不一致**: tauri.conf.json 0.1.0 / package.json 0.4.0 / Cargo.toml 0.4.0 / .app Info.plist 0.8.5 (4 个值)
+3. **UI v0.8.5 残留**: i18n 5 处关键位置
+4. **API 悬空命令**: 4 个 (api_get_auto_generate_setting / builtin_ai_get_models_directory / get_streaming_timing_stats / whisper_get_models_directory)
+5. **决策 vs 代码脱节**: §62 §63 §90 + .app bundle sync (前 4 个 § 修了)
+
+**本节交付**:
+- `scripts/audit_codebase.py` — 全面代码审计脚本 (跑出 0 errors / 0 warns / 60 info)
+- `scripts/pre_release_check.sh` — release 前硬闸门 7 步
+- `scripts/check_historical_fixes.py` 升级 76 → 84 anchor
+- 删 6 backup/orig + 9 audio_v2 孤儿
+- 4 悬空命令全修
+- 4 处版本号同步到 0.8.6
+
+**未来工作流** (任何 commit/release 前):
+```bash
+# 快速检查 (5 秒)
+python3 scripts/audit_codebase.py --strict
+
+# 完整 release (11 分钟)
+./scripts/pre_release_check.sh
+```
+
+**铁律** (每月跑一次 audit):
+1. **AGENTS.md § 章节 ≠ 代码 commit** (§92)
+2. **每次 release 前必跑 pre_release_check.sh** (§94 §6.2)
+3. **commit 完整性 CI** — `git log --grep §X` 看主线真在
+4. **§94 audit 每月跑一次** — `python3 scripts/audit_codebase.py --strict`
+
 ## 4. 文件结构
 
 ```

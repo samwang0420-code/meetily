@@ -816,6 +816,9 @@ pub fn run() {
             audio::retranscription::start_retranscription_command,
             audio::retranscription::cancel_retranscription_command,
             audio::retranscription::is_retranscription_in_progress_command,
+            // §94 fix: 之前 invoke_handler 未注册, 前端 transcriptService.ts:102 调会失败
+            // #[tauri::command] macro 注入的 __cmd__ 在 worker module, 需用 worker 路径
+            audio::transcription::worker::get_streaming_timing_stats,
             // v0.6.11: streaming pipeline (实时流式识别)
             audio::sherpa_daemon::sherpa_stream_begin,
             audio::sherpa_daemon::sherpa_stream_chunk,

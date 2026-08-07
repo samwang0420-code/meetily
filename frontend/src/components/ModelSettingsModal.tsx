@@ -317,19 +317,13 @@ export function ModelSettingsModal({
   }, [skipInitialFetch]);
 
   // Fetch auto-generate setting on mount
+  // §94 fix: api_get_auto_generate_setting 悬空 (后端无 fn) → 保持 default (true), 不 invoke
   useEffect(() => {
-    const fetchAutoGenerateSetting = async () => {
-      try {
-        const enabled = (await invoke('api_get_auto_generate_setting')) as boolean;
-        setAutoGenerateEnabled(enabled);
-        console.log('Auto-generate setting loaded:', enabled);
-      } catch (err) {
-        console.error('Failed to fetch auto-generate setting:', err);
-        // Keep default value (true) on error
-      }
-    };
-
-    fetchAutoGenerateSetting();
+    // backend has no api_get_auto_generate_setting (v0.8.6 business decision:
+    // auto-generate was disabled, the function was never implemented).
+    // We keep the default (true) and skip the call.
+    setAutoGenerateEnabled(true);
+    console.log('Auto-generate setting: default (true) — backend cmd disabled by §91 business decision');
   }, []);
 
   // Sync ollamaEndpoint state when modelConfig.ollamaEndpoint changes from parent

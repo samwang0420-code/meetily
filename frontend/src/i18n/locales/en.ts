@@ -747,7 +747,7 @@ export const en: Record<string, unknown> = {
     footer_privacy: 'Privacy',
     footer_terms: 'Terms',
     footer_download: 'Download 言镜 AI',
-    footer_copyright: '© 2026 言镜 AI · v0.8.5',
+    footer_copyright: '© 2026 言镜 AI · v0.8.6',
   },
   admin: {
     th: {
@@ -810,7 +810,7 @@ export const en: Record<string, unknown> = {
     code_unused: 'Unused · valid {days}d · expires {date}',
     orders_title: 'Activated orders',
     success_revenue: '',
-    version_label: 'v0.8.5',
+    version_label: 'v0.8.6',
     obsidian: {
       title: 'Obsidian integration',
       description: 'After every meeting, a Markdown file is written to your Obsidian vault. See all your meetings connected in Obsidian Graph View.',

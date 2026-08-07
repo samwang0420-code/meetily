@@ -354,6 +354,40 @@ ANCHORS = [
     ("93_sync_app_bundle_script",
      "scripts/sync_app_bundle.sh",
      r"sync_app_bundle|sync.*app.*bundle"),
+
+    # ===== §94: 全面代码审计 (2026-08-07) =====
+    # §94 anchor 1: audit_codebase.py 存在
+    ("94_audit_codebase_script",
+     "scripts/audit_codebase.py",
+     r"audit_codebase|check_invoke_commands"),
+    # §94 anchor 2: pre_release_check.sh 存在
+    ("94_pre_release_check_script",
+     "scripts/pre_release_check.sh",
+     r"pre_release|ALL.*STEPS"),
+    # §94 anchor 3: backup/orig 死代码已删
+    ("94_no_backup_files",
+     ".gitignore",
+     r"\*\.backup|\*\.orig|\*_old\.rs"),
+    # §94 anchor 4: audio_v2 孤儿模块已删
+    ("94_no_audio_v2",
+     ".gitignore",
+     r"audio_v2/"),
+    # §94 anchor 5: lib_old_complex 已删
+    ("94_no_lib_old_complex",
+     ".gitignore",
+     r"lib_old_complex\.rs"),
+    # §94 anchor 6: 4 悬空命令已修
+    ("94_4_dangling_fixed",
+     "frontend/src/lib/builtin-ai.ts",
+     r"parakeet_get_models_directory"),
+    # §94 anchor 7: get_streaming_timing_stats 已注册
+    ("94_streaming_timing_registered",
+     "frontend/src-tauri/src/lib.rs",
+     r"audio::transcription::worker::get_streaming_timing_stats"),
+    # §94 anchor 8: 4 悬空 + 4 修复总览
+    ("94_audit_summary",
+     "outputs/94-全面代码审计-代码漏系统性问题-2026-08-07.md",
+     r"§94|全面代码审计"),
 ]
 
 
