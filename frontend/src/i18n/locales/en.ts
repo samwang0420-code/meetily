@@ -724,7 +724,7 @@ export const en: Record<string, unknown> = {
     tier_free_price_sub: 'Free forever · 5 per month',
     tier_pro_price_sub: 'One-time buyout',
     recommended: 'Recommended',
-    beta_title: 'Beta purchase flow (v0.8.5)',
+    beta_title: 'Beta purchase flow (v0.8.6)',
     beta_step_1: 'Email lisangjie@icloudsend.com (USDT or WeChat Pay)',
     beta_step_2: 'We reply within 24 hours with an activation code (PROMO-XXXXXXXX-YYYY)',
     beta_step_3: 'In the app, click “Upgrade Pro” → paste the code → activated immediately',

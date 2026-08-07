@@ -363,10 +363,28 @@ async fn run_import<R: Runtime>(
 
     let src = source.clone();
     let dst = dest_path.clone();
-    tokio::task::spawn_blocking(move || std::fs::copy(&src, &dst))
-        .await
-        .map_err(|e| anyhow!("Copy task join error: {}", e))?
-        .map_err(|e| anyhow!("Failed to copy audio file: {}", e))?;
+    // §62 B.1: hardlink 优先 (同卷 APFS 0 字节写), 跨卷/不支持时 fallback copy
+    tokio::task::spawn_blocking(move || -> std::io::Result<u64> {
+        match std::fs::hard_link(&src, &dst) {
+            Ok(()) => {
+                info!("Section 64 hardlinked {} -> {}", src.display(), dst.display());
+                Ok(0)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // 目标已存在 (重复导入), 跳过
+                info!("Section 64 hardlink already exists: {}", dst.display());
+                Ok(0)
+            }
+            Err(_) => {
+                // 跨卷 / 不支持 hardlink → fallback copy
+                info!("Section 64 hardlink failed, fallback to copy: {} -> {}", src.display(), dst.display());
+                std::fs::copy(&src, &dst)
+            }
+        }
+    })
+    .await
+    .map_err(|e| anyhow!("Copy task join error: {}", e))?
+    .map_err(|e| anyhow!("Failed to copy audio file: {}", e))?;
 
     info!("Copied audio to: {}", dest_path.display());
 

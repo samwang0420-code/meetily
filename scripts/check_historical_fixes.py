@@ -298,6 +298,56 @@ ANCHORS = [
         ("90_pricing_page_scroll",
      "frontend/src/components/MainContent/index.tsx",
      r"h-screen overflow-y-auto"),
+
+    # ===== §62 三联优化 (2026-08-07 补 anchor, 之前 guard 漏了) =====
+    # §62 A: 多 daemon pool (Vec<Mutex<Option<SherpaHandle>>>) — 不是单 daemon
+    ("62_a_sherpa_daemon_pool",
+     "frontend/src-tauri/src/audio/sherpa_daemon.rs",
+     r"inner:\s*Vec<Mutex<Option<SherpaHandle>>>"),
+    # §62 A: round-robin counter (AtomicUsize + Relaxed)
+    ("62_a_round_robin_atomic",
+     "frontend/src-tauri/src/audio/sherpa_daemon.rs",
+     r"counter:\s*AtomicUsize"),
+    # §62 A: env MEETILY_SHERPA_DAEMONS 解析
+    ("62_a_env_daemon_count",
+     "frontend/src-tauri/src/audio/sherpa_daemon.rs",
+     r"MEETILY_SHERPA_DAEMONS"),
+    # §62 A: 三个新单测 (round-robin + pool count + distribution)
+    ("62_a_test_round_robin",
+     "frontend/src-tauri/src/audio/sherpa_daemon.rs",
+     r"section_64_round_robin_wraps_within_pool"),
+    # §62 B.1: import.rs hardlink
+    ("62_b1_import_hardlink",
+     "frontend/src-tauri/src/audio/import.rs",
+     r"Section 64 hardlinked"),
+    # §62 B.3: decoder.rs /tmp wav (temp_dir not parent_dir)
+    ("62_b3_tmp_wav",
+     "frontend/src-tauri/src/audio/decoder.rs",
+     r"std::env::temp_dir"),
+    # §62 C: max_tokens 1200→800
+    ("62_c_max_tokens_800",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"DEFAULT_SUMMARY_MAX_TOKENS:\s*u32\s*=\s*800"),
+
+    # ===== §63 provider 路由 (2026-08-07 补 anchor, 之前 guard 漏了) =====
+    # §63: sherpa_funasr_nano → funasr-nano-zh (不再是 sensevoice-zh)
+    ("63_funasr_nano_backend",
+     "frontend/src-tauri/src/audio/retranscription.rs",
+     r'"funasr-nano-zh"'),
+
+    # ===== §90 friendlyImportTitle (2026-08-07 补 anchor) =====
+    # §90: ImportAudioDialog 把数字文件名改成 "导入音频 YYYY-MM-DD HH:MM"
+    ("90_friendly_import_title",
+     "frontend/src/components/ImportAudio/ImportAudioDialog.tsx",
+     r"导入音频.*stamp|friendly date title"),
+
+    # ===== UI 版本号同步 (2026-08-07 §92 P0) =====
+    ("ui_version_0_8_6_sidebar",
+     "frontend/src/components/Sidebar/index.tsx",
+     r"v0\.8\.6"),
+    ("ui_version_0_8_6_dashboard",
+     "frontend/src/app/_components/HomeDashboard.tsx",
+     r"v0\.8\.6"),
 ]
 
 

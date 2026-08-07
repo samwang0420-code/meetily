@@ -7,9 +7,10 @@ use std::path::PathBuf;
 use tokio_util::sync::CancellationToken;
 use tracing::{error, info};
 
-/// Default cap for summary output tokens (≈900-1200 字, 控制啰嗦, 防止 CPU 本地 LLM 写超长)
+/// §62 C: Default cap for summary output tokens (≈600 字, 控制啰嗦, 防止 CPU 本地 LLM 写超长)
 /// 用户可在 CustomOpenAI 设置里显式调高, 此值只作为 None fallback
-pub const DEFAULT_SUMMARY_MAX_TOKENS: u32 = 1200;
+/// §62 C: 1200→800 (qwen3.5:2b CPU 30tok/s, 800 节省 34% 推理时间)
+pub const DEFAULT_SUMMARY_MAX_TOKENS: u32 = 800;
 /// 硬控最大输出 token, None / 0 / invalid 走 fallback.
 /// 用户显式设的 max_tokens (Some(t) 且 t > 0) 永远保留.
 /// 这是单测入口, 不依赖 LLM/sidecar.
@@ -1151,25 +1152,25 @@ mod tests {
     #[test]
     fn default_summary_max_tokens_caps_verbose_outputs() {
         use crate::summary::processor::DEFAULT_SUMMARY_MAX_TOKENS;
-        // 1200 tokens ≈ 800-1200 中文字, 对 30 秒会议原文 + prompt 留够 headroom
-        assert!(DEFAULT_SUMMARY_MAX_TOKENS >= 800, "下限太严, prompt 可能截断");
-        assert!(DEFAULT_SUMMARY_MAX_TOKENS <= 1600, "太宽, 不起控制作用");
-        assert_eq!(DEFAULT_SUMMARY_MAX_TOKENS, 1200);
+        // §62 C: 800 tokens ≈ 600-800 中文字, qwen3.5:2b CPU 30tok/s, ~27s/chunk (节省 34% vs 1200)
+        assert!(DEFAULT_SUMMARY_MAX_TOKENS >= 600, "下限太严, prompt 可能截断");
+        assert!(DEFAULT_SUMMARY_MAX_TOKENS <= 1200, "太宽, 不起控制作用");
+        assert_eq!(DEFAULT_SUMMARY_MAX_TOKENS, 800);
     }
 
     #[test]
     fn clamp_max_tokens_none_falls_back_to_default() {
         use crate::summary::processor::{clamp_max_tokens, DEFAULT_SUMMARY_MAX_TOKENS};
-        // None 走 fallback 1200
+        // None 走 fallback §62 C 800
         assert_eq!(clamp_max_tokens(None), Some(DEFAULT_SUMMARY_MAX_TOKENS));
-        assert_eq!(clamp_max_tokens(None), Some(1200));
+        assert_eq!(clamp_max_tokens(None), Some(800));
     }
 
     #[test]
     fn clamp_max_tokens_zero_falls_back_to_default() {
         use crate::summary::processor::clamp_max_tokens;
-        // 显式设 0 是无效输入, 应当 fallback
-        assert_eq!(clamp_max_tokens(Some(0)), Some(1200));
+        // 显式设 0 是无效输入, 应当 fallback §62 C 800
+        assert_eq!(clamp_max_tokens(Some(0)), Some(800));
     }
 
     #[test]
@@ -1211,11 +1212,11 @@ mod tests {
                 i
             );
             assert!(
-                expected_output_chars >= 600,
-                "sample #{}: 1200 tokens 对应输出不足 600 字, 工具价值低",
+                expected_output_chars >= 400,
+                "sample #{}: §62 C 800 tokens 对应输出不足 400 字, 工具价值低",
                 i
             );
-            assert_eq!(DEFAULT_SUMMARY_MAX_TOKENS, 1200, "常量被改坏了");
+            assert_eq!(DEFAULT_SUMMARY_MAX_TOKENS, 800, "常量被改坏了");
             eprintln!(
                 "  sample #{}: input={} tokens, output-cap=Some({}) → ≈{} 中文字",
                 i, tokens, effective, expected_output_chars

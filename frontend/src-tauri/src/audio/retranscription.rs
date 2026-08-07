@@ -469,10 +469,11 @@ async fn run_retranscription<R: Runtime>(
     let mut all_transcripts: Vec<(String, f64, f64)> = Vec::new(); // (text, start_ms, end_ms)
     let mut total_confidence = 0.0f32;
 
-    // sherpa backend name (resolved once, reused per segment)
+    // §63: sherpa backend name (resolved once, reused per segment)
+    // §63 fix: sherpa_funasr_nano 实际是 funasr-nano-zh (947MB 高精度), 不再是 sensevoice-zh
     let sherpa_backend = if use_sherpa {
         if effective_provider == "sherpa_funasr_nano" {
-            Some("sensevoice-zh".to_string())
+            Some("funasr-nano-zh".to_string())
         } else {
             Some("paraformer-zh".to_string())
         }
