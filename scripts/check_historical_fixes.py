@@ -348,6 +348,12 @@ ANCHORS = [
     ("ui_version_0_8_6_dashboard",
      "frontend/src/app/_components/HomeDashboard.tsx",
      r"v0\.8\.6"),
+
+    # ===== §93: macOS .app bundle 同步 (2026-08-07) =====
+    # §93 anchor: sync_app_bundle.sh 脚本存在
+    ("93_sync_app_bundle_script",
+     "scripts/sync_app_bundle.sh",
+     r"sync_app_bundle|sync.*app.*bundle"),
 ]
 
 

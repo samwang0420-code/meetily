@@ -18,7 +18,29 @@ fn main() {
     // Download and bundle FFmpeg binary at build-time
     ffmpeg::ensure_ffmpeg_binary();
 
+    // §93: macOS 上, .app bundle (用户用 `open '言镜 AI.app'`) 是独立 binary,
+    // `cargo build --release` 默认只更新 `target/release/meetily`. 之前手造 bundle 时漏同步,
+    // 用户跑的还是 1:50 旧 binary. 真正的 sync 由 `scripts/sync_app_bundle.sh` 跑.
+    // build.rs 这里只输出 reminder 提示.
+    #[cfg(target_os = "macos")]
+    print_app_bundle_reminder();
+
     tauri_build::build()
+}
+
+/// §93: 每次 build 完后, 输出 reminder 提醒用户跑 `scripts/sync_app_bundle.sh`.
+#[cfg(target_os = "macos")]
+fn print_app_bundle_reminder() {
+    let out_dir = std::env::var("OUT_DIR")
+        .ok()
+        .and_then(|v| std::path::PathBuf::from(v).parent().map(|p| p.to_path_buf()))
+        .unwrap_or_else(|| std::path::PathBuf::from("target/release"));
+    let app_dir = out_dir.join("言镜 AI.app");
+    if app_dir.exists() {
+        println!(
+            "cargo:warning=📦 §93: 提示! 你手造了 .app bundle. cargo build --release 完后必须跑: ./scripts/sync_app_bundle.sh"
+        );
+    }
 }
 
 /// Detects GPU acceleration capabilities and provides build guidance
