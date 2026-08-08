@@ -62,7 +62,7 @@ export function TranscriptSettings({
     };
     const modelOptions: Record<string, string[]> = {
         localWhisper: [], // Model selection handled by ModelManager component
-        parakeet: [], // Model selection handled by ParakeetModelManager component
+        // §94.1 fix: parakeet v0.8+ 禁用 (实测不如 SenseVoice, §38), 删选项
         deepgram: ['nova-2-phonecall'],
         elevenLabs: ['eleven_multilingual_v2'],
         groq: ['llama-3.3-70b-versatile'],
@@ -135,20 +135,14 @@ export function TranscriptSettings({
                                     <SelectValue placeholder="选择 provider" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {/* 离线会记 W2.5: 默认推荐 SenseVoice, Whisper 已删除 */}
-                                    <SelectItem value="sherpa_funasr_nano">✨ SenseVoice-zh (推荐 · 23 段)</SelectItem>
-                                    <SelectItem value="sherpa_paraformer">🐉 Paraformer-zh (备选 · 10 段)</SelectItem>
-                                    <SelectItem value="parakeet">⚡ Parakeet (旧推荐 · 实测不如 SenseVoice)</SelectItem>
-                                    {/* Whisper 已删除 (W2.5) */}
-                                    {/* <SelectItem value="deepgram">☁️ Deepgram (Backup)</SelectItem>
-                                    <SelectItem value="elevenLabs">☁️ ElevenLabs</SelectItem>
-                                    <SelectItem value="groq">☁️ Groq</SelectItem>
-                                    <SelectItem value="openai">☁️ OpenAI</SelectItem> */}
+                                    {/* §94.1 fix: §90 决策 - 2 个 provider, 第 2 个 Select 选具体 model name. §29 FunASR-Nano Pro gate 见 §94 P1. */}
+                                    <SelectItem value="sherpa_funasr_nano">✨ 本地 ASR (SenseVoice 228MB + FunASR-Nano 947MB Pro)</SelectItem>
+                                    <SelectItem value="sherpa_paraformer">🐉 Paraformer-zh 备选 · 216MB</SelectItem>
                                 </SelectContent>
                             </Select>
 
                             {/* model list 为空时 (sherpa/无 cloud key) 不渲染空 select, 改用提示卡片 */}
-                            {uiProvider !== 'localWhisper' && uiProvider !== 'parakeet' && modelOptions[uiProvider]?.length > 0 && (
+                            {uiProvider !== 'localWhisper' && modelOptions[uiProvider]?.length > 0 && (
                                 <Select
                                     value={transcriptModelConfig.model}
                                     onValueChange={(value) => {
@@ -179,9 +173,15 @@ export function TranscriptSettings({
                                         <SelectValue placeholder="选择 model" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {modelOptions[uiProvider].map((model) => (
-                                            <SelectItem key={model} value={model}>{model}</SelectItem>
-                                        ))}
+                                        {/* §94.1 fix: 用 §90 决策文案, 不直接显示 model name */}
+                                        {modelOptions[uiProvider]?.map((model) => {
+                                            const prettyName =
+                                                model === 'funasr-nano-zh' ? '🧪 FunASR-Nano 高精度 · 947MB (Pro)' :
+                                                model === 'sense-voice-zh-int8' ? '✨ SenseVoice-zh 推荐 · 228MB' :
+                                                model === 'paraformer-zh-int8' ? '🐉 Paraformer-zh 备选 · 216MB' :
+                                                model;
+                                            return <SelectItem key={model} value={model}>{prettyName}</SelectItem>;
+                                        })}
                                     </SelectContent>
                                 </Select>
                             )}
@@ -193,7 +193,7 @@ export function TranscriptSettings({
                     {uiProvider === 'localWhisper' && (
                         <div className="mt-6 p-4 bg-gray-50 rounded-lg">
                             <p className="text-sm text-gray-700">
-                                ⚠️ Whisper 已在 v0.5 中移除, 完全被 SenseVoice-zh INT8 替代 (23 段按句切, 中文 SOTA)。
+                                ⚠️ Whisper 已在 v0.5 中移除, 完全被 SenseVoice-zh INT8 (228MB) + FunASR-Nano (947MB, Pro) 替代, 中文 SOTA。
                                 请切换到 ✨ SenseVoice-zh INT8 (上方选项)。
                             </p>
                         </div>

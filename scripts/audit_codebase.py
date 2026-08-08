@@ -294,6 +294,39 @@ def check_git_tracked_backup() -> list[Finding]:
     return findings
 
 
+def check_hardcoded_model_list() -> list[Finding]:
+    """§94.1: 前端硬编码模型列表 (绕过 useTranscriptionModels hook).
+
+    §90 决策改了 useTranscriptionModels hook, 但 TranscriptSettings.tsx 硬编码 SelectItem 没改,
+    用户在设置页看到的是 v0.7 W2.5 列表 (SenseVoice 23 段 / Paraformer 10 段 / Parakeet),
+    不是 §90 决策列表 (FunASR-Nano 947MB Pro + SenseVoice 228MB + Paraformer 216MB).
+    """
+    findings = []
+    # 已知的硬编码 v0.7 W2.5 模式 (§90 应删 / 应改)
+    hardcoded_patterns = [
+        ("frontend/src/components/TranscriptSettings.tsx",
+         r"parakeet.*(?:旧推荐|旧|v0\.7|不推荐)",
+         "硬编码 parakeet 选项 (§90 v0.8+ 已删)"),
+        ("frontend/src/components/TranscriptSettings.tsx",
+         r"SenseVoice-zh\s*\(\s*推荐\s*·\s*23\s*段",
+         "硬编码 SenseVoice 23 段 (§90 决策 228MB)"),
+        ("frontend/src/components/TranscriptSettings.tsx",
+         r"Paraformer-zh\s*\(\s*备选\s*·\s*10\s*段",
+         "硬编码 Paraformer 10 段 (§90 决策 216MB)"),
+    ]
+    for rel, pat, desc in hardcoded_patterns:
+        fp = REPO / rel
+        if fp.exists():
+            text = fp.read_text(encoding="utf-8")
+            if re.search(pat, text):
+                findings.append(Finding(
+                    "error", "hardcoded_model_list",
+                    f"{desc}: {rel}",
+                    rel,
+                ))
+    return findings
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--strict", action="store_true", help="exit 1 on any error")
@@ -306,6 +339,7 @@ def main() -> int:
     findings.extend(check_backup_files())
     findings.extend(check_orphan_modules())
     findings.extend(check_v085_residue())
+    findings.extend(check_hardcoded_model_list())
     findings.extend(check_git_tracked_backup())
     findings.extend(check_version_consistency())
     findings.extend(check_identifier_consistency())
