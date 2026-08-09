@@ -584,6 +584,18 @@ export const zh: Record<string, unknown> = {
     select_model_placeholder: '请选择模型',
   },
 
+  import_dialog: {
+    title_processing: '导入中...',
+    title_failed: '导入失败',
+    title_complete: '导入完成',
+    description_processing: '正在处理音频...',
+    description_failed: '导入过程中发生错误',
+    description_default: '导入音频文件以创建新会议并生成转录',
+    toast_failed: '导入失败',
+    toast_cancelled: '导入已取消',
+    try_again: '重试',
+  },
+
   speaker: {
     title: '说话人名单',
     hint: 'MVP: 在此为当前会议的 cam++ speaker_X 起名. 跨会议声音追踪会在完整版上线.',

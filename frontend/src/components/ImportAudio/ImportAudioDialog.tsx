@@ -108,7 +108,7 @@ export function ImportAudioDialog({
   }, [router, refetchMeetings, onComplete, onOpenChange]);
 
   const handleImportError = useCallback((error: string) => {
-    safeToast.error('Import failed', { description: error });
+    safeToast.error(t('import_dialog.toast_failed'), { description: error });
   }, []);
 
   const {
@@ -218,7 +218,7 @@ export function ImportAudioDialog({
   const handleCancel = async () => {
     if (isProcessing) {
       await cancelImport();
-      safeToast.info('Import cancelled');
+      safeToast.info(t('import_dialog.toast_cancelled'));
     }
     onOpenChange(false);
   };
@@ -255,31 +255,31 @@ export function ImportAudioDialog({
             {isProcessing ? (
               <>
                 <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-                Importing Audio...
+                {t('import_dialog.title_processing')}
               </>
             ) : error ? (
               <>
                 <AlertCircle className="h-5 w-5 text-red-600" />
-                Import Failed
+                {t('import_dialog.title_failed')}
               </>
             ) : status === 'complete' ? (
               <>
                 <CheckCircle2 className="h-5 w-5 text-green-600" />
-                Import Complete
+                {t('import_dialog.title_complete')}
               </>
             ) : (
               <>
                 <Upload className="h-5 w-5 text-blue-600" />
-                导入音频文件
+                {t('import_dialog.title_default')}
               </>
             )}
           </DialogTitle>
           <DialogDescription>
             {isProcessing
-              ? progress?.message || 'Processing audio...'
+              ? progress?.message || t('import_dialog.description_processing')
               : error
-              ? 'An error occurred during import'
-              : 'Import an audio file to create a new meeting with transcripts'}
+              ? t('import_dialog.description_failed')
+              : t('import_dialog.description_default')}
           </DialogDescription>
         </DialogHeader>
 
@@ -474,16 +474,16 @@ export function ImportAudioDialog({
           {isProcessing && (
             <Button variant="outline" onClick={handleCancel}>
               <X className="h-4 w-4 mr-2" />
-              Cancel
+              {t('common.cancel')}
             </Button>
           )}
           {error && (
             <>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Close
+                {t('common.close')}
               </Button>
               <Button onClick={reset} variant="outline">
-                Try Again
+                {t('import_dialog.try_again')}
               </Button>
             </>
           )}

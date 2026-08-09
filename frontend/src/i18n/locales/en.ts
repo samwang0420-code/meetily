@@ -598,6 +598,18 @@ export const en: Record<string, unknown> = {
     total_saved: '{{count}} aliases saved',
     footer_note: 'Aliases auto-apply when re-recording the same meeting.',
   },
+
+  import_dialog: {
+    title_processing: 'Importing Audio...',
+    title_failed: 'Import Failed',
+    title_complete: 'Import Complete',
+    description_processing: 'Processing audio...',
+    description_failed: 'An error occurred during import',
+    description_default: 'Import an audio file to create a new meeting with transcripts',
+    toast_failed: 'Import failed',
+    toast_cancelled: 'Import cancelled',
+    try_again: 'Try Again',
+  },
   errors: {
     unknown: 'An error occurred',
     generic: 'Operation failed, please retry',

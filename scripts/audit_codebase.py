@@ -294,6 +294,35 @@ def check_git_tracked_backup() -> list[Finding]:
     return findings
 
 
+def check_import_whisper_fallback() -> list[Finding]:
+    """§95 fix: import.rs §58/§60 决策 — 永不 fallback whisper.
+
+    §58/§60 决策要求 import 走 sherpa_funasr_nano / sherpa_paraformer / parakeet, 永不 fallback Whisper.
+    但 §95 之前 import.rs:339 'use_parakeet = provider.as_deref() == Some("parakeet")' 仍隐式 fallback Whisper.
+    检测: import.rs run_import 块不能调用 whisper_engine.transcribe_audio_with_confidence (已修复, §95 加 use_sherpa 分支).
+    """
+    findings = []
+    p = REPO / "frontend/src-tauri/src/audio/import.rs"
+    if not p.exists():
+        return findings
+    text = p.read_text(encoding="utf-8")
+    # 检查: import.rs 不应再有 transcribe_audio_with_confidence 调用 (Whisper fallback)
+    if "transcribe_audio_with_confidence" in text:
+        findings.append(Finding(
+            "error", "import_whisper_fallback",
+            "import.rs 仍调用 whisper_engine.transcribe_audio_with_confidence (§60 决策: 永不 fallback Whisper)",
+            "frontend/src-tauri/src/audio/import.rs",
+        ))
+    # 检查: import.rs 应有 sherpa 分支
+    if "use_sherpa" not in text:
+        findings.append(Finding(
+            "error", "import_whisper_fallback",
+            "import.rs 缺 use_sherpa 分支 (§95 fix 缺失, import 仍只能 parakeet/whisper)",
+            "frontend/src-tauri/src/audio/import.rs",
+        ))
+    return findings
+
+
 def check_hardcoded_model_list() -> list[Finding]:
     """§94.1: 前端硬编码模型列表 (绕过 useTranscriptionModels hook).
 
@@ -340,6 +369,7 @@ def main() -> int:
     findings.extend(check_orphan_modules())
     findings.extend(check_v085_residue())
     findings.extend(check_hardcoded_model_list())
+    findings.extend(check_import_whisper_fallback())
     findings.extend(check_git_tracked_backup())
     findings.extend(check_version_consistency())
     findings.extend(check_identifier_consistency())

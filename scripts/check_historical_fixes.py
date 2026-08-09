@@ -385,6 +385,17 @@ ANCHORS = [
      "frontend/src-tauri/src/lib.rs",
      r"audio::transcription::worker::get_streaming_timing_stats"),
     # §94 anchor 8: 4 悬空 + 4 修复总览
+    # ===== §95: import.rs §58/§60 决策补做 (2026-08-09) =====
+    ("95_import_provider_dispatch",
+     "frontend/src-tauri/src/audio/import.rs",
+     r"effective_provider: String = match provider\.as_deref"),
+    ("95_import_use_sherpa_branch",
+     "frontend/src-tauri/src/audio/import.rs",
+     r"use_sherpa = effective_provider == .sherpa_funasr_nano"),
+    ("95_import_no_whisper_fallback",
+     "frontend/src-tauri/src/audio/import.rs",
+     r"永远不.*fallback.*[Ww]hisper|永不.*fallback.*whisper"),
+
     ("94_audit_summary",
      "outputs/94-全面代码审计-代码漏系统性问题-2026-08-07.md",
      r"§94|全面代码审计"),
