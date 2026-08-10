@@ -7,6 +7,7 @@ export const en: Record<string, unknown> = {
   nav: {
     home: 'Workspace',
     notes: 'Meeting Notes',
+    knowledge: 'Knowledge Graph',
     settings: 'Settings',
     about: 'About',
     search_placeholder: 'Search meeting content...',

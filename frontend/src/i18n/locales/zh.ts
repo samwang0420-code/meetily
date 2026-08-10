@@ -7,6 +7,7 @@ export const zh: Record<string, unknown> = {
   nav: {
     home: '工作台',
     notes: '会议笔记',
+    knowledge: '知识图谱',
     settings: '设置',
     about: '关于',
     search_placeholder: '搜索会议内容...',

@@ -1,7 +1,10 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
+import {
+  ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle,
+  BookOpen, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload
+} from 'lucide-react';
 import { FeedbackDialog } from '@/components/FeedbackDialog';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
@@ -99,6 +102,7 @@ const Sidebar: React.FC = () => {
     model: 'parakeet-tdt-0.6b-v3-int8',
   });
   const [settingsSaveSuccess, setSettingsSaveSuccess] = useState<boolean | null>(null);
+  const [totalTopics, setTotalTopics] = useState(0);
 
   // State for edit modal
   const [editModalState, setEditModalState] = useState<{ isOpen: boolean; meetingId: string | null; currentTitle: string }>({
@@ -127,6 +131,21 @@ const Sidebar: React.FC = () => {
 
 
   const [deleteModalState, setDeleteModalState] = useState<{ isOpen: boolean; itemId: string | null }>({ isOpen: false, itemId: null });
+
+  // P0-A: load topic count for sidebar badge
+  useEffect(() => {
+    const loadTopics = async () => {
+      try {
+        const list = await invoke('api_topic_recent', { limit: 50 });
+        if (Array.isArray(list)) setTotalTopics(list.length);
+      } catch {
+        /* no-op */
+      }
+    };
+    void loadTopics();
+    const interval = setInterval(loadTopics, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     // Note: Don't set hardcoded defaults - let DB be the source of truth
@@ -749,6 +768,29 @@ const Sidebar: React.FC = () => {
               {active && <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r bg-blue-600" />}
               <Home className={`h-[18px] w-[18px] ${active ? 'text-blue-600' : 'text-neutral-500'}`} />
               {!isCollapsed && <span className="truncate">{t('nav.home')}</span>}
+            </button>
+          );
+        })()}
+
+        {/* Knowledge Graph (P0-A) */}
+        {(() => {
+          const active = pathname.startsWith('/knowledge');
+          return (
+            <button onClick={() => router.push('/knowledge')} title={isCollapsed ? t('nav.knowledge') : undefined}
+              data-testid="sidebar-knowledge"
+              className={`relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] font-medium transition-colors ${active ? 'bg-violet-50/80 text-violet-700' : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900'} ${isCollapsed ? 'justify-center' : ''}`}>
+              {active && <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r bg-violet-600" />}
+              <BookOpen className={`h-[18px] w-[18px] ${active ? 'text-violet-600' : 'text-neutral-500'}`} />
+              {!isCollapsed && (
+                <>
+                  <span className="truncate">{t('nav.knowledge')}</span>
+                  {totalTopics > 0 && (
+                    <span className="ml-auto rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-violet-700">
+                      {totalTopics}
+                    </span>
+                  )}
+                </>
+              )}
             </button>
           );
         })()}
