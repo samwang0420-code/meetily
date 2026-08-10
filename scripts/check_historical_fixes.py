@@ -486,6 +486,26 @@ ANCHORS = [
     ("99_3_open_symlink_hint",
      "scripts/sync_app_bundle.sh",
      r"open '\$APP_LINK"),
+
+    # §99.4 (2026-08-10): tauri bundle 路径检测 + 直接 exec 启动方式推荐
+    # macOS 26 LaunchServices 对 ~/Documents/.../*.app 持续拒绝扫描 (kLSNoExecutableErr),
+    # 用户应直接 exec bundle binary 或重启 macOS 清 LaunchServices cache.
+    ("99_4_tauri_bundle_detect",
+     "scripts/sync_app_bundle.sh",
+     r"TAURI_BUNDLE=.*bundle/macos"),
+    ("99_4_direct_exec_recommend",
+     "scripts/sync_app_bundle.sh",
+     r"bundle/macos.*Contents/MacOS/meetily"),
+
+    # §99.5 (2026-08-10): Tauri setup() 里不能用 tokio::spawn, 必须用 tauri::async_runtime::spawn
+    # 主线程是 tao event loop 不是 Tokio runtime, tokio::spawn 直接 panic:
+    #   "there is no reactor running, must be called from the context of a Tokio 1.x runtime"
+    # §86 §88 §62 都用 tauri::async_runtime::spawn, §99.2 漏修导致启动即 abort.
+    # positive 验证: §99.5 注释 + tauri::async_runtime::spawn 必须出现 (fix 在位)
+    # negative 验证 (不能有 tokio::spawn at line start) 由 code review + 同 anchor 间接保证
+    ("99_5_setup_backfill_uses_tauri_async_runtime_spawn",
+     "frontend/src-tauri/src/lib.rs",
+     r"§99\.5.*tauri::async_runtime::spawn"),
 ]
 
 

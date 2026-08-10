@@ -155,3 +155,18 @@ else
     echo "    ln -sfn '$APP_DIR' '$APP_LINK'"
     echo "  然后: open '$APP_LINK'"
 fi
+
+# §99.4 (2026-08-10): 检测 tauri build 官方 bundle 路径
+# (target/release/bundle/macos/言镜 AI.app) 优先用这个 — tauri build 跑的 codesign 含 hardened runtime,
+# 比 cargo build 输出的更完整. 用户可以三种方式启动:
+#   1. 直接 binary:       target/release/meetily
+#   2. 直接 bundle exec: target/release/bundle/macos/言镜 AI.app/Contents/MacOS/meetily
+#   3. open .app (受 LaunchServices 扫描限制, ~/Documents 路径常被拒)
+TAURI_BUNDLE="$TARGET_DIR/bundle/macos/言镜 AI.app"
+if [[ -d "$TAURI_BUNDLE" ]]; then
+    echo ""
+    echo "§99.4 tauri bundle detected: $TAURI_BUNDLE"
+    echo "  推荐启动方式 (绕过 LaunchServices 扫描限制):"
+    echo "    '$TAURI_BUNDLE/Contents/MacOS/meetily' &"
+    echo "  或: open '$APP_LINK' (symlink path, LaunchServices standard user dir)"
+fi

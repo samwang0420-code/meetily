@@ -223,3 +223,54 @@ python3 scripts/audit_codebase.py --strict
 **commit**: `6907799` (perf/summary-map-concurrency)
 **binary**: `/Users/wangwei/Documents/离线会记/target/release/meetily` 69M mtime 11:40
 **guard**: `python3 scripts/check_historical_fixes.py` → **107/107 PASS** (101 → 107)
+
+## 9. §99.5 Tauri setup() 禁止 tokio::spawn 铁律 (2026-08-10 立)
+
+**触发事故**: §99.2 加的 `tokio::spawn(async move { backfill_meeting_user_ids(...) })` 在 `tauri::Builder::default().setup(...)` 里直接 panic 阻断启动:
+
+```
+thread 'main' panicked at frontend/src-tauri/src/lib.rs:610:13:
+there is no reactor running, must be called from the context of a Tokio 1.x runtime
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+thread caused non-unwinding panic. aborting.
+```
+
+**根因**: Tauri main thread 是 `tao` event loop, **不是** Tokio runtime. `tokio::spawn` 需要 `tokio::runtime::Handle` 才能拿到 reactor, tao thread 没有, 直接 panic.
+
+**铁律**:
+1. **任何 Tauri `setup(|_app| { ... })` 闭包里 spawn 异步任务必须用 `tauri::async_runtime::spawn`** — Tauri 2.x 提供这个 wrapper 内部桥接到正确 runtime.
+2. **禁止用 `tokio::spawn` / `tokio::task::spawn`** — tao event loop 没有 Tokio reactor.
+3. **任何 `commands.rs` (Tauri command handler) 里可以用 `tokio::spawn`** — Tauri command 是在 Tokio runtime 上下文中调度的 (经 `#[tauri::command]` async fn 包装).
+4. **判断口诀**: `setup()` 里 → `tauri::async_runtime::spawn`; command handler / Tauri 事件 listener / 普通 tokio task → `tokio::spawn`.
+5. **正确参考**: §86 (`memory_watcher` start), §88 (`topic_dossier_scheduler` start), §62 (`sherpa_daemon` ensure_started_slot) 全用 `tauri::async_runtime::spawn`.
+
+**反向案例 (§99.5 bug)**:
+```rust
+.setup(|_app| {
+    Box::pin(async move {
+        // ... 其他 setup ...
+        let app_handle = _app.handle().clone();
+        tokio::spawn(async move {  // ❌ PANIC: "there is no reactor running"
+            backfill_meeting_user_ids(&app_handle).await;
+        });
+    })
+})
+```
+
+**正确写法**:
+```rust
+.setup(|_app| {
+    Box::pin(async move {
+        let app_handle = _app.handle().clone();
+        tauri::async_runtime::spawn(async move {  // ✅ Tauri 内部桥接
+            backfill_meeting_user_ids(&app_handle).await;
+        });
+    })
+})
+```
+
+**guard**: `python3 scripts/check_historical_fixes.py` 116/116 PASS (含 §99.5 正向 anchor: `lib.rs` 包含 `§99.5.*tauri::async_runtime::spawn`).
+
+**修复 commit**: `perf/summary-map-concurrency` HEAD 即将加 commit (Codex CLI auto-review 故障期间用户手动 push)
+
+**关联**: §86 / §88 / §62 / §37 硬闸门 / §92 防代码漏

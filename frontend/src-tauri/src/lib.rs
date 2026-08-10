@@ -606,8 +606,12 @@ pub fn run() {
             // §59 漏修复导致 v0.8.6 之前导入的会议 user_id 仍 NULL/-1, 详情页立刻 fail.
             // best-effort, 失败 warn 不阻塞启动.
             // §99.2: 异步跑 (不阻塞 setup), best-effort, 失败 warn
+            // §99.5: 必须用 tauri::async_runtime::spawn, 不能用 tokio::spawn —
+            //   Tauri main thread 是 tao event loop, 不是 Tokio runtime,
+            //   tokio::spawn 会 panic: "there is no reactor running"
+            //   参照 §86 §88 §62 (memory_watcher / topic_dossier_scheduler / sherpa_daemon)
             let app_handle = _app.handle().clone();
-            tokio::spawn(async move {
+            tauri::async_runtime::spawn(async move {
                 if let Err(e) = backfill_meeting_user_ids(&app_handle).await {
                     log::warn!("§99.2 backfill_meeting_user_ids failed (best-effort, continue): {}", e);
                 }
