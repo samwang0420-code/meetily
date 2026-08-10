@@ -164,8 +164,23 @@ fi
 #   3. open .app (受 LaunchServices 扫描限制, ~/Documents 路径常被拒)
 TAURI_BUNDLE="$TARGET_DIR/bundle/macos/言镜 AI.app"
 if [[ -d "$TAURI_BUNDLE" ]]; then
+    TAURI_BIN="$TAURI_BUNDLE/Contents/MacOS/meetily"
     echo ""
     echo "§99.4 tauri bundle detected: $TAURI_BUNDLE"
+    # §99.6 (2026-08-10): 主动 sync tauri bundle binary
+    # 之前只检测不 sync, 用户跑这个路径时拿到 §99.5 修复前的旧 binary panic.
+    # 用 sha 对比, 相同就跳过 (增量 build 后 cargo binary 没变), 不同就 cp.
+    if [[ -f "$TAURI_BIN" ]]; then
+        SRC_SHA=$(shasum "$SRC_BINARY" 2>/dev/null | awk '{print $1}')
+        DST_SHA=$(shasum "$TAURI_BIN" 2>/dev/null | awk '{print $1}')
+        if [[ "$SRC_SHA" != "$DST_SHA" ]]; then
+            cp "$SRC_BINARY" "$TAURI_BIN"
+            NEW_SHA=$(shasum "$TAURI_BIN" 2>/dev/null | awk '{print $1}')
+            echo "  §99.6 synced tauri bundle binary  $SRC_SHA -> $NEW_SHA"
+        else
+            echo "  §99.6 tauri bundle already in sync  sha=$SRC_SHA"
+        fi
+    fi
     echo "  推荐启动方式 (绕过 LaunchServices 扫描限制):"
     echo "    '$TAURI_BUNDLE/Contents/MacOS/meetily' &"
     echo "  或: open '$APP_LINK' (symlink path, LaunchServices standard user dir)"

@@ -506,6 +506,16 @@ ANCHORS = [
     ("99_5_setup_backfill_uses_tauri_async_runtime_spawn",
      "frontend/src-tauri/src/lib.rs",
      r"§99\.5.*tauri::async_runtime::spawn"),
+
+    # §99.6 (2026-08-10): sync_app_bundle.sh 必须也 sync tauri bundle binary
+    # 之前只 sync hand-made app, 没 sync target/release/bundle/macos/言镜 AI.app
+    # 用户跑 bundle/macos 路径拿到 §99.5 修复前的旧 binary panic (mtime 落后 14+ 分钟).
+    ("99_6_sync_tauri_bundle_sha_check",
+     "scripts/sync_app_bundle.sh",
+     r"§99\.6.*synced tauri bundle binary"),
+    ("99_6_sync_tauri_bundle_skip_when_same",
+     "scripts/sync_app_bundle.sh",
+     r"§99\.6.*already in sync"),
 ]
 
 

@@ -274,3 +274,43 @@ thread caused non-unwinding panic. aborting.
 **修复 commit**: `perf/summary-map-concurrency` HEAD 即将加 commit (Codex CLI auto-review 故障期间用户手动 push)
 
 **关联**: §86 / §88 / §62 / §37 硬闸门 / §92 防代码漏
+
+## 10. §99.6 sync_app_bundle.sh 必须也 sync tauri bundle binary (2026-08-10 立)
+
+**触发事故**: §99.5 fix push 后用户跑 §99.4 推荐启动方式:
+```bash
+'/Users/wangwei/Documents/离线会记/target/release/bundle/macos/言镜 AI.app/Contents/MacOS/meetily' &
+```
+仍然 panic at lib.rs:610. Commit 398836e 已经入仓, 但 binary mtime 是 20:47 (panic 前 tauri build 产物), 不是 21:03 (cargo build 输出).
+
+**根因**: `sync_app_bundle.sh` 之前只 sync 两个路径:
+1. `target/release/言镜 AI.app/Contents/MacOS/言镜 AI` (手造 .app)
+2. `~/Applications/言镜 AI.app` symlink (LaunchServices 兜底)
+
+**没 sync**: `target/release/bundle/macos/言镜 AI.app/Contents/MacOS/meetily` (tauri build 官方 bundle 路径, §99.4 推荐启动方式).
+
+`npx tauri build` 跑出的 bundle 在每次 cargo build 后没被更新, 用户走 §99.4 推荐路径拿到的是旧 binary.
+
+**铁律**:
+1. **任何 .app bundle 路径只要存在, 必须主动 sync** — sync_app_bundle.sh 检测到路径就 cp + sha 对比
+2. **sync 用 sha 对比 + 增量更新** — 同 sha 跳过 (无操作), 不同 sha 才 cp (避免无谓写盘)
+3. **sync 必须覆盖 §99.4 推荐路径** — `target/release/bundle/macos/言镜 AI.app` 是 §99.4 唯一推荐 exec 启动方式, 不可漏
+4. **用户反馈 panic 时第一件事查 binary mtime** — 比对 source HEAD vs binary mtime, 差距 > 5min 必是 sync 漏了
+
+**正确 sync 模式** (sync_app_bundle.sh 末尾):
+```bash
+if [[ -f "$TAURI_BIN" ]]; then
+    SRC_SHA=$(shasum "$SRC_BINARY" 2>/dev/null | awk '{print $1}')
+    DST_SHA=$(shasum "$TAURI_BIN" 2>/dev/null | awk '{print $1}')
+    if [[ "$SRC_SHA" != "$DST_SHA" ]]; then
+        cp "$SRC_BINARY" "$TAURI_BIN"
+        echo "§99.6 synced tauri bundle binary"
+    else
+        echo "§99.6 already in sync"
+    fi
+fi
+```
+
+**guard**: `python3 scripts/check_historical_fixes.py` 118/118 PASS (含 §99.6 双 anchor: synced / skip-when-same).
+
+**关联**: §99.4 (推荐启动方式) / §99.5 (fix) / §37 硬闸门 / §92 防代码漏
