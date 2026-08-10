@@ -715,6 +715,7 @@ async fn run_import<R: Runtime>(
         .ok_or_else(|| anyhow!("App state not available"))?;
 
     let meeting_id = create_meeting_with_transcripts(
+        &app,
         app_state.db_manager.pool(),
         &title,
         &segments,
@@ -764,7 +765,13 @@ fn emit_progress<R: Runtime>(app: &AppHandle<R>, stage: &str, progress: u32, mes
 
 
 /// Create a new meeting with transcripts in the database
-async fn create_meeting_with_transcripts(
+///
+/// §99.2 (2026-08-10): 必须写 user_id. 之前 (AGENTS.md §59 已立但代码漏修) INSERT 不带 user_id,
+/// meetings.user_id = NULL, api_get_meeting_metadata 按 user_id 过滤找不到 → 详情页
+/// "Failed to load transcripts". 优先 latest_session_in_db 拿, fallback -1 (机器 owner 哨兵,
+/// 跟 §49 录音路径一致, §26 数据回填脚本会修).
+async fn create_meeting_with_transcripts<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     pool: &sqlx::SqlitePool,
     title: &str,
     segments: &[TranscriptSegment],
@@ -773,22 +780,32 @@ async fn create_meeting_with_transcripts(
     let meeting_id = format!("meeting-{}", Uuid::new_v4());
     let now = chrono::Utc::now();
 
+    // §99.2: 优先 latest_session_in_db, fallback -1
+    let user_id: i64 = match crate::user::commands::latest_session_in_db(app).await {
+        Ok(Some((_token, uid))) => uid,
+        _ => {
+            warn!("§99.2 import.rs::create_meeting_with_transcripts: no session in DB, using -1 (machine owner sentinel)");
+            -1
+        }
+    };
+
     // Start transaction
     let mut conn = pool.acquire().await.map_err(|e| anyhow!("DB error: {}", e))?;
     let mut tx = sqlx::Connection::begin(&mut *conn)
         .await
         .map_err(|e| anyhow!("Failed to start transaction: {}", e))?;
 
-    // Insert meeting
+    // Insert meeting — §99.2 必带 user_id (NULL → 详情页立刻 fail)
     sqlx::query(
-        "INSERT INTO meetings (id, title, created_at, updated_at, folder_path)
-         VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO meetings (id, title, created_at, updated_at, folder_path, user_id)
+         VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(&meeting_id)
     .bind(title)
     .bind(now)
     .bind(now)
     .bind(&folder_path)
+    .bind(user_id)
     .execute(&mut *tx)
     .await
     .map_err(|e| anyhow!("Failed to create meeting: {}", e))?;
@@ -1430,5 +1447,29 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// §99.2: AGENTS.md §59 立"import 路径 INSERT meetings 必须包含 user_id",
+    /// 但 import.rs::create_meeting_with_transcripts 一直漏写 user_id = NULL.
+    /// 验证函数签名包含 user_id 参数 + INSERT SQL 含 user_id 列.
+    /// 防下次重构又漏 (见 §56 §92 §94 历史教训).
+    #[test]
+    fn section_99_2_create_meeting_writes_user_id() {
+        // 1. 验证函数签名加了 user_id 参数 (compile-time 保证)
+        //    通过检查源码字符串里 "user_id: i64" + "INSERT INTO meetings" 含 user_id 列
+        let src = include_str!("import.rs");
+        assert!(
+            src.contains("let user_id: i64 = match crate::user::commands::latest_session_in_db"),
+            "§99.2 import.rs must use latest_session_in_db to fetch user_id"
+        );
+        assert!(
+            src.contains(".bind(user_id)"),
+            "§99.2 INSERT must bind user_id (防漏回退)"
+        );
+        // 2. 验证 INSERT SQL 含 user_id 列
+        assert!(
+            src.contains("INSERT INTO meetings (id, title, created_at, updated_at, folder_path, user_id)"),
+            "§99.2 INSERT INTO meetings SQL must include user_id column"
+        );
     }
 }

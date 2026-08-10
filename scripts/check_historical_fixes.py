@@ -463,6 +463,17 @@ ANCHORS = [
     ("99_migrate_log_models_count",
      "frontend/src-tauri/src/lib.rs",
      r"models_files_copied="),
+
+    # §99.2 (2026-08-10): import.rs::create_meeting_with_transcripts 写 user_id (修复 §59 漏)
+    ("99_2_import_writes_user_id",
+     "frontend/src-tauri/src/audio/import.rs",
+     r"let user_id: i64 = match crate::user::commands::latest_session_in_db"),
+    ("99_2_insert_meetings_has_user_id",
+     "frontend/src-tauri/src/audio/import.rs",
+     r"INSERT INTO meetings \([^)]*user_id"),
+    ("99_2_test_exists",
+     "frontend/src-tauri/src/audio/import.rs",
+     r"section_99_2_create_meeting_writes_user_id"),
 ]
 
 

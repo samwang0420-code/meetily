@@ -511,6 +511,32 @@ pub fn migrate_legacy_app_data() -> anyhow::Result<()> {
     Ok(())
 }
 
+/// §99.2 (2026-08-10): 一次性回填 user_id IS NULL 或 user_id = -1 的老 meetings/transcripts
+/// 到当前登录用户 (latest_session_in_db). 跟 §26 §49 一致, 哨兵 -1 改为真实 user_id.
+/// best-effort, 失败 warn 不阻塞启动.
+async fn backfill_meeting_user_ids<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> anyhow::Result<()> {
+    let app_state = app.try_state::<crate::state::AppState>()
+        .ok_or_else(|| anyhow::anyhow!("AppState not available"))?;
+    let pool = app_state.db_manager.pool();
+    let user_id: i64 = match crate::user::commands::latest_session_in_db(app).await {
+        Ok(Some((_, uid))) => uid,
+        _ => {
+            log::info!("§99.2 backfill: no active session, skip (避免误把数据挂到错误用户)");
+            return Ok(());
+        }
+    };
+    let m = sqlx::query("UPDATE meetings SET user_id = ? WHERE user_id IS NULL OR user_id = -1")
+        .bind(user_id).execute(pool).await
+        .map_err(|e| anyhow::anyhow!("UPDATE meetings: {}", e))?
+        .rows_affected();
+    let t = sqlx::query("UPDATE transcripts SET user_id = ? WHERE user_id IS NULL OR user_id = -1")
+        .bind(user_id).execute(pool).await
+        .map_err(|e| anyhow::anyhow!("UPDATE transcripts: {}", e))?
+        .rows_affected();
+    log::info!("§99.2 backfill_meeting_user_ids: meetings={} transcripts={} → user_id={}", m, t, user_id);
+    Ok(())
+}
+
 /// §99: 递归复制目录树 (用于 §97 §99 models/ 迁移).
 /// src/models/sherpa/funasr-nano-int8/*.onnx ~ 947MB, 必须用 copy (不能用 hardlink,
 /// 因为 APFS 跨卷 hardlink 失败; 同卷 hardlink 反而让"复制"语义不清, fail 时排查难).
@@ -574,6 +600,18 @@ pub fn run() {
             if let Err(e) = migrate_legacy_app_data() {
                 log::warn!("§97 migrate_legacy_app_data failed (best-effort, continue): {}", e);
             }
+
+            // §99.2 (2026-08-10): 一次性回填 NULL/-1 user_id 的老 meetings/transcripts
+            // 到当前登录用户 (跟 §26 / §49 录音路径一致, 机器 owner 哨兵 → 真实 user_id).
+            // §59 漏修复导致 v0.8.6 之前导入的会议 user_id 仍 NULL/-1, 详情页立刻 fail.
+            // best-effort, 失败 warn 不阻塞启动.
+            // §99.2: 异步跑 (不阻塞 setup), best-effort, 失败 warn
+            let app_handle = _app.handle().clone();
+            tokio::spawn(async move {
+                if let Err(e) = backfill_meeting_user_ids(&app_handle).await {
+                    log::warn!("§99.2 backfill_meeting_user_ids failed (best-effort, continue): {}", e);
+                }
+            });
 
             log::info!("Application setup complete");
 
