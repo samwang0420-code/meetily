@@ -474,6 +474,18 @@ ANCHORS = [
     ("99_2_test_exists",
      "frontend/src-tauri/src/audio/import.rs",
      r"section_99_2_create_meeting_writes_user_id"),
+
+    # §99.3 (2026-08-10): sync_app_bundle.sh 顺序修复 (cp 在 codesign 之前)
+    # + ~/Applications symlink 帮 LaunchServices 标准目录接管 (避免 kLSNoExecutableErr)
+    ("99_3_sync_cp_before_codesign",
+     "scripts/sync_app_bundle.sh",
+     r"cp -f.*SRC_BINARY.*DST_BINARY"),
+    ("99_3_apps_dir_symlink",
+     "scripts/sync_app_bundle.sh",
+     r"USER_APPS_DIR=\"\$HOME/Applications"),
+    ("99_3_open_symlink_hint",
+     "scripts/sync_app_bundle.sh",
+     r"open '\$APP_LINK"),
 ]
 
 

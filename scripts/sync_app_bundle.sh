@@ -87,9 +87,26 @@ if [[ -f "$TAURI_CONF" ]]; then
     fi
 fi
 
+# Sync (先把新 binary 复制到 .app, 然后再 codesign 整个 .app)
+# §99.3 (2026-08-10): 之前 sync_app_bundle.sh 顺序错了 — 先 codesign 然后 cp, cp 把刚签的 binary
+# 覆盖回未签名的 release/meetily, 每次都说 OK 但下次启动还是闪退 (meetily-f4d07fa731b148b3 identifier
+# 跟 Info.plist tech.yanjingai.app 不匹配 → launchd 162 Launch failed).
+SRC_HASH=$(shasum "$SRC_BINARY" | awk '{print $1}')
+cp -f "$SRC_BINARY" "$DST_BINARY"
+DST_HASH=$(shasum "$DST_BINARY" | awk '{print $1}')
+
+if [[ "$SRC_HASH" != "$DST_HASH" ]]; then
+    echo -e "${RED}ERROR${NC}: sync 后 hash 不一致 (src=$SRC_HASH, dst=$DST_HASH)"
+    exit 1
+fi
+
+DST_SIZE=$(stat -f "%z" "$DST_BINARY")
+echo -e "${GREEN}OK${NC}: synced  $DST_SIZE bytes  sha=${DST_HASH:0:12}"
+
 # §98 (2026-08-10): codesign identifier 跟 CFBundleIdentifier 不一致 → launchd 162 Launch failed.
 # cargo build --release 不重新签名 .app bundle, 旧 binary codesign identifier 还嵌在 Mach-O 内.
 # 即使 Info.plist 已经匹配, 每次 sync 都要 re-sign 让 binary 内 codesign identifier 跟新 bundle 一致.
+# §99.3: 必须 cp 之后再 codesign, 否则 cp 会覆盖刚签好的 binary.
 if [[ -n "$EXPECTED_ID" ]]; then
     # codesign -dv 输出到 stderr 不是 stdout, 必须 2>&1
     CURRENT_BIN_ID=$(codesign -dv "$APP_DIR" 2>&1 | awk -F= '/^Identifier/ {print $2; exit}')
@@ -108,17 +125,33 @@ if [[ -n "$EXPECTED_ID" ]]; then
     fi
 fi
 
-# Sync
-SRC_HASH=$(shasum "$SRC_BINARY" | awk '{print $1}')
-cp -f "$SRC_BINARY" "$DST_BINARY"
-DST_HASH=$(shasum "$DST_BINARY" | awk '{print $1}')
 
-if [[ "$SRC_HASH" != "$DST_HASH" ]]; then
-    echo -e "${RED}ERROR${NC}: sync 后 hash 不一致 (src=$SRC_HASH, dst=$DST_HASH)"
-    exit 1
-fi
 
-DST_SIZE=$(stat -f "%z" "$DST_BINARY")
-echo -e "${GREEN}OK${NC}: synced  $DST_SIZE bytes  sha=${DST_HASH:0:12}"
 echo ""
 echo "用法: open '$APP_DIR'"
+
+# §99.3 (2026-08-10): 创建 ~/Applications/言镜 AI.app symlink
+# 原因: macOS 26 LaunchServices 对 ~/Documents/.../*.app 拒绝扫描
+# (com.apple.provenance + 路径含空格 + 用户保护目录 → kLSNoExecutableErr).
+# ~/Applications 是 LaunchServices 标准用户目录, symlink 让 .app 可被 `open` 启动.
+USER_APPS_DIR="$HOME/Applications"
+APP_LINK="$USER_APPS_DIR/言镜 AI.app"
+mkdir -p "$USER_APPS_DIR" 2>/dev/null || true
+if [[ -L "$APP_LINK" ]] || [[ -e "$APP_LINK" ]]; then
+    CURRENT_TARGET=$(readlink "$APP_LINK" 2>/dev/null || echo "")
+    if [[ "$CURRENT_TARGET" != "$APP_DIR" ]]; then
+        rm -f "$APP_LINK" 2>/dev/null || true
+        ln -s "$APP_DIR" "$APP_LINK" 2>/dev/null || true
+    fi
+else
+    ln -s "$APP_DIR" "$APP_LINK" 2>/dev/null || true
+fi
+if [[ -L "$APP_LINK" ]]; then
+    echo -e "${GREEN}OK${NC}: §99.3 symlink ready: $APP_LINK → $(readlink "$APP_LINK")"
+    echo "  用法 (LaunchServices 标准目录, 避免 kLSNoExecutableErr): open '$APP_LINK'"
+else
+    echo -e "${YELLOW}WARN${NC}: §99.3 symlink 创建失败 (sandbox 限制)"
+    echo "  请用户手动跑:"
+    echo "    ln -sfn '$APP_DIR' '$APP_LINK'"
+    echo "  然后: open '$APP_LINK'"
+fi
