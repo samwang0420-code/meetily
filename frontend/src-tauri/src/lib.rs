@@ -601,21 +601,9 @@ pub fn run() {
                 log::warn!("§97 migrate_legacy_app_data failed (best-effort, continue): {}", e);
             }
 
-            // §99.2 (2026-08-10): 一次性回填 NULL/-1 user_id 的老 meetings/transcripts
-            // 到当前登录用户 (跟 §26 / §49 录音路径一致, 机器 owner 哨兵 → 真实 user_id).
-            // §59 漏修复导致 v0.8.6 之前导入的会议 user_id 仍 NULL/-1, 详情页立刻 fail.
-            // best-effort, 失败 warn 不阻塞启动.
-            // §99.2: 异步跑 (不阻塞 setup), best-effort, 失败 warn
-            // §99.5: 必须用 tauri::async_runtime::spawn, 不能用 tokio::spawn —
-            //   Tauri main thread 是 tao event loop, 不是 Tokio runtime,
-            //   tokio::spawn 会 panic: "there is no reactor running"
-            //   参照 §86 §88 §62 (memory_watcher / topic_dossier_scheduler / sherpa_daemon)
-            let app_handle = _app.handle().clone();
-            tauri::async_runtime::spawn(async move {
-                if let Err(e) = backfill_meeting_user_ids(&app_handle).await {
-                    log::warn!("§99.2 backfill_meeting_user_ids failed (best-effort, continue): {}", e);
-                }
-            });
+            // §99.2/§101 (2026-08-10): backfill 移到 database init 之后 (line 700+),
+            // 否则 race condition: backfill spawn 在 AppState 注册之前, try_state::<AppState> 返 None.
+            // 之前版本: "§99.2 backfill_meeting_user_ids failed: AppState not available" warn 一直打.
 
             log::info!("Application setup complete");
 
@@ -697,6 +685,15 @@ pub fn run() {
                 database::setup::initialize_database_on_startup(&_app.handle()).await
             })
             .expect("Failed to initialize database");
+
+            // §99.2/§101 backfill: 必须在 database::setup 之后 spawn, AppState 已 manage 才能 try_state 成功
+            let app_for_backfill = _app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = backfill_meeting_user_ids(&app_for_backfill).await {
+                    log::warn!("§99.2 backfill_meeting_user_ids failed (best-effort, continue): {}", e);
+                }
+            });
+            log::info!("§99.2 user_id backfill scheduled (post-AppState registration)");
 
             // §P2-B Topic dossier 夜间重建 scheduler (71 报告 P2-B)
             // 启动后 spawn 后台 task, 0-6 点 + 用户 idle + DB 有 stale topic 时跑.
