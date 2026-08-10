@@ -13,7 +13,7 @@ use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 /// Python script path. Bundled with frontend/src-tauri/scripts/.
 fn script_path() -> std::path::PathBuf {
@@ -33,16 +33,64 @@ fn script_path() -> std::path::PathBuf {
     candidates.last().unwrap().clone()
 }
 
-/// Python interpreter: prefer python3 from PATH; fall back to system locations.
+/// §96: Python interpreter selection.
+///
+/// 历史问题 (§96 触发): Tauri app bundle 启动时, macOS launchd 注入精简 PATH,
+/// 不含 /opt/homebrew/bin. `which python3` fallback 到 /usr/bin/python3 (Xcode CLT),
+/// 该 Python 没装 sherpa_onnx (只 numpy). 用户报 "No module named 'numpy'" /
+/// 实际是 sherpa_onnx 缺失. 这里用候选列表 + 真实 import 探测 + OnceLock 缓存.
+///
+/// 探测 = `python -c "import sherpa_onnx, numpy, soundfile"`, 全 ok 才用.
 fn python_path() -> String {
+    static CACHED: OnceLock<String> = OnceLock::new();
+    CACHED.get_or_init(detect_python_interpreter).clone()
+}
+
+fn detect_python_interpreter() -> String {
+    let candidates = [
+        "/opt/homebrew/bin/python3",
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "/opt/homebrew/opt/python@3.13/bin/python3.13",
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/usr/local/bin/python3",
+        "/opt/local/bin/python3",
+        "/Library/Frameworks/Python.framework/Versions/Current/bin/python3",
+    ];
+    for c in &candidates {
+        if !std::path::Path::new(c).exists() {
+            continue;
+        }
+        let probe = Command::new(c)
+            .args(&["-c", "import sherpa_onnx, numpy, soundfile; print('OK')"])
+            .output();
+        match probe {
+            Ok(out) if out.status.success() => {
+                info!("[sherpa] §96 python3 selected (probe OK): {}", c);
+                return c.to_string();
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                warn!(
+                    "[sherpa] §96 python3 {} probe failed: {}",
+                    c,
+                    stderr.lines().last().unwrap_or("?").trim()
+                );
+            }
+            Err(e) => {
+                warn!("[sherpa] §96 python3 {} spawn failed: {}", c, e);
+            }
+        }
+    }
     if let Ok(out) = Command::new("which").arg("python3").output() {
         if out.status.success() {
             let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
             if !p.is_empty() {
+                warn!("[sherpa] §96 falling back to PATH which python3: {}", p);
                 return p;
             }
         }
     }
+    warn!("[sherpa] §96 no python3 with sherpa_onnx found, using /usr/bin/python3 (will likely fail)");
     "/usr/bin/python3".to_string()
 }
 
@@ -163,6 +211,13 @@ impl SherpaDaemon {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
+        // §96: 显式传 PYTHONUSERBASE 让 user site-packages 可加载
+        // macOS Tauri app bundle 启动时 env 会被 launchd 精简, 默认 PYTHONUSERBASE 不继承
+        if let Some(home) = std::env::var_os("HOME") {
+            cmd.env("PYTHONUSERBASE", home);
+        }
+        // §96: 不缓冲 stderr (daemon 启动错误能立即看到)
+        cmd.env("PYTHONUNBUFFERED", "1");
         let mut child = cmd
             .spawn()
             .map_err(|e| anyhow!("failed to spawn sherpa daemon slot {} ({}): {}", slot_idx, script.display(), e))?;
