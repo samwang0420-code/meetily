@@ -1449,8 +1449,11 @@ async fn apply_diar_pickup_to_meeting(meeting_id: &str, archive: bool) -> Result
 import os, sqlite3, json, sys, glob, time
 meeting_id = sys.argv[1]
 archive_mode = sys.argv[2] == "1"
-db_path = os.environ.get("LIXIANHUIJI_DIAR_DB_PATH") or os.path.expanduser(
-    "~/Library/Application Support/cn.lixianhuiji.app/meeting_minutes.sqlite"
+# §97 (2026-08-09): YANJINGAI env var 优先, 旧 LIXIANHUIJI 兼容, 最后 fallback 新 bundle id
+db_path = (
+    os.environ.get("YANJINGAI_DIAR_DB_PATH")
+    or os.environ.get("LIXIANHUIJI_DIAR_DB_PATH")
+    or os.path.expanduser("~/Library/Application Support/tech.yanjingai.app/meeting_minutes.sqlite")
 )
 if not os.path.exists(db_path):
     sys.exit(0)

@@ -36,8 +36,11 @@ from diar import count_speakers, is_available as diar_is_available  # v0.6.14+ S
 # 上层 worker 通过 _diar_pickup(rid) 轮询拿结果 (消费侧下一轮 PR 加 DB 落库)
 
 def _diar_db_path():
-    return os.environ.get("LIXIANHUIJI_DIAR_DB_PATH") or os.path.expanduser(
-        "~/Library/Application Support/cn.lixianhuiji.app/meeting_minutes.sqlite"
+    # §97 (2026-08-09): YANJINGAI env var 优先, 旧 LIXIANHUIJI env var 向后兼容, 最后 fallback 新 bundle id
+    return (
+        os.environ.get("YANJINGAI_DIAR_DB_PATH")
+        or os.environ.get("LIXIANHUIJI_DIAR_DB_PATH")
+        or os.path.expanduser("~/Library/Application Support/tech.yanjingai.app/meeting_minutes.sqlite")
     )
 
 
@@ -167,8 +170,9 @@ def _diar_pickup(rid):
         return None
 
 
+# §97 (2026-08-09): Bundle ID 切换 tech.yanjingai.app
 MODELS_ROOT = os.path.expanduser(
-    "~/Library/Application Support/cn.lixianhuiji.app/models/sherpa"
+    "~/Library/Application Support/tech.yanjingai.app/models/sherpa"
 )
 
 # lazy globals

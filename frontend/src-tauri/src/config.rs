@@ -41,6 +41,11 @@ pub const WHISPER_MODEL_CATALOG: &[(&str, &str, u32, &str, &str, &str)] = &[
 /// Nano 尚未通过 10 段完整基准和性能准入，因此默认保持 SenseVoice。
 pub const DEFAULT_SHERPA_MODEL: &str = "sense-voice-zh-int8";
 
+// §97 (2026-08-09): Bundle identifier 切换. 新值为 `tech.yanjingai.app`,
+// 旧值 `cn.lixianhuiji.app` 保留为 LEGACY, 用于数据迁移函数比对.
+pub const APP_BUNDLE_ID: &str = "tech.yanjingai.app";
+pub const APP_BUNDLE_ID_LEGACY: &str = "cn.lixianhuiji.app";
+
 /// v0.7.0+: Sherpa-onnx 模型优先级 (用于 fallback).
 pub const SHERPA_MODEL_FALLBACK_ORDER: &[&str] = &[
     "sense-voice-zh-int8",
@@ -49,7 +54,7 @@ pub const SHERPA_MODEL_FALLBACK_ORDER: &[&str] = &[
 ];
 
 /// v0.7.0+: 运行时挑选当前最佳的 Sherpa-onnx 默认模型.
-/// 扫描 ~/Library/Application Support/cn.lixianhuiji.app/models/sherpa/,
+/// 扫描 ~/Library/Application Support/{APP_BUNDLE_ID}/models/sherpa/,
 /// 按 SHERPA_MODEL_FALLBACK_ORDER 优先级取第一个已下载的.
 /// 没有任何下载时回退到 SenseVoice；Nano 仅在用户显式选择时使用。
 pub fn pick_default_sherpa_model() -> String {
@@ -70,9 +75,9 @@ pub fn pick_default_sherpa_model() -> String {
 }
 
 fn dirs_sherpa_models_dir() -> Option<PathBuf> {
-    // macOS: ~/Library/Application Support/cn.lixianhuiji.app/models/sherpa/
-    // Linux: $XDG_DATA_HOME/cn.lixianhuiji.app/models/sherpa/
-    // Windows: %APPDATA%/cn.lixianhuiji.app/models/sherpa/
+    // macOS: ~/Library/Application Support/{APP_BUNDLE_ID}/models/sherpa/
+    // Linux: $XDG_DATA_HOME/{APP_BUNDLE_ID}/models/sherpa/
+    // Windows: %APPDATA%/{APP_BUNDLE_ID}/models/sherpa/
     if let Some(mut p) = dirs_root_app_data() {
         p.push("models");
         p.push("sherpa");
@@ -85,17 +90,17 @@ fn dirs_root_app_data() -> Option<PathBuf> {
     if cfg!(target_os = "macos") {
         std::env::var_os("HOME").map(|h| {
             let mut p = PathBuf::from(h);
-            p.push("Library/Application Support/cn.lixianhuiji.app");
+            p.push(format!("Library/Application Support/{}", APP_BUNDLE_ID));
             p
         })
     } else if cfg!(target_os = "windows") {
-        std::env::var_os("APPDATA").map(|v| PathBuf::from(v).join("cn.lixianhuiji.app"))
+        std::env::var_os("APPDATA").map(|v| PathBuf::from(v).join(APP_BUNDLE_ID))
     } else {
         std::env::var_os("XDG_DATA_HOME")
-            .map(|v| PathBuf::from(v).join("cn.lixianhuiji.app"))
+            .map(|v| PathBuf::from(v).join(APP_BUNDLE_ID))
             .or_else(|| {
                 std::env::var_os("HOME").map(|h| {
-                    PathBuf::from(h).join(".local/share/cn.lixianhuiji.app")
+                    PathBuf::from(h).join(format!(".local/share/{}", APP_BUNDLE_ID))
                 })
             })
     }

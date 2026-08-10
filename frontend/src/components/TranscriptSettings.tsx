@@ -202,7 +202,7 @@ export function TranscriptSettings({
                     {(uiProvider === 'sherpa_funasr_nano' || uiProvider === 'sherpa_paraformer') && (
                         <div className="mt-6 p-4 bg-blue-50 rounded-lg">
                             <p className="text-sm text-blue-900">
-                                ✅ sherpa-onnx 模型自动从 <code className="bg-white px-1 rounded">~/Library/Application Support/cn.lixianhuiji.app/models/sherpa/</code> 加载,
+                                ✅ sherpa-onnx 模型自动从 <code className="bg-white px-1 rounded">~/Library/Application Support/tech.yanjingai.app/models/sherpa/</code> 加载,
                                 无需额外下载。当前已安装: SenseVoice-zh INT8 (228MB) + Paraformer-zh INT8 (216MB) + FunASR-Nano (947MB, Pro 专属)。
                             </p>
                             <p className="text-xs text-blue-700 mt-2">

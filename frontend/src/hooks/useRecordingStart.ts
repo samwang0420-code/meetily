@@ -51,7 +51,7 @@ export function useRecordingStart(
   }, []);
 
   // 离线会记 W2.5: recording 实时转录改用 sherpa-onnx daemon
-  // 检查 ~/Library/Application Support/cn.lixianhuiji.app/models/sherpa/ 下是否有可用模型
+  // §97 (2026-08-09): 检查 ~/Library/Application Support/tech.yanjingai.app/models/sherpa/ 下是否有可用模型
   const checkParakeetReady = useCallback(async (): Promise<boolean> => {
     try {
       const provider = transcriptModelConfig?.provider ?? 'sherpa_funasr_nano';

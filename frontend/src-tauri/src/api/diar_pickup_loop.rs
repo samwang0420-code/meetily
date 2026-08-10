@@ -143,8 +143,11 @@ fn run_apply_script(json_paths: &[String]) -> Result<String, String> {
 import os, sqlite3, json, sys, glob, time
 
 paths = sys.argv[1:]
-db_path = os.environ.get("LIXIANHUIJI_DIAR_DB_PATH") or os.path.expanduser(
-    "~/Library/Application Support/cn.lixianhuiji.app/meeting_minutes.sqlite"
+# §97 (2026-08-09): YANJINGAI env var 优先, 旧 LIXIANHUIJI 兼容, 最后 fallback 新 bundle id
+db_path = (
+    os.environ.get("YANJINGAI_DIAR_DB_PATH")
+    or os.environ.get("LIXIANHUIJI_DIAR_DB_PATH")
+    or os.path.expanduser("~/Library/Application Support/tech.yanjingai.app/meeting_minutes.sqlite")
 )
 result = {"updated_meetings": [], "updated_rows": 0, "matched_files": 0, "unmatched_files": 0}
 if not os.path.exists(db_path):

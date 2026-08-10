@@ -400,6 +400,97 @@ pub fn get_language_preference_internal() -> Option<String> {
     LANGUAGE_PREFERENCE.lock().ok().map(|lang| lang.clone())
 }
 
+// §97 (2026-08-09): identifier 改造后, 首次启动自动从旧 Bundle 目录 (cn.lixianhuiji.app)
+/// 复制 SQLite + decode_cache + models 到新目录 (tech.yanjingai.app).
+///
+/// 设计原则 (§97 立铁律):
+/// - 仅 COPY, 不删除旧目录 (§65 老数据观察期)
+/// - 新目录已存在文件 → 跳过 (用户已有部分迁过来的不覆盖)
+/// - 失败仅 warn, 不阻塞启动 (best-effort)
+/// - 只复制 db 文件 (meeting_minutes.sqlite + -shm + -wal) + decode_cache (用户已有大文件不复制)
+pub fn migrate_legacy_app_data() -> anyhow::Result<()> {
+    use std::path::PathBuf;
+
+    // 新旧路径
+    let new_dir = if cfg!(target_os = "macos") {
+        std::env::var_os("HOME").map(|h| {
+            let mut p = PathBuf::from(h);
+            p.push(format!("Library/Application Support/{}", crate::config::APP_BUNDLE_ID));
+            p
+        })
+    } else if cfg!(target_os = "windows") {
+        std::env::var_os("APPDATA").map(|v| PathBuf::from(v).join(crate::config::APP_BUNDLE_ID))
+    } else {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(|v| PathBuf::from(v).join(crate::config::APP_BUNDLE_ID))
+            .or_else(|| {
+                std::env::var_os("HOME").map(|h| {
+                    PathBuf::from(h).join(format!(".local/share/{}", crate::config::APP_BUNDLE_ID))
+                })
+            })
+    };
+    let new_dir = match new_dir {
+        Some(d) => d,
+        None => {
+            log::info!("§97 migrate_legacy_app_data: cannot resolve new data dir, skip");
+            return Ok(());
+        }
+    };
+
+    let legacy_dir = if cfg!(target_os = "macos") {
+        std::env::var_os("HOME").map(|h| {
+            let mut p = PathBuf::from(h);
+            p.push(format!("Library/Application Support/{}", crate::config::APP_BUNDLE_ID_LEGACY));
+            p
+        })
+    } else if cfg!(target_os = "windows") {
+        std::env::var_os("APPDATA").map(|v| PathBuf::from(v).join(crate::config::APP_BUNDLE_ID_LEGACY))
+    } else {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(|v| PathBuf::from(v).join(crate::config::APP_BUNDLE_ID_LEGACY))
+            .or_else(|| {
+                std::env::var_os("HOME").map(|h| {
+                    PathBuf::from(h).join(format!(".local/share/{}", crate::config::APP_BUNDLE_ID_LEGACY))
+                })
+            })
+    };
+    let legacy_dir = match legacy_dir {
+        Some(d) => d,
+        None => return Ok(()),
+    };
+
+    if !legacy_dir.exists() {
+        log::info!("§97 migrate_legacy_app_data: legacy dir {:?} not found, skip", legacy_dir);
+        return Ok(());
+    }
+
+    std::fs::create_dir_all(&new_dir).map_err(|e| anyhow::anyhow!("create_dir_all {:?}: {}", new_dir, e))?;
+
+    // §97: 仅复制 db 文件 (3 个: sqlite + shm + wal), 不复制 decode_cache / models 大文件
+    // 用户机器新目录已有 4G decode_cache + models, 复制 4.5G 老目录无意义且可能爆磁盘
+    let files_to_copy = ["meeting_minutes.sqlite", "meeting_minutes.sqlite-shm", "meeting_minutes.sqlite-wal"];
+    let mut copied: Vec<String> = Vec::new();
+    let mut skipped: Vec<String> = Vec::new();
+    for fname in &files_to_copy {
+        let src = legacy_dir.join(fname);
+        let dst = new_dir.join(fname);
+        if !src.exists() {
+            continue;
+        }
+        if dst.exists() {
+            skipped.push(fname.to_string());
+            continue;
+        }
+        std::fs::copy(&src, &dst).map_err(|e| anyhow::anyhow!("copy {:?}: {}", src, e))?;
+        copied.push(fname.to_string());
+    }
+    log::info!(
+        "§97 migrate_legacy_app_data: copied={:?} skipped={:?} (legacy={:?}, new={:?})",
+        copied, skipped, legacy_dir, new_dir
+    );
+    Ok(())
+}
+
 pub fn run() {
     log::set_max_level(log::LevelFilter::Info);
 
@@ -435,6 +526,12 @@ pub fn run() {
         .manage(summary::summary_engine::ModelManagerState(Arc::new(tokio::sync::Mutex::new(None))))
         .manage(SessionStore::default())
         .setup(|_app| {
+            // §97 (2026-08-09): identifier 改造后, 首次启动自动从旧 Bundle 目录 (cn.lixianhuiji.app)
+            // 复制 SQLite + decode_cache + models 到新目录 (tech.yanjingai.app). 旧目录保留, 不删除.
+            if let Err(e) = migrate_legacy_app_data() {
+                log::warn!("§97 migrate_legacy_app_data failed (best-effort, continue): {}", e);
+            }
+
             log::info!("Application setup complete");
 
             // Initialize system tray
@@ -885,7 +982,7 @@ fn install_panic_hook() {
 
         // 2) 写本地 crash log
         let app_data = std::env::var("LIXIANHUIJI_DATA_DIR").ok()
-            .or_else(|| dirs::data_dir().map(|p| p.join("cn.lixianhuiji.app").to_string_lossy().to_string()));
+            .or_else(|| dirs::data_dir().map(|p| p.join(crate::config::APP_BUNDLE_ID).to_string_lossy().to_string()));
         if let Some(dir) = app_data {
             let crash_dir = std::path::PathBuf::from(&dir).join("crashes");
             let _ = fs::create_dir_all(&crash_dir);

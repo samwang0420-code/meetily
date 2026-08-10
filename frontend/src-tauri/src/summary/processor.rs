@@ -1183,7 +1183,7 @@ mod tests {
         assert_eq!(clamp_max_tokens(Some(8192)), Some(8192));
     }
 
-    /// 真实录音文本 (来自 ~/Library/Application Support/cn.lixianhuiji.app/meeting_minutes.sqlite)
+    /// 真实录音文本 (来自 ~/Library/Application Support/tech.yanjingai.app/meeting_minutes.sqlite)
     /// 用来估算 max_tokens=1200 在典型 30s-1min 中文会议上是否够用.
     /// 不调 LLM, 不启动 GUI, 纯函数验证 + 真实样本 token 估算.
     #[test]

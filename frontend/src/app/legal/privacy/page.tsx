@@ -56,7 +56,7 @@ export default function PrivacyPage() {
         如果软件发生严重错误 (panic), 我们会在本地的 <code>crashes/</code> 目录写入一份崩溃报告:
       </p>
       <ul className="text-sm text-neutral-700 list-disc pl-6 space-y-1">
-        <li>路径: <code>~/Library/Application Support/cn.lixianhuiji.app/crashes/</code> (macOS) / <code>%APPDATA%\cn.lixianhuiji.app\crashes\</code> (Windows) / <code>~/.local/share/cn.lixianhuiji.app/crashes/</code> (Linux)</li>
+        <li>路径: <code>~/Library/Application Support/tech.yanjingai.app/crashes/</code> (macOS) / <code>%APPDATA%\tech.yanjingai.app\crashes\</code> (Windows) / <code>~/.local/share/tech.yanjingai.app/crashes/</code> (Linux)</li>
         <li>内容: 时间戳、版本号、操作系统、panic 信息、Rust 调用栈</li>
         <li>不包含: 你的会议音频、转写文字、摘要内容</li>
         <li>保留策略: 仅保留最近 50 个崩溃文件, 超出自动清理</li>

@@ -2,7 +2,7 @@
     "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
     "productName": "言镜 AI",
     "version": "0.8.6",
-    "identifier": "cn.lixianhuiji.app",
+    "identifier": "tech.yanjingai.app",
     "build": {
         "frontendDist": "../out"
     },
