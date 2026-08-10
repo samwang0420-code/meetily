@@ -187,3 +187,39 @@ python3 scripts/audit_codebase.py --strict
 - [[98-identifier改造后启动闪退三件套修复-2026-08-10]] (Obsidian) / `outputs/98-identifier改造后启动闪退三件套修复-2026-08-10.md` (Codex)
 - [[97-identifier改造-tech.yanjingai.app-数据迁移-2026-08-10]] (上一 commit)
 - [[73-启动panic-missing-migrations-根因+一次性修复]] (同类 sqlx checksum 修复)
+
+## 8. §99 导入失败 PYTHONUSERBASE + models 迁移修复铁律 (2026-08-10 立)
+
+**触发**: 用户截图 `Sherpa transcription failed on segment 0: sherpa slot 0 error: No module named 'numpy'`. 两个叠加 bug:
+
+### Bug 1 — §96 PYTHONUSERBASE=$HOME 覆盖 numpy 默认 user-base
+
+`§96 commit ad3b9e2` 在 spawn Python 子进程时加 `cmd.env("PYTHONUSERBASE", home)`:
+- homebrew Python 默认 user-base = `~/Library/Python/3.14/lib/python` (numpy/sherpa_onnx 装在那)
+- 显式设 `PYTHONUSERBASE=/Users/wangwei` → PEP 370 错误映射到 `~/lib/python3.14/site-packages` → numpy 找不到
+- **探测时 import OK ≠ spawn 时 import OK** (env 不一致)
+
+### Bug 2 — §97 migrate_legacy_app_data 漏复制 models/
+
+`§97 commit 276906e` 迁移只复制 3 个 sqlite 文件, 漏了 `models/`:
+- 旧 `cn.lixianhuiji.app/models/sherpa/` 有 `funasr-nano-int8` + `paraformer-zh-int8` (~1.2GB)
+- 新 `tech.yanjingai.app/models/sherpa/` 不存在
+- sherpa_asr.py 启动后 `discovered 0 model packs`, 导入转录 0 段识别
+
+### 铁律
+
+1. **Python 探测和 spawn 必须用相同 env** — 探测 import OK 不代表 spawn import OK. 必须真 spawn 一次 + 发 list action 验证 `ok=true`.
+2. **永远不要显式设 `PYTHONUSERBASE=$HOME`** — homebrew Python 默认 user-base 已经是 `~/Library/Python/3.14/lib/python`. 显式覆盖破坏 PEP 370 路径映射.
+3. **§97 迁移必须 COPY 完整用户数据** — db + decode_cache + **models**, 不能只复制 db. 注释假设"用户已有"必须验证 (`ls $new/models/sherpa`).
+4. **新代码改动必须加 guard anchor** — 不加 anchor 下次重构被覆盖 (见 §56 §92 §94). commit 6907799 加了 6 个 §99 anchor.
+5. **cargo test --lib 全套** — 改动 sherpa_daemon.rs 必须跑 spawn 测试 (探测 ≠ spawn).
+
+**实现位置**:
+- `frontend/src-tauri/src/audio/sherpa_daemon.rs::ensure_started_slot` — 不再设 PYTHONUSERBASE, 保留 PYTHONUNBUFFERED
+- `frontend/src-tauri/src/audio/sherpa_daemon.rs::tests::section_99_spawned_python_can_import_sherpa_onnx` — spawn 验证单测
+- `frontend/src-tauri/src/lib.rs::migrate_legacy_app_data` — 加 `copy_dir_recursive` + models/ 迁移
+- `frontend/src-tauri/src/lib.rs::copy_dir_recursive` — 新 helper (递归复制目录树)
+
+**commit**: `6907799` (perf/summary-map-concurrency)
+**binary**: `/Users/wangwei/Documents/离线会记/target/release/meetily` 69M mtime 11:40
+**guard**: `python3 scripts/check_historical_fixes.py` → **107/107 PASS** (101 → 107)
