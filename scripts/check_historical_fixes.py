@@ -443,6 +443,26 @@ ANCHORS = [
     ("98_sync_app_bundle_plist",
      "scripts/sync_app_bundle.sh",
      r"§97 plist sync|CFBundleIdentifier.*EXPECTED_ID"),
+
+    # §99 (2026-08-10): §96 PYTHONUSERBASE=$HOME hack 删除 + §97 §99 models/ 目录递归迁移
+    ("99_no_pythonuserbase_hack",
+     "frontend/src-tauri/src/audio/sherpa_daemon.rs",
+     r"PYTHONUSERBASE.*=.*home|PYTHONUSERBASE.*\$HOME"),
+    ("99_spawn_unbuffered_only",
+     "frontend/src-tauri/src/audio/sherpa_daemon.rs",
+     r"PYTHONUNBUFFERED.{0,5}1"),
+    ("99_spawn_test_exists",
+     "frontend/src-tauri/src/audio/sherpa_daemon.rs",
+     r"section_99_spawned_python_can_import_sherpa_onnx"),
+    ("99_migrate_models_recursive",
+     "frontend/src-tauri/src/lib.rs",
+     r"fn copy_dir_recursive"),
+    ("99_migrate_calls_models",
+     "frontend/src-tauri/src/lib.rs",
+     r"copy_dir_recursive\(&src_models"),
+    ("99_migrate_log_models_count",
+     "frontend/src-tauri/src/lib.rs",
+     r"models_files_copied="),
 ]
 
 

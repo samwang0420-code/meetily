@@ -484,10 +484,53 @@ pub fn migrate_legacy_app_data() -> anyhow::Result<()> {
         std::fs::copy(&src, &dst).map_err(|e| anyhow::anyhow!("copy {:?}: {}", src, e))?;
         copied.push(fname.to_string());
     }
+
+    // §99: §97 漏复制 models/. 用户机器新目录 tech.yanjingai.app/models/ 存在但 sherpa 子目录不存在,
+    // 旧目录 cn.lixianhuiji.app/models/sherpa/{funasr-nano-int8,paraformer-zh-int8} 是真模型 (~1.2GB),
+    // 不复制 = sherpa_asr.py daemon 启动后 discovered 0 model packs, 导入转录 0 段识别.
+    // 策略: 新目录 models/sherpa/ 不存在 OR 为空时, 递归复制旧目录整个 models/ 树.
+    let src_models = legacy_dir.join("models");
+    let dst_models = new_dir.join("models");
+    let mut models_copied = 0usize;
+    if src_models.is_dir() {
+        let dst_sherpa = dst_models.join("sherpa");
+        let need_copy = !dst_sherpa.is_dir()
+            || std::fs::read_dir(&dst_sherpa).map(|mut it| it.next().is_none()).unwrap_or(true);
+        if need_copy {
+            copy_dir_recursive(&src_models, &dst_models, &mut models_copied)
+                .map_err(|e| anyhow::anyhow!("copy models {:?} -> {:?}: {}", src_models, dst_models, e))?;
+        } else {
+            log::info!("§99 migrate_legacy_app_data: skip models/ (new dir already populated)");
+        }
+    }
+
     log::info!(
-        "§97 migrate_legacy_app_data: copied={:?} skipped={:?} (legacy={:?}, new={:?})",
-        copied, skipped, legacy_dir, new_dir
+        "§99 migrate_legacy_app_data: copied_db={:?} skipped_db={:?} models_files_copied={} (legacy={:?}, new={:?})",
+        copied, skipped, models_copied, legacy_dir, new_dir
     );
+    Ok(())
+}
+
+/// §99: 递归复制目录树 (用于 §97 §99 models/ 迁移).
+/// src/models/sherpa/funasr-nano-int8/*.onnx ~ 947MB, 必须用 copy (不能用 hardlink,
+/// 因为 APFS 跨卷 hardlink 失败; 同卷 hardlink 反而让"复制"语义不清, fail 时排查难).
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path, count: &mut usize) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ft = entry.file_type()?;
+        let src_child = entry.path();
+        let dst_child = dst.join(entry.file_name());
+        if ft.is_dir() {
+            copy_dir_recursive(&src_child, &dst_child, count)?;
+        } else if ft.is_file() {
+            if dst_child.exists() {
+                continue;
+            }
+            std::fs::copy(&src_child, &dst_child)?;
+            *count += 1;
+        }
+    }
     Ok(())
 }
 

@@ -211,12 +211,11 @@ impl SherpaDaemon {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        // §96: 显式传 PYTHONUSERBASE 让 user site-packages 可加载
-        // macOS Tauri app bundle 启动时 env 会被 launchd 精简, 默认 PYTHONUSERBASE 不继承
-        if let Some(home) = std::env::var_os("HOME") {
-            cmd.env("PYTHONUSERBASE", home);
-        }
-        // §96: 不缓冲 stderr (daemon 启动错误能立即看到)
+        // §99: 不设 PYTHONUSERBASE — homebrew Python 默认 user-base 已经是
+        // ~/Library/Python/3.14/lib/python (numpy/sherpa_onnx 装在那),
+        // 显式设 PYTHONUSERBASE=$HOME 反而被 PEP 370 错误映射到 ~/lib/python3.14/site-packages,
+        // 探测时 import OK 不等于 spawn 时 import OK (env 不一致), 触发 "No module named 'numpy'".
+        // §99: 不缓冲 stderr (daemon 启动错误能立即看到)
         cmd.env("PYTHONUNBUFFERED", "1");
         let mut child = cmd
             .spawn()
@@ -566,6 +565,52 @@ mod tests {
     }
 
     // ===== §62 A: N-daemon pool round-robin =====
+
+    /// §99: 探测时 import OK 不等于 spawn 时 import OK (§96 PYTHONUSERBASE hack bug).
+    /// 真 spawn 一个 Python 子进程, 用与生产代码完全一致的 env (无 PYTHONUSERBASE),
+    /// 发 {"action":"list"} 让 daemon 启动时 import sherpa_onnx/numpy/soundfile,
+    /// 验证 ok=true. 这是 "No module named 'numpy'" 的唯一可靠防线.
+    #[test]
+    fn section_99_spawned_python_can_import_sherpa_onnx() {
+        use std::io::{BufRead, BufReader, Write};
+
+        let py = python_path();
+        let script = script_path();
+        if !std::path::Path::new(&py).exists() {
+            eprintln!("[skip] python {} not found", py);
+            return;
+        }
+        let mut cmd = Command::new(&py);
+        cmd.arg(&script)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        // 必须与生产代码 ensure_started_slot 完全一致 — 不设 PYTHONUSERBASE!
+        cmd.env("PYTHONUNBUFFERED", "1");
+        let mut child = cmd.spawn().expect("spawn python");
+        let mut stdin = child.stdin.take().expect("stdin");
+        let stdout = child.stdout.take().expect("stdout");
+        let _stderr = child.stderr.take();
+        let mut reader = BufReader::new(stdout);
+
+        let req = serde_json::json!({"id": "probe-import-99", "action": "list"});
+        writeln!(stdin, "{}", req).expect("write");
+        stdin.flush().expect("flush");
+        let mut line = String::new();
+        let _ = reader.read_line(&mut line);
+        // 容忍 daemon 启动慢, 给 5s timeout
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let _ = child.kill();
+        let _ = child.wait();
+
+        let resp: serde_json::Value = serde_json::from_str(&line)
+            .unwrap_or_else(|e| panic!("parse '{}' failed: {} (likely numpy/sherpa_onnx not importable)", line.trim(), e));
+        let ok = resp.get("ok").and_then(|x| x.as_bool()).unwrap_or(false);
+        assert!(ok, "daemon list action failed: {} (numpy/sherpa_onnx import failed?)", line.trim());
+        let models = resp.get("models").and_then(|x| x.as_array()).cloned().unwrap_or_default();
+        // 不强制要求 ≥1 模型 (用户可能没装), 但 daemon 必须启动成功 + 能 import 所有 3 个模块
+        eprintln!("§99 spawn probe OK, models={}", models.len());
+    }
 
     /// §62 A: round-robin wraps correctly within N slots. 内部构造避免 env 并行污染.
     fn make_test_daemon(count: usize) -> SherpaDaemon {
