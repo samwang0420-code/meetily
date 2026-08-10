@@ -159,3 +159,31 @@ python3 scripts/audit_codebase.py --strict
 - [[97-identifier改造-tech.yanjingai.app-数据迁移-2026-08-10]] (Obsidian) / `outputs/97-identifier改造-tech.yanjingai.app-数据迁移-2026-08-10.md` (Codex)
 - [[65-言镜AI品牌改名与Bundle数据迁移]] (§65 原决策)
 - [[94-全面代码审计-代码漏系统性问题-2026-08-07]] (§94 P1 待办)
+
+## 7. §98 identifier 改造后启动闪退三件套修复铁律 (2026-08-10 立)
+
+**触发**: 用户报告 `open '言镜 AI.app'` 闪退 "意外退出". 根因排查发现 3 个 bug 叠加:
+1. **Info.plist CFBundleIdentifier 没同步** (sync_app_bundle.sh 缺 §97 逻辑)
+2. **sqlx _sqlx_migrations.checksum 不匹配** (§73 同类 — checksum mismatch, 不是 missing)
+3. **codesign identifier 跟 Info.plist 不一致** (launchd 162 Launch failed)
+
+**铁律**:
+
+1. **改 tauri.conf.json identifier 必须 3 处同步**: tauri.conf.json + Info.plist + codesign
+2. **sync_app_bundle.sh 必须包含 §97 + §98 段**, 否则 binary / bundle 不匹配
+3. **sqlx checksum 不一致必须 startup self-heal** (避免每次手工 Python sync)
+4. **任何 release binary 改动 → 必跑 sync_app_bundle.sh + 重 build → 验证 codesign**
+5. **每次 commit 前 §37 硬闸门 + AGENTS.md §92 三处同步**
+
+**实现位置**:
+- `frontend/src-tauri/src/database/manager.rs::sync_migration_checksums` (startup self-heal)
+- `scripts/sync_app_bundle.sh` §97 + §98 段 (Info.plist + codesign 自动同步)
+- `scripts/fix_sqlx_checksums.py` (手工 sync 工具, 应急用)
+- `scripts/check_historical_fixes.py` §98 锚点 (guard 97 → 101)
+
+**commit**: `32c7fd8`
+
+**关联**:
+- [[98-identifier改造后启动闪退三件套修复-2026-08-10]] (Obsidian) / `outputs/98-identifier改造后启动闪退三件套修复-2026-08-10.md` (Codex)
+- [[97-identifier改造-tech.yanjingai.app-数据迁移-2026-08-10]] (上一 commit)
+- [[73-启动panic-missing-migrations-根因+一次性修复]] (同类 sqlx checksum 修复)
