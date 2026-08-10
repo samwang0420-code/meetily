@@ -125,3 +125,37 @@ python3 scripts/audit_codebase.py --strict
 - §92 (2026-08-07): §62 §63 §90 三组关键优化 commit 完全丢失 (git log --all 0 命中)
 - 用户原话: "每次大变动后代码都会漏,这不是我想要的"
 - 根因: outputs 文档堆积,AGENTS.md § 章节 ≠ 代码 commit,guard 只查文字不查功能
+
+## 6. §97 identifier 改造铁律 (2026-08-10 立)
+
+**触发**: §94 P1 待办 + 言镜 AI 品牌改名 (commit `276906e`).
+
+**五条铁律**:
+
+1. **identifier 改动必须配 migrate 函数** — 不能只改 `tauri.conf.json`
+2. **migrate 只能 COPY, 不能 DELETE/MOVE** — 旧目录保留观察期 (§65 A 方案)
+3. **migrate 必须 best-effort** — 失败 warn 不阻塞启动
+4. **Python 路径优先 env var, fallback hardcode** — env var 名跟 identifier 对齐
+   - `YANJINGAI_DIAR_DB_PATH` 优先
+   - `LIXIANHUIJI_DIAR_DB_PATH` 向后兼容
+   - 最后 fallback 新 bundle id hardcode
+5. **每次 commit 前 §37 硬闸门 + AGENTS.md §92 三处同步**
+
+**实现位置**:
+- 常量: `frontend/src-tauri/src/config.rs::APP_BUNDLE_ID` / `APP_BUNDLE_ID_LEGACY`
+- 函数: `frontend/src-tauri/src/lib.rs::migrate_legacy_app_data()` + `setup()` 早期调用
+- tauri.conf.json: `identifier: tech.yanjingai.app`
+- Python: `scripts/sherpa_asr.py` / `scripts/diar.py` / `scripts/diar_download.py` 路径改 + env var 优先级
+- Rust inline Python: `api/api.rs:1453` / `api/diar_pickup_loop.rs:147` env var 优先级
+- UI: `app/legal/privacy/page.tsx` / `components/TranscriptSettings.tsx` / `hooks/useRecordingStart.ts` 路径改
+- guard: `scripts/check_historical_fixes.py` 10 个 §97 锚点 (97/97 PASS)
+
+**§97 已知边界**:
+- `/tmp/lixianhuiji_diar` IPC 共享临时目录保留 (改风险 > 收益)
+- 旧 `cn.lixianhuiji.app/` 数据保留 30 天观察期, 之后用户可手动删
+- 内部协议 (DB 表名 / localStorage key / Tauri event 名 / migration 文件名) 不动 — 向后兼容
+
+**关联**:
+- [[97-identifier改造-tech.yanjingai.app-数据迁移-2026-08-10]] (Obsidian) / `outputs/97-identifier改造-tech.yanjingai.app-数据迁移-2026-08-10.md` (Codex)
+- [[65-言镜AI品牌改名与Bundle数据迁移]] (§65 原决策)
+- [[94-全面代码审计-代码漏系统性问题-2026-08-07]] (§94 P1 待办)
