@@ -430,6 +430,19 @@ ANCHORS = [
     ("97_transcript_settings_yanjingai",
      "frontend/src/components/TranscriptSettings.tsx",
      r"tech\.yanjingai\.app/models/sherpa"),
+    # §98 (2026-08-10): sqlx checksum mismatch 自愈 + Info.plist CFBundleIdentifier 同步
+    ("98_sync_migration_checksums_fn",
+     "frontend/src-tauri/src/database/manager.rs",
+     r"async fn sync_migration_checksums\("),
+    ("98_self_heal_calls",
+     "frontend/src-tauri/src/database/manager.rs",
+     r"Self::sync_migration_checksums\(&pool\)"),
+    ("98_fix_sqlx_checksums_script",
+     "scripts/fix_sqlx_checksums.py",
+     r"sync_migration_checksums|sync_one"),
+    ("98_sync_app_bundle_plist",
+     "scripts/sync_app_bundle.sh",
+     r"§97 plist sync|CFBundleIdentifier.*EXPECTED_ID"),
 ]
 
 

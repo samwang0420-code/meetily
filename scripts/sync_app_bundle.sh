@@ -64,6 +64,50 @@ if [[ ! -d "$APP_DIR/Contents/Resources" ]]; then
     exit 1
 fi
 
+# §97 (2026-08-10): 同步 Info.plist 的 CFBundleIdentifier 跟 tauri.conf.json 一致.
+# 不同步会触发 macOS 启动 app 时 "意外退出" — LaunchServices 按 Info.plist identifier
+# 加载 sandbox/entitlements/钥匙串, 跟 binary 内的 identifier 不匹配就闪退.
+TAURI_CONF="$REPO_ROOT/frontend/src-tauri/tauri.conf.json"
+if [[ -f "$TAURI_CONF" ]]; then
+    EXPECTED_ID=$(plutil -extract identifier raw "$TAURI_CONF" 2>/dev/null || python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['identifier'])" "$TAURI_CONF")
+    PLIST_ID=$(plutil -extract CFBundleIdentifier raw "$APP_DIR/Contents/Info.plist" 2>/dev/null || grep -A1 CFBundleIdentifier "$APP_DIR/Contents/Info.plist" | tail -1 | sed -E 's/.*<string>(.*)<\/string>.*/\1/')
+    if [[ -n "$EXPECTED_ID" && "$PLIST_ID" != "$EXPECTED_ID" ]]; then
+        echo -e "${YELLOW}§97 plist sync${NC}  CFBundleIdentifier  $PLIST_ID  ->  $EXPECTED_ID"
+        # 用 sed 替换 Info.plist 里 CFBundleIdentifier 的 <string> 值
+        sed -i.bak -E "s|<string>$PLIST_ID</string>|<string>$EXPECTED_ID</string>|" "$APP_DIR/Contents/Info.plist"
+        rm -f "$APP_DIR/Contents/Info.plist.bak"
+        # 验证
+        NEW_ID=$(plutil -extract CFBundleIdentifier raw "$APP_DIR/Contents/Info.plist")
+        if [[ "$NEW_ID" != "$EXPECTED_ID" ]]; then
+            echo -e "${RED}ERROR${NC}: Info.plist 同步失败 (expected=$EXPECTED_ID, got=$NEW_ID)"
+            exit 1
+        fi
+        plutil -lint "$APP_DIR/Contents/Info.plist" >/dev/null
+        echo -e "${GREEN}OK${NC}: §97 Info.plist identifier synced"
+    fi
+fi
+
+# §98 (2026-08-10): codesign identifier 跟 CFBundleIdentifier 不一致 → launchd 162 Launch failed.
+# cargo build --release 不重新签名 .app bundle, 旧 binary codesign identifier 还嵌在 Mach-O 内.
+# 即使 Info.plist 已经匹配, 每次 sync 都要 re-sign 让 binary 内 codesign identifier 跟新 bundle 一致.
+if [[ -n "$EXPECTED_ID" ]]; then
+    # codesign -dv 输出到 stderr 不是 stdout, 必须 2>&1
+    CURRENT_BIN_ID=$(codesign -dv "$APP_DIR" 2>&1 | awk -F= '/^Identifier/ {print $2; exit}')
+    if [[ "$CURRENT_BIN_ID" != "$EXPECTED_ID" ]]; then
+        echo -e "${YELLOW}§98 codesign fix${NC}  current=$CURRENT_BIN_ID  expected=$EXPECTED_ID"
+        codesign --remove-signature "$DST_BINARY" 2>/dev/null || true
+        codesign --force --deep --sign - "$APP_DIR" >/dev/null 2>&1
+        NEW_BIN_ID=$(codesign -dv "$APP_DIR" 2>&1 | awk -F= '/^Identifier/ {print $2; exit}')
+        if [[ "$NEW_BIN_ID" != "$EXPECTED_ID" ]]; then
+            echo -e "${RED}ERROR${NC}: codesign 后 identifier 仍不匹配 (expected=$EXPECTED_ID, got=$NEW_BIN_ID)"
+            exit 1
+        fi
+        echo -e "${GREEN}OK${NC}: §98 codesign identifier=$NEW_BIN_ID"
+    else
+        echo -e "${GREEN}OK${NC}: §98 codesign identifier 已对齐 ($CURRENT_BIN_ID)"
+    fi
+fi
+
 # Sync
 SRC_HASH=$(shasum "$SRC_BINARY" | awk '{print $1}')
 cp -f "$SRC_BINARY" "$DST_BINARY"

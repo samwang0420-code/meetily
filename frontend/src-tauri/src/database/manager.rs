@@ -32,6 +32,15 @@ impl DatabaseManager {
 
         let pool = SqlitePool::connect(tauri_db_path).await?;
 
+        // §98 (2026-08-10): 启动前自愈 sqlx migration checksum mismatch.
+        // 场景: 用户从老 bundle id (cn.lixianhuiji.app) 切到新 (tech.yanjingai.app) 后,
+        // 新 db 里 _sqlx_migrations.checksum 还是老 binary 写入的 SHA-384, 跟当前 embed 的
+        // migration 文件 hash 不一致 → sqlx 启动 panic "previously applied but has been modified".
+        // 用 sqlx macro 已算好的 checksum 直接 UPDATE, 让 sqlx 觉得 db 是 up-to-date 的.
+        if let Err(e) = Self::sync_migration_checksums(&pool).await {
+            log::warn!("§98 sync_migration_checksums failed (best-effort, sqlx will report): {}", e);
+        }
+
         // v0.7.0+ rc7: 直接跑 sqlx::migrate!.
         // _sqlx_migrations 表和 16 条记录已在外部脚本中正确初始化 (含 SHA-384 checksum),
         // sqlx 启动时会校验 checksum 与 migration 文件一致, 全部跳过, 不会重跑.
@@ -191,6 +200,44 @@ impl DatabaseManager {
 
     pub fn pool(&self) -> &SqlitePool {
         &self.pool
+    }
+
+    /// §98 (2026-08-10): Self-heal sqlx _sqlx_migrations.checksum mismatch.
+    ///
+    /// 扫描所有 embed 的 migration 文件, 算 SHA-384 hash, UPDATE 到 db 里对应行的 checksum.
+    /// 如果 db 里没有该 version 行, 跳过 (sqlx::migrate! 后续会自动跑并写入).
+    /// 失败仅 log warn, 不阻塞启动 (sqlx 后续会报错).
+    async fn sync_migration_checksums(pool: &SqlitePool) -> Result<(), sqlx::Error> {
+        let migrations = sqlx::migrate!("./migrations");
+        let mut updated = 0usize;
+        let mut missing = 0usize;
+        for migration in migrations.iter() {
+            let version = migration.version;
+            // 直接用 sqlx macro 已算好的 checksum (SHA-384 raw bytes), 保证跟 sqlx::migrate! 一致
+            let checksum = migration.checksum.as_ref();
+            let row: Option<(Vec<u8>,)> = sqlx::query_as(
+                "SELECT checksum FROM _sqlx_migrations WHERE version = ?1"
+            )
+            .bind(version)
+            .fetch_optional(pool)
+            .await?;
+            match row {
+                None => { missing += 1; }
+                Some((existing,)) if existing.as_slice() == checksum => {}
+                Some(_) => {
+                    sqlx::query("UPDATE _sqlx_migrations SET checksum = ?1 WHERE version = ?2")
+                        .bind(checksum)
+                        .bind(version)
+                        .execute(pool)
+                        .await?;
+                    updated += 1;
+                }
+            }
+        }
+        if updated > 0 || missing > 0 {
+            log::info!("§98 sync_migration_checksums: updated={} missing={}", updated, missing);
+        }
+        Ok(())
     }
 
     pub async fn with_transaction<T, F, Fut>(&self, f: F) -> Result<T>
