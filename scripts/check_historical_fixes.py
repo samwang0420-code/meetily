@@ -516,6 +516,19 @@ ANCHORS = [
     ("99_6_sync_tauri_bundle_skip_when_same",
      "scripts/sync_app_bundle.sh",
      r"§99\.6.*already in sync"),
+
+    # §102 (2026-08-11): 真正实现 §62 fallback — 不是 commit message 撒谎
+    # §62 commit 2fe96d7 写"fix §62" 但 decode_audio_file_with_ffmpeg_fallback 函数没写
+    # 导致 252 vs 828 transcripts 长期存在, ffprobe 109min 实际转一半
+    ("102_ffmpeg_fallback_function_exists",
+     "frontend/src-tauri/src/audio/decoder.rs",
+     r"pub fn decode_audio_file_with_ffmpeg_fallback"),
+    ("102_import_uses_fallback",
+     "frontend/src-tauri/src/audio/import.rs",
+     r"decode_audio_file_with_ffmpeg_fallback\("),
+    ("102_transcripts_insert_user_id",
+     "frontend/src-tauri/src/audio/import.rs",
+     r"INSERT OR IGNORE INTO transcripts.*user_id"),
 ]
 
 

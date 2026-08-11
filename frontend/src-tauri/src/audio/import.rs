@@ -1,7 +1,7 @@
 // Audio file import module - allows importing external audio files as new meetings
 
 use crate::api::TranscriptSegment;
-use crate::audio::decoder::{decode_audio_file, decode_audio_file_with_progress};
+use crate::audio::decoder::{decode_audio_file, decode_audio_file_with_ffmpeg_fallback, decode_audio_file_with_progress};
 use crate::audio::vad::get_speech_chunks_with_progress;
 use crate::config::{DEFAULT_WHISPER_MODEL, DEFAULT_PARAKEET_MODEL};
 use crate::parakeet_engine::ParakeetEngine;
@@ -428,7 +428,7 @@ async fn run_import<R: Runtime>(
 
     let path_for_decode = dest_path.clone();
     let decoded = tokio::task::spawn_blocking(move || {
-        decode_audio_file_with_progress(&path_for_decode, Some(decode_progress))
+        decode_audio_file_with_ffmpeg_fallback(&path_for_decode, Some(decode_progress))
     })
     .await
     .map_err(|e| anyhow!("Decode task join error: {}", e))??;
@@ -813,8 +813,8 @@ async fn create_meeting_with_transcripts<R: tauri::Runtime>(
     // Insert transcripts
     for segment in segments {
         sqlx::query(
-            "INSERT OR IGNORE INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration, user_id, speaker_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)",
         )
         .bind(&segment.id)
         .bind(&meeting_id)
@@ -823,6 +823,7 @@ async fn create_meeting_with_transcripts<R: tauri::Runtime>(
         .bind(segment.audio_start_time)
         .bind(segment.audio_end_time)
         .bind(segment.duration)
+        .bind(user_id)
         .execute(&mut *tx)
         .await
         .map_err(|e| anyhow!("Failed to insert transcript: {}", e))?;

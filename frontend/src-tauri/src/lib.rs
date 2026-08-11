@@ -687,6 +687,9 @@ pub fn run() {
             .expect("Failed to initialize database");
 
             // §99.2/§101 backfill: 必须在 database::setup 之后 spawn, AppState 已 manage 才能 try_state 成功
+            // §99.5: 必须用 tauri::async_runtime::spawn, 不能用 tokio::spawn —
+            //   Tauri main thread 是 tao event loop, 不是 Tokio runtime,
+            //   tokio::spawn 会 panic: "there is no reactor running"
             let app_for_backfill = _app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 if let Err(e) = backfill_meeting_user_ids(&app_for_backfill).await {
