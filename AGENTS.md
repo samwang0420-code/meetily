@@ -314,3 +314,42 @@ fi
 **guard**: `python3 scripts/check_historical_fixes.py` 118/118 PASS (含 §99.6 双 anchor: synced / skip-when-same).
 
 **关联**: §99.4 (推荐启动方式) / §99.5 (fix) / §37 硬闸门 / §92 防代码漏
+
+## §103 VAD buffer warn 噪音 + sherpa_asr.py 命名 (2026-08-11)
+
+**触发**: 用户 8/11 重新导入 1:49:57 音频, log 20MB, 全是 VAD buffer warn:
+```
+$ grep -c "VAD.*buffer is large" /tmp/meetily_verify_102.log
+144357
+```
+每次 30ms VAD `process_chunk` 都 warn 一次 (1M samples / 62.5s 阈值偏低).
+
+**修复 (3 文件)**:
+
+1. `frontend/src-tauri/src/audio/vad.rs`:
+   - struct 加 `warned_about_buffer: bool` flag
+   - 阈值 1M → 9.6M samples (10 min at 16kHz)
+   - 跨阈值只 warn 一次, SpeechEnd 后 reset
+
+2. `frontend/src-tauri/scripts/sherpa_asr.py`:
+   - `duration_ms` (实际是 ASR 总耗时) → `total_ms`
+   - 跟 `decode_ms` (纯推理) + `audio_seconds` (音频时长) 区分
+   - 注释："renamed from duration_ms to avoid ambiguity vs audio_seconds"
+
+3. `scripts/check_historical_fixes.py`: 121 → 124/124 PASS (3 §103 锚点)
+
+**§37 硬闸门**:
+- cargo check --lib: 0 errors (28 warnings §18 不动)
+- cargo build --release: 1m30s, binary 10:23 72M
+- sync_app_bundle.sh: §99.6 tauri bundle SHA 一致
+
+**§15 GUI 验收 (用户必做)**:
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# 重新导入 13430280252492828.mp4
+grep -c "VAD.*buffer is large" /tmp/meetily_verify_103.log   # 预期 < 10
+grep "total_ms" /tmp/meetily_verify_103.log | head -3        # 改用 total_ms 字段
+```
+
+**关联**: §102 (symphonia stereo downmix fallback 基础) / §37 / §56

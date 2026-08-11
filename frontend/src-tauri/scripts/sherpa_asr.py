@@ -1049,7 +1049,7 @@ def transcribe(req):
         streams.append(stream)
     rec.decode_streams(streams)
     decode_ms = int((time.time() - decode_t) * 1000)
-    duration_ms = int((time.time() - t0) * 1000)
+    total_ms = int((time.time() - t0) * 1000)  # §103: renamed from duration_ms to avoid ambiguity vs audio_seconds
 
     raw_text = "".join(stream.result.text.strip() for stream in streams)
     if not raw_text and len(arr) / sr >= 1.0:
@@ -1076,7 +1076,7 @@ def transcribe(req):
         "text": raw_text,
         "confidence": 0.92,
         "decode_ms": decode_ms,
-        "duration_ms": duration_ms,
+        "total_ms": total_ms,
         "model": loaded_tag,
         "audio_seconds": round(len(arr) / sr, 2),
     }

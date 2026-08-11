@@ -529,6 +529,17 @@ ANCHORS = [
     ("102_transcripts_insert_user_id",
      "frontend/src-tauri/src/audio/import.rs",
      r"INSERT OR IGNORE INTO transcripts.*user_id"),
+    # §103: VAD buffer warn 噪音 — 跨阈值只 warn 一次, 阈值提升到 10min
+    ("103_vad_buffer_warn_once",
+     "frontend/src-tauri/src/audio/vad.rs",
+     r"warned_about_buffer: bool"),
+    ("103_vad_buffer_threshold_10min",
+     "frontend/src-tauri/src/audio/vad.rs",
+     r"VAD_BUFFER_WARN_THRESHOLD.*=.*9_600_000"),
+    # §103: sherpa_asr.py duration_ms 改名 total_ms (含 VAD/IO 总耗时)
+    ("103_sherpa_naming_total_ms",
+     "frontend/src-tauri/scripts/sherpa_asr.py",
+     r"§103: renamed from duration_ms"),
 ]
 
 

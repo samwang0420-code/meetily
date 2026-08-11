@@ -26,6 +26,8 @@ pub struct ContinuousVadProcessor {
     speech_start_sample: usize,
     // State tracking for smart logging
     last_logged_state: bool,
+    // §103: VAD buffer warn 噪音 — 跨阈值只 warn 一次, SpeechEnd 后重置
+    warned_about_buffer: bool,
 }
 
 impl ContinuousVadProcessor {
@@ -79,6 +81,7 @@ impl ContinuousVadProcessor {
             speech_start_sample: 0,
             // Initialize state tracking
             last_logged_state: false,
+            warned_about_buffer: false,
         })
     }
 
@@ -210,12 +213,15 @@ impl ContinuousVadProcessor {
     }
 
     fn process_chunk(&mut self, chunk: &[f32]) -> Result<()> {
-        // Track accumulated speech buffer size to detect memory issues
+        // §103: VAD buffer warn 噪音 — 阈值提升到 10 min (9.6M samples), 跨阈值只 warn 一次
+        // 旧阈值 1M samples (62.5s) 偏低, 长录音正常超过, 日志被撑大到 20MB+
         let current_speech_size = self.current_speech.len();
-        if current_speech_size > 1_000_000 {
-            // More than ~62 seconds of accumulated speech at 16kHz
-            warn!("VAD: Accumulated speech buffer is large: {} samples ({:.1}s) - possible memory issue",
+        const VAD_BUFFER_WARN_THRESHOLD: usize = 9_600_000; // 10 min at 16kHz
+        if current_speech_size > VAD_BUFFER_WARN_THRESHOLD && !self.warned_about_buffer {
+            // More than ~10 minutes of accumulated speech at 16kHz
+            warn!("VAD: Accumulated speech buffer is large: {} samples ({:.1}s) - possible memory issue (will not re-warn until SpeechEnd)",
                   current_speech_size, current_speech_size as f64 / 16000.0);
+            self.warned_about_buffer = true;
         }
 
         let transitions = self.session.process(chunk)
@@ -273,6 +279,7 @@ impl ContinuousVadProcessor {
                     }
 
                     self.current_speech.clear();
+                    self.warned_about_buffer = false;
                 }
             }
         }
