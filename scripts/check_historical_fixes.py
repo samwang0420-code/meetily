@@ -605,6 +605,22 @@ ANCHORS = [
     ("111_sogou_legal_json",
      "frontend/src-tauri/scripts/hotwords_data/sogou_legal_curated.json",
      r'"name": "sogou_legal_curated"'),
+    # §112: 上架物料 v0.8.6 — 应用商店文案 + 5 截图 SOP
+    ("112_app_store_metadata_zh",
+     "outputs/§112-上架物料v0.8.6-2026-08-12.md",
+     r"App Name \| 言镜 AI"),
+    ("112_app_store_metadata_en",
+     "outputs/§112-上架物料v0.8.6-2026-08-12.md",
+     r"SpeakMirror AI is a 100% offline"),
+    ("112_screenshot_sop_5",
+     "outputs/§112-上架物料v0.8.6-2026-08-12.md",
+     r"### 2.2 5 张必拍场景"),
+    ("112_keyword_100chars",
+     "outputs/§112-上架物料v0.8.6-2026-08-12.md",
+     r"离线,会议,记录,摘要,本地,AI,隐私,中文,转写,翻译"),
+    ("112_agents_md_section",
+     "AGENTS.md",
+     r"## §112 上架物料 v0.8.6"),
 ]
 
 

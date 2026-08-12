@@ -826,3 +826,46 @@ regex: \{false && → <TranscriptButtonGroup
 - §18 (不主动改无关 bug)
 - §56 (AGENTS.md 双校) / §37 (硬闸门) / §92 (决策迁移铁律)
 - [[111-搜狗scel热词转换集成]] (Obsidian) / `outputs/§111-...md` (Codex)
+
+## §112 上架物料 v0.8.6 (2026-08-12 立)
+
+**触发**: 用户 §26 前置必做 #4 — 应用商店文案 + 5 截图 + 1 视频。在 P0-P2 完成后必须做才能上架。
+
+**已落地**:
+- 应用商店文案 (中文 4000 字 + 英文 4000 字) — 100% 完成
+- 5 张截图 SOP (主屏录音 / 会议详情 / 热词 / 知识图谱 / ⌥+Space) — 100% 完成
+- 视频脚本大纲 — 0% (用户说过不强求, 暂不做)
+- 隐私政策 URL — 待 yanjingai.tech 上线后确认
+
+**关键文案要点**:
+- App Name: 言镜 AI (zh) / SpeakMirror AI (en) - 30 字符
+- Subtitle: 离线会议记录与摘要 / Offline Meeting Notes & Insights
+- 关键词: 离线,会议,记录,摘要,本地,AI,隐私,中文,转写,翻译 (100 字符)
+- 类别: Productivity (主) + Business (副)
+- 价格: 免费 (内购解锁热词 / 会员)
+
+**5 张截图都需要用户启 binary 手拍** (按 §15 铁律, CLI 测不出 Tauri GUI):
+1. 主屏 + 实时录音 (录音指示器 + 实时转写)
+2. 会议详情 + 摘要 + 行动项
+3. 设置 → 热词 (8 pack 列表)
+4. 知识图谱 / 会议脉络 (主题卡片)
+5. 实时问答 (⌥+Space 弹窗 + 3 条建议)
+
+**禁止**:
+- 跳过截图硬提交 — App Store 强制 5 张, 缺一拒绝
+- 用 Lorem Ipsum / Demo 假数据 — 真实中文会议看着像产品
+- 改二进制版本号但不更新 `What's New` 章节 — 审核会抓
+- 假装视频可省略 — App Store 不强制但显著降低转化率
+
+**§15 GUI 验收 (用户必做)**:
+1. `killall meetily && open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'`
+2. 按 §112 §2.2 SOP 拍 5 张截图到 `frontend/public/screenshots/`
+3. `sips -g pixelHeight -g pixelWidth` 验证 2880×1800
+4. `git add + commit "feat(§112): 上架物料 5 截图"` 提交
+5. App Store Connect 上传 + 提交审核
+
+**关联**:
+- §26 (上架物料前置必做 #4)
+- §65 (言镜 AI 品牌 / yanjingai.tech 域名)
+- §91 (P0-P2 完整收尾, 准备上线)
+- [[112-上架物料v0.8.6-2026-08-12]] (Obsidian) / `outputs/§112-...md` (Codex)
