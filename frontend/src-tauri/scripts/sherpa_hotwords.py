@@ -21,6 +21,11 @@ pack 命名约定:
   legal: LaWGPT 法律精选 (538 词)
   medical: OMAHA 医疗精选 (488 词)
   finance: THUOCL 财经 (176 词)
+  sogou_legal: 搜狗细胞词库法律精选 (800 词, §111 用户提供 8 个 .scel 转换)
+  sogou_medical: 搜狗细胞词库医学精选 (800 词, §111 用户提供 9 个 .scel 转换)
+
+用户 2026-08-12 提供 22 个搜狗拼音 .scel 细胞词库 (法律 8 + 医学 14, 去重后 16 个),
+源 .scel 文件不随产品 ship (避免分发问题), 仅 ship 转换 + 质量过滤后的精选 JSON.
 """
 import json
 import os
@@ -36,6 +41,9 @@ PACK_FILES = {
     "legal": "lawgpt_legal_vocab.json",
     "medical": "omaha_medical.json",
     "finance": "thuocl_caijing.json",
+    # §111: 搜狗拼音细胞词库精选 (用户 2026-08-12 提供 22 个 .scel, 转换 + 质量过滤)
+    "sogou_legal": "sogou_legal_curated.json",
+    "sogou_medical": "sogou_medical_curated.json",
     # legacy 内置 (保持向后兼容, 不动 sherpa_hotwords API)
     "legacy_legal": "thuocl_law.json",
     "legacy_medical": "thuocl_medical.json",

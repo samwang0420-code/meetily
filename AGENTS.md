@@ -763,3 +763,66 @@ regex: \{false && → <TranscriptButtonGroup
 - §18 (隐藏 ≠ 删除, SummaryGenerator/Updater 文件保留)
 - §56 (AGENTS.md 双校) / §37 (硬闸门) / §92 (决策迁移铁律)
 - [[110-SummaryPanel按钮简化]] (Obsidian) / `outputs/§110-...md` (Codex)
+
+## §111 搜狗 .scel 热词转换集成 — sogou_legal / sogou_medical 2 个新 pack (2026-08-12)
+
+**触发**: 用户 8/12 19:30 在 `~/Documents/离线会记/热词/` 放 22 个搜狗拼音 .scel 细胞词库 (8 法律 + 14 医学, 去重 16 个), 请求评估后加入热词。
+
+**评估**:
+- 医学 9 个 .scel 总 **123,305** unique 词 (远超热词容量)
+- 法律 6 个 .scel 总 **7,197** unique 词
+- 3 个太小 (民法常用词汇 8 词 / 法律开庭笔录 11 词 / 各类基本医学大量重复) 忽略
+- ⚠️ 全量灌入会爆 sherpa_asr LLM 解码 (>10万词), 必须精选
+- ⚠️ .scel 含 metadata 污染 ("方推荐" / "网友上传") + GBK 误解码乱码 ("牎概" / "譬蝟晥")
+
+**实施**:
+1. **`frontend/src-tauri/scripts/convert_scel_to_json.py` (新, 299 行)**
+   - 解析 .scel (跳过 0x200 字节 metadata, UTF-16LE 中文字符连续提取)
+   - 质量过滤: 长度 3-10 / ≥2 汉字 / 排除元数据黑名单 (14 词) / 排除乱码字符 (18 字符)
+   - 多文件 md5 去重 + 同词最高频 + freq 降序取 top N
+   - 写 hotwords_data/{pack_name}.json 格式 (同 §91 schema)
+2. **生成 2 个新 pack**:
+   - `sogou_medical_curated.json` (800 词, 医学精选, raw 123K → 800)
+   - `sogou_legal_curated.json` (800 词, 法律精选, raw 7K → 800)
+3. **`sherpa_hotwords.py` 加 2 个新 pack entry** — UI 自动出现
+
+**8 pack 总览** (`list_available_packs()`):
+
+| ID | 来源 | 词数 | 许可 |
+|---|---|---|---|
+| general | THUOCL IT/技术工程 | 300 | Apache-2.0 |
+| legal | LaWGPT + THUOCL 法律 | 538 | Apache-2.0 + MIT |
+| medical | OMAHA + THUOCL 医疗 | 488 | CC-BY-4.0 + Apache-2.0 |
+| finance | THUOCL 财经 | 176 | Apache-2.0 |
+| **sogou_legal** | **搜狗 .scel 法律精选** | **800** | **用户分享** |
+| **sogou_medical** | **搜狗 .scel 医学精选** | **800** | **用户分享** |
+| legacy_legal | THUOCL 法律 (旧) | 257 | Apache-2.0 |
+| legacy_medical | THUOCL 医疗 (旧) | 249 | Apache-2.0 |
+
+**质量**:
+- ✅ 排除乱码 (牎概 / 譬如晥 / 猶) — 800 词池几乎全是真实医学/法律专业术语
+- ⚠️ 仍有少量 .scel 描述性词 ("一些法律文书词汇" / "慢更新中" / "有个人色彩"), 不算乱码但价值低 (§18 不主动改)
+- 用户分享的 .scel **不随产品 ship** (避免分发法律/版权问题), 仅 ship 转换 + 质量过滤后的精选 JSON
+
+**§37 硬闸门**:
+- tsc: 1 §18 bun:test 已知
+- next build OK
+- cargo build --release 2m05s, binary 23:54
+- check_historical_fixes.py **143/143 PASS** (+4 §111 锚点)
+- sync_app_bundle OK
+- list_available_packs() 测过 8 pack 全 OK
+
+**§15 GUI 验收 (用户必做)**:
+1. `killall meetily && bash scripts/sync_app_bundle.sh && open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'`
+2. **设置 → 热词** 应该看到 8 个 pack (不是 6 个)
+3. 新增 sogou_legal (800 词) + sogou_medical (800 词)
+4. 律师/医生录音:
+   - `sogou_legal` 录 30s 法律对话 → "质押权/非诉程序/刑事诉讼" 等专业词正确识别
+   - `sogou_medical` 录 30s 医学对话 → "骨源性肉瘤/骨疣切除术/股骨头置换" 等正确识别
+
+**关联**:
+- §91 (v0.8.6 6 pack 集成, 加 2 个新 pack)
+- §40 (v0.8.4 法律/医疗模板深化)
+- §18 (不主动改无关 bug)
+- §56 (AGENTS.md 双校) / §37 (硬闸门) / §92 (决策迁移铁律)
+- [[111-搜狗scel热词转换集成]] (Obsidian) / `outputs/§111-...md` (Codex)

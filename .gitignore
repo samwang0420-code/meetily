@@ -94,3 +94,7 @@ lib_old_*.rs
 
 # §94: 防 audio_v2 孤儿模块再生
 audio_v2/
+
+# §111: 搜狗 .scel 源文件不 ship (版权 + 体积), 只 ship 转换后精选 JSON
+*.scel
+热词/

@@ -6,6 +6,8 @@
     "general": "thuocl_it.json",
     "thuocl_law": "thuocl_law.json",
     "thuocl_medical": "thuocl_medical.json",
-    "thuocl_caijing": "thuocl_caijing.json"
+    "thuocl_caijing": "thuocl_caijing.json",
+    "sogou_medical_curated": "sogou_medical_curated.json",
+    "sogou_legal_curated": "sogou_legal_curated.json"
   }
 }

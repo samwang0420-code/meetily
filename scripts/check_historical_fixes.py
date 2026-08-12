@@ -592,6 +592,19 @@ ANCHORS = [
     ("110_export_dropdown",
      "frontend/src/components/MeetingDetails/SummaryPanel.tsx",
      r"4\. 📤 导出下拉"),
+    # §111: 搜狗 .scel 转换 + 2 个新 pack 集成
+    ("111_convert_scel_script",
+     "frontend/src-tauri/scripts/convert_scel_to_json.py",
+     r"§111: 搜狗拼音细胞词库"),
+    ("111_sogou_pack_files",
+     "frontend/src-tauri/scripts/sherpa_hotwords.py",
+     r"sogou_legal_curated\.json"),
+    ("111_sogou_medical_json",
+     "frontend/src-tauri/scripts/hotwords_data/sogou_medical_curated.json",
+     r'"name": "sogou_medical_curated"'),
+    ("111_sogou_legal_json",
+     "frontend/src-tauri/scripts/hotwords_data/sogou_legal_curated.json",
+     r'"name": "sogou_legal_curated"'),
 ]
 
 
