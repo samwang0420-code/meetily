@@ -350,7 +350,8 @@ export const zh: Record<string, unknown> = {
     openai: 'OpenAI',
     openrouter: 'OpenRouter',
     custom_openai: 'Custom OpenAI 兼容',
-  },
+  
+    fixed_local_only: '已锁定本地模式（云端服务暂不开放）',},
   preferences: {
     open_folder: '打开文件夹',
     title: '偏好设置',

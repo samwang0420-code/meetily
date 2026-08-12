@@ -444,3 +444,60 @@ killall meetily 2>/dev/null && open '/Users/wangwei/Documents/离线会记/targe
 ```
 
 **关联**: §104 (主改动) / §18 (严禁英文硬编码) / §90 (UI 漏代码 4 项)
+
+## §106 模型设置 Modal 切换功能删除 — 固定本地模式 (2026-08-12)
+
+**触发**: 用户 8/12 截图反馈 "这里的切换功能先仅用掉吧, 我们只用本地模型生成摘要"。
+
+**背景**: 模型设置 Modal 的 "AI 总结模型" provider dropdown 让用户在 7 个 provider 间切换 (Built-in AI / Claude / OpenAI / Groq / Ollama / OpenRouter / Custom Server)。项目宪法是"云端 API 永不接入" (§18, §71 §P0-P2), 留这个 dropdown 是"华而不实"且误导用户 (看起来支持云端但实际跑不通)。
+
+**改动 (3 文件, +11/-133)**:
+1. `frontend/src/components/ModelSettingsModal.tsx` (-130/+8):
+   - 删除整个 `<Select>` provider dropdown (含 7 个 SelectItem)
+   - 删除下游 `<Popover>` + `<Command>` model combobox (含 loading 态 / search / 4 个 isLoading state)
+   - 替换为静态展示: 绿点 + "Built-in AI (Offline, No API needed)" + 右侧 "已锁定本地模式 (云端服务暂不开放)" 标签
+   - **用户无法切换 provider** (符合 §106 意图)
+2. `frontend/src/i18n/locales/zh.ts`:
+   - `model_settings.fixed_local_only: '已锁定本地模式（云端服务暂不开放）'`
+3. `frontend/src/i18n/locales/en.ts`:
+   - `model_settings.fixed_local_only: 'Local mode only (cloud disabled)'`
+
+**保留 (§18 精神 — 隐藏 ≠ 删除)**:
+- `BuiltInModelManager.tsx` 子组件**保留不动** — 用户仍可在多个**本地模型**间选择 (Qwen 3.5 2B / Llama 3.2 3B 等)
+- `modelConfig.provider` state 保留 (`builtin-ai` 硬编码默认值)
+- `modelOptions` / `isLoading*` / `loadOpenRouterModels` 等 state/handlers 保留 (不删 = 未来想恢复云端选项时还原 1 个 git diff 即可)
+- 旧 i18n keys (`claude` / `openai` / `groq` / `ollama` / `openrouter` / `custom_openai`) 保留 — 防止老 UI 残骸突然报 missing key
+
+**设计意图**:
+1. **§18 不主动改无关 bug** 精神 — 不删 JSX 块外逻辑, 只删用户能看见的"华而不实"控件
+2. **§104 "华而不实" 用户原则延续** — 用户单一 PC 本地使用者, 一天 < 5 会议, 不会用云端
+3. **隐藏 ≠ 删除** — git log 还原 1 行 + Select 块即可恢复 (rollback 风险 0)
+4. **绿色实心点 + 静态标签** 视觉告诉用户 "系统已替你做了选择", 不会引发"我能切吗"的疑问
+
+**§37 硬闸门 (本节)**:
+- tsc --noEmit: 1 个 §18 bun:test 已知错误 (不动)
+- next build: OK
+- cargo test --lib: 全部 PASS
+- cargo build --release: binary 72M
+- check_historical_fixes.py: **130/130 PASS** (+2 §106 锚点)
+- sync_app_bundle.sh: 同步 binary 到 言镜 AI.app bundle
+
+**已知边界**:
+- 模型选择 Modal 内 Claude / OpenAI / Groq 等条目在 i18n 中保留, 但**用户看不到也用不到**
+- 旧用户 localStorage `providerModelMap` 中可能有 `claude=xxx` 等残留, 不清理 (无害)
+- `modelConfig.provider` 默认值不变 (`builtin-ai`)
+
+**§15 GUI 验收 (用户必做, 不能 CLI 测)**:
+1. `killall meetily 2>/dev/null`
+2. `open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'`
+3. 设置 → 模型设置 → "AI 总结模型" 应该是静态 "Built-in AI (Offline, No API needed)" + 绿点 + "已锁定本地模式 (云端服务暂不开放)" 标签
+4. **不应**有 provider dropdown 可点击切换
+5. BuiltInModelManager 部分 (内置模型选择) 仍可用, 可选 Qwen 3.5 2B 等本地模型
+
+**关联**:
+- §18 (云端 API 永不接入 / 不主动改无关 bug)
+- §104 (8/11 用户"华而不实"反馈, 隐藏 4 面板 + 4 stat)
+- §71 (7 款 AI 会议工具调研, 本地差异化护城河)
+- §29 (FunASR-Nano Pro tier gate, 免费/会员基于本地模型分发)
+- §92 (决策迁移铁律, outputs + Obsidian + AGENTS.md 三处同日落)
+- [[106-模型设置Modal切换删除-固定本地模式]] (Obsidian) / `outputs/§106-...md` (Codex)

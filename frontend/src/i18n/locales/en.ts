@@ -347,7 +347,8 @@ export const en: Record<string, unknown> = {
     openai: 'OpenAI',
     openrouter: 'OpenRouter',
     custom_openai: 'Custom OpenAI-compatible',
-  },
+  
+    fixed_local_only: 'Local mode only (cloud disabled)',},
   preferences: {
     open_folder: 'Open folder',
     title: 'Preferences',

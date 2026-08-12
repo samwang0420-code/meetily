@@ -554,6 +554,13 @@ ANCHORS = [
     ("105_sidebar_meeting_title_helper",
      "frontend/src/components/Sidebar/index.tsx",
      r"meetingTitle = \(raw: string\)"),
+    # §106: AI 总结模型 dropdown 固定本地 (删除 Select 块)
+    ("106_summary_model_dropdown_removed",
+     "frontend/src/components/ModelSettingsModal.tsx",
+     r"§106: 切换功能先仅用掉"),
+    ("106_fixed_local_only_i18n",
+     "frontend/src/i18n/locales/zh.ts",
+     r"fixed_local_only:"),
 ]
 
 
