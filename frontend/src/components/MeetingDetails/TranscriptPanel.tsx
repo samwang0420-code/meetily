@@ -76,8 +76,6 @@ export function TranscriptPanel({
     <div className="hidden md:flex md:w-1/4 lg:w-1/3 min-w-0 border-r border-gray-200 bg-white flex-col relative shrink-0">
       {/* Title area */}
       <div className="p-4 border-b border-gray-200">
-        {false && (
-
         <TranscriptButtonGroup
           transcriptCount={usePagination ? (totalCount ?? convertedSegments.length) : (transcripts?.length || 0)}
           onCopyTranscript={onCopyTranscript}
@@ -88,7 +86,6 @@ export function TranscriptPanel({
           meetingFolderPath={meetingFolderPath}
           onRefetchTranscripts={onRefetchTranscripts}
         />
-        )}
       </div>
 
       {/* Transcript content - use virtualized view for better performance */}

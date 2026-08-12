@@ -582,9 +582,9 @@ ANCHORS = [
     ("109_open_folder_label_fixed",
      "frontend/src/components/MeetingDetails/TranscriptButtonGroup.tsx",
      r"t\('meeting_details\.open_folder'\)"),
-    ("109_transcript_button_group_hidden",
+    ("109_transcript_button_group_rendered",
      "frontend/src/components/MeetingDetails/TranscriptPanel.tsx",
-     r"\{false &&"),
+     r"<TranscriptButtonGroup"),
 ]
 
 

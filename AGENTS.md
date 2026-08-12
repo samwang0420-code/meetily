@@ -660,3 +660,51 @@ git log 找 §109 之前版本, 删 `{false && ...}` 包裹即可恢复 Transcri
 - §37 (硬闸门)
 - §92 (决策迁移铁律)
 - [[109-会议详情页UI整理]] (Obsidian) / `outputs/§109-...md` (Codex)
+
+## §109.1 TranscriptButtonGroup 恢复渲染 — §109 误判 revert (2026-08-12)
+
+**触发**: 用户 8/12 二次反馈 "还是不对啊, 菜单都堆在一起了, 原本是语音识别那里保存/复制/导出MD/导出TXT, 现在都在一起了"。
+
+**根因 (§109 我误判)**:
+- §109 我**错误**认为 TranscriptButtonGroup (transcript 工具栏) 跟 SummaryUpdaterButtonGroup (summary 工具栏) 重复
+- 用户说"页面乱"=两个工具栏重复 → 隐藏 TranscriptButtonGroup
+- 实际上**两个工具栏功能完全不同**:
+  - **TranscriptButtonGroup** = 复制 transcript 文本 / 导出 transcript MD / 导出 transcript TXT / 打开录音文件夹 / 重新转录
+  - **SummaryUpdaterButtonGroup** = 保存 summary 修改 / 复制 summary / 导出 summary MD / 导出 summary TXT / 查找 / 打开文件夹
+- 用户真正反馈 = transcript 列的 4 个按钮 (复制/导出MD/导出TXT/打开录音文件夹) **消失**了
+
+**修复 (1 文件)**:
+- `frontend/src/components/MeetingDetails/TranscriptPanel.tsx`: 撤销 `{false && (...)}` 包裹, 恢复 `<TranscriptButtonGroup ... />` 渲染
+- **保留** §109 的 2 个 i18n key 修复 (speaker.title / open_folder), 这两个不是误判
+
+**§109 锚点调整**:
+```
+"109_transcript_button_group_hidden" → "109_transcript_button_group_rendered"
+regex: \{false && → <TranscriptButtonGroup
+```
+
+**§37 硬闸门**:
+- tsc: 1 §18 bun:test 已知
+- next build OK
+- cargo build --release 2m42s 增量, binary 13:00
+- check_historical_fixes.py **137/137 PASS**
+- sync_app_bundle OK
+
+**§15 GUI 验收 (用户必做)**:
+1. `killall meetily && bash scripts/sync_app_bundle.sh && open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'`
+2. 打开任一会话 → 期望:
+   - **transcript 列顶部**: 复制 / 导出 MD / 导出 TXT / 打开录音文件夹 (浅色 outline 4 按钮)
+   - **summary 列顶部**: 说话人名单 / 重新生成 / 自动检测 / AI 模型 / 模板 + 保存 / 复制 / 导出 MD / 导出 TXT (深色按钮)
+   - 两套工具栏各司其职, **不重复**
+
+**教训 (§56 强化)**:
+- "页面乱" 这种主观反馈, **必须先确认用户真实意图** (重复? 太挤? 缺按钮? 顺序错?), 不能想当然
+- §56 铁律扩展: 任何 §X 修复, 不确定时问用户, 不要乱猜
+- §109 出发点 (i18n 修复) 正确, 但隐藏 TranscriptButtonGroup 方向**完全错**
+
+**关联**:
+- §109 (误判隐藏)
+- §104 (UI 华而不实清理, 方向部分误判)
+- §107 (i18n key 路径错位)
+- §56 (AGENTS.md 双校)
+- [[109.1-TranscriptButtonGroup恢复渲染]] (Obsidian) / `outputs/§109.1-...md` (Codex)
