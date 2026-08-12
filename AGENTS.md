@@ -708,3 +708,58 @@ regex: \{false && → <TranscriptButtonGroup
 - §107 (i18n key 路径错位)
 - §56 (AGENTS.md 双校)
 - [[109.1-TranscriptButtonGroup恢复渲染]] (Obsidian) / `outputs/§109.1-...md` (Codex)
+
+## §110 SummaryPanel 按钮简化 — 9 按钮 → 4 元素 (2026-08-12)
+
+**触发**: 用户 8/12 截图反馈 "你不觉得这部分的按钮太多了吗。提升审美, 让页面简洁好用, 不啰嗦"。
+
+**根因 (2 类)**:
+1. **操作粒度太细**: 保存/复制/导出MD/导出TXT 4 个按钮都属于"导出"语义, 平铺无层次
+2. **标签冗长**: 9 个图标+文字按钮横向挤满 1 行, 没视觉权重区分
+
+**修复方案 (4 元素)**:
+```
+[说话人名单]  [重新生成 ★]  [⚙️ 设置 ▾]  [📤 导出 ▾]
+                            │              ├ 保存 (脏时绿点)
+                            ├ 自动检测      ├ 复制
+                            ├ AI 模型       ├ 导出 MD
+                            └ 模板          ├ 导出 TXT
+                                          └ 打开文件夹
+```
+
+**视觉变化**:
+- 9 按钮 → 4 元素 (横向密度 -55%)
+- 主操作"重新生成"蓝紫渐变高亮
+- 设置 + 导出收下拉 (按需展开)
+- 高频左, 低频右
+
+**实现 (1 文件改)**:
+- `frontend/src/components/MeetingDetails/SummaryPanel.tsx`
+- 删 SummaryGenerator/UpdaterButtonGroup 组件调用, 改 4 元素 (3 Button + 2 DropdownMenu)
+- SummaryGenerator/Updater 内部文件保留 (其他场景可能用, §18 隐藏 ≠ 删除)
+
+**i18n**: 全部用现有 key (summary.regenerate/settings_title/ai_model/template/save/copy/export_md/export_txt, meeting_details.open_folder), **无新增**
+
+**§37 硬闸门**:
+- tsc: 1 §18 bun:test 已知
+- next build OK
+- cargo build --release 2m00s, binary 13:14
+- check_historical_fixes.py **139/139 PASS** (+2 §110 锚点)
+- sync_app_bundle OK
+
+**§15 GUI 验收 (用户必做)**:
+1. `killall meetily && bash scripts/sync_app_bundle.sh && open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'`
+2. 打开任一有 summary 的会话 → 期望:
+   - 顶部 4 元素 (说话人名单 / 重新生成 / ⚙️ 设置 / 📤 导出)
+   - 不再有平铺 9 按钮
+   - ⚙️ 下拉含: 自动检测 / AI 模型 / 模板
+   - 📤 下拉含: 保存 / 复制 / 导出 MD / 导出 TXT / 打开文件夹
+   - 保存项脏时显示绿点
+
+**关联**:
+- §104 (UI 华而不实清理, 方向正确)
+- §109 (误判隐藏)
+- §109.1 (恢复 TranscriptButtonGroup)
+- §18 (隐藏 ≠ 删除, SummaryGenerator/Updater 文件保留)
+- §56 (AGENTS.md 双校) / §37 (硬闸门) / §92 (决策迁移铁律)
+- [[110-SummaryPanel按钮简化]] (Obsidian) / `outputs/§110-...md` (Codex)

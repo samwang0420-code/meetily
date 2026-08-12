@@ -18,6 +18,14 @@ import { safeToast } from '@/lib/safeToast';
 import { Languages, ChevronDown, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
+import { Settings, Download, Sparkles, Save, Copy, FileCode, FileText, FolderOpen, FileType } from 'lucide-react';
 import { LanguagePickerPopover } from '@/components/LanguagePickerPopover';
 import { useRecentLanguages } from '@/hooks/useRecentLanguages';
 import { labelForCode } from '@/lib/summary-languages';
@@ -318,60 +326,105 @@ export function SummaryPanel({
           onChange={onTitleChange}
         /> */}
 
-        {/* Button groups - only show when summary exists */}
+        {/* §110: 9 按钮 → 4 元素 (说话人/重新生成/⚙️ 设置下拉/📤 导出下拉) */}
         {aiSummary && !isSummaryLoading && (
           <div className="flex items-center justify-center w-full pt-0 gap-2">
-            {/* Left-aligned: Summary Generator Button Group */}
-            <div className="flex-shrink-0">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setSpeakerDrawerOpen(true)}
-                className="flex items-center gap-2 ml-2"
-                data-testid="open-speaker-roster"
-              >
-                <Users className="w-4 h-4" />
-                {t('speaker.title')}
-                {/* §109: 之前是 common.speaker_title_short 孤儿 key */}
-              </Button>
-            </div>
-            <div className="flex items-center gap-2 mb-2">
-              <SummaryGeneratorButtonGroup
-                modelConfig={modelConfig}
-                setModelConfig={setModelConfig}
-                onSaveModelConfig={onSaveModelConfig}
-                onGenerateSummary={onGenerateSummary}
-                onStopGeneration={onStopGeneration}
-                customPrompt={customPrompt}
-                summaryStatus={summaryStatus}
-                availableTemplates={availableTemplates}
-                selectedTemplate={selectedTemplate}
-                onTemplateSelect={onTemplateSelect}
-                hasTranscripts={transcripts.length > 0}
-                hasSummary={!!aiSummary}
-                isModelConfigLoading={isModelConfigLoading}
-                onOpenModelSettings={onOpenModelSettings}
-                languageSlot={languageSlot}
-               summaryPhase={summaryPhase} />
-            </div>
+            {/* 1. 说话人名单 — 独立 button (触发 drawer) */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSpeakerDrawerOpen(true)}
+              className="flex items-center gap-2 ml-2"
+              data-testid="open-speaker-roster"
+            >
+              <Users className="w-4 h-4" />
+              {t('speaker.title')}
+            </Button>
+            {/* 2. 重新生成 — 主操作 (独立 button) */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="bg-gradient-to-r from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 border-blue-200 xl:px-4"
+              onClick={() => {
+                Analytics.trackButtonClick('regenerate_summary_header', 'meeting_details');
+                onRegenerateSummary();
+              }}
+              disabled={isSummaryLoading}
+              title={t('summary.regenerate')}
+            >
+              <Sparkles className="w-4 h-4" />
+              <span className="hidden lg:inline">{t('summary.regenerate')}</span>
+            </Button>
 
-            {/* Right-aligned: Summary Updater Button Group */}
-            <div className="flex-shrink-0">
-              <SummaryUpdaterButtonGroup
-                isSaving={isSaving}
-                isDirty={isTitleDirty || (summaryRef.current?.isDirty || false)}
-                onSave={onSaveAll}
-                onCopy={onCopySummary}
-                onExportMarkdown={onExportSummaryMarkdown}
-                onExportTxt={onExportSummaryTxt}
-                onFind={() => {
-                  // TODO: Implement find in summary functionality
-                  console.log('Find in summary clicked');
-                }}
-                onOpenFolder={onOpenFolder}
-                hasSummary={!!aiSummary}
-              />
-            </div>
+            {/* 3. ⚙️ 设置下拉 — 自动检测 / AI 模型 / 模板 */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" title={t('summary.settings_title')}>
+                  <Settings className="w-4 h-4" />
+                  <span className="hidden lg:inline">{t('summary.settings_title')}</span>
+                  <ChevronDown className="w-3 h-3 ml-1 opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="cursor-default p-0">
+                  <div className="flex items-center w-full">
+                    <Languages className="w-4 h-4 mr-2" />
+                    {languageSlot}
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => onOpenModelSettings?.(() => {})}>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  {t('summary.ai_model')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => {
+                  if (availableTemplates.length > 0) {
+                    onTemplateSelect(availableTemplates[0].id, availableTemplates[0].name);
+                  }
+                }}>
+                  <FileType className="w-4 h-4 mr-2" />
+                  {t('summary.template')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* 4. 📤 导出下拉 — 保存 / 复制 / MD / TXT / 打开文件夹 */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" title={t('summary.export_md_title')}>
+                  <Download className="w-4 h-4" />
+                  <span className="hidden lg:inline">{t('meeting_details.export_md')}</span>
+                  <ChevronDown className="w-3 h-3 ml-1 opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onClick={onSaveAll} disabled={isSaving}>
+                  <Save className="w-4 h-4 mr-2" />
+                  {t('summary.save')}
+                  {(isTitleDirty || (summaryRef.current?.isDirty || false)) && (
+                    <span className="ml-auto w-2 h-2 rounded-full bg-green-500" />
+                  )}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onCopySummary} disabled={!aiSummary}>
+                  <Copy className="w-4 h-4 mr-2" />
+                  {t('summary.copy')}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={onExportSummaryMarkdown} disabled={!aiSummary}>
+                  <FileCode className="w-4 h-4 mr-2" />
+                  {t('summary.export_md')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onExportSummaryTxt} disabled={!aiSummary}>
+                  <FileText className="w-4 h-4 mr-2" />
+                  {t('summary.export_txt')}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={onOpenFolder}>
+                  <FolderOpen className="w-4 h-4 mr-2" />
+                  {t('meeting_details.open_folder')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         )}
       </div>

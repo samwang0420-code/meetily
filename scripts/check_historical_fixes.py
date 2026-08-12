@@ -585,6 +585,13 @@ ANCHORS = [
     ("109_transcript_button_group_rendered",
      "frontend/src/components/MeetingDetails/TranscriptPanel.tsx",
      r"<TranscriptButtonGroup"),
+    # §110: 9 按钮 → 4 元素 (说话人/重新生成/⚙️ 设置/📤 导出)
+    ("110_settings_dropdown",
+     "frontend/src/components/MeetingDetails/SummaryPanel.tsx",
+     r"3\. ⚙️ 设置下拉"),
+    ("110_export_dropdown",
+     "frontend/src/components/MeetingDetails/SummaryPanel.tsx",
+     r"4\. 📤 导出下拉"),
 ]
 
 
