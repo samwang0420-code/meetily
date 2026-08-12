@@ -982,6 +982,13 @@ pub async fn api_save_transcript<R: Runtime>(
 
     let pool = state.db_manager.pool();
 
+    // §105: 录音 stop 路径加 user_id (跟 import 路径一致, 防止 §99 user_id=NULL bug 复发)
+    let user_id = crate::user::commands::latest_session_in_db(&_app)
+        .await
+        .ok()
+        .flatten()
+        .map(|(_token, uid)| uid);
+
     // Now, call the repository with the correctly typed data.
     match TranscriptsRepository::save_transcript(
         pool,
@@ -989,6 +996,7 @@ pub async fn api_save_transcript<R: Runtime>(
         &transcripts_to_save,
         folder_path,
         meeting_id.as_deref(),
+        user_id,
     )
     .await
     {

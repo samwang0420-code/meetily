@@ -65,6 +65,13 @@ const Sidebar: React.FC = () => {
   } = useSidebar();
   const { user, logout } = useAuth();
   const { locale, t } = useTranslation();
+  // §105: 旧 DB 数据 title 是 "Recording in progress (Untitled)" / "Untitled" / 空, 渲染时本地化
+  const meetingTitle = (raw: string) => {
+    if (!raw || raw.trim() === '' || raw === 'Untitled' || raw.startsWith('Recording in progress (')) {
+      return t('meeting.untitled') || '未命名会议';
+    }
+    return raw;
+  };
 
   // Get recording state from RecordingStateContext (single source of truth)
   const { isRecording } = useRecordingState();
@@ -631,7 +638,7 @@ const Sidebar: React.FC = () => {
               ) : item.id === 'notes' ? (
                 <Calendar className="w-4 h-4 mr-2" />
               ) : null}
-              <span className={depth === 0 ? "" : "font-medium"}>{item.title}</span>
+              <span className={depth === 0 ? "" : "font-medium"}>{meetingTitle(item.title)}</span>
               <div className="ml-auto">
                 {isExpanded ? (
                   <ChevronDown className="w-4 h-4 text-gray-500" />
@@ -655,7 +662,7 @@ const Sidebar: React.FC = () => {
                     <Plus className="w-3.5 h-3.5 text-blue-600" />
                   </div>
                 )}
-                <span className="flex-1 break-words">{item.title}</span>
+                <span className="flex-1 break-words">{meetingTitle(item.title)}</span>
                 {isMeetingItem && (
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                     <button

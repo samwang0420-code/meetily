@@ -19,6 +19,8 @@ impl TranscriptsRepository {
         // 让 sherpa_asr 后台线程 UPDATE 的 transcripts.speaker 行能命中.
         // None 时回落到自动生成 (兼容旧调用).
         meeting_id_in: Option<&str>,
+        // §105: 录音 stop 路径加 user_id, 跟 import 路径一致
+        user_id: Option<i64>,
     ) -> Result<String, SqlxError> {
         let meeting_id = meeting_id_in
             .map(|s| s.to_string())
@@ -31,13 +33,14 @@ impl TranscriptsRepository {
 
         // 1. Create the new meeting (INSERT OR IGNORE 兼容 start_recording 时已 placeholder)
         let result = sqlx::query(
-            "INSERT OR IGNORE INTO meetings (id, title, created_at, updated_at, folder_path) VALUES (?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO meetings (id, title, created_at, updated_at, folder_path, user_id) VALUES (?, ?, ?, ?, ?, ?)",
         )
         .bind(&meeting_id)
         .bind(meeting_title)
         .bind(now)
         .bind(now)
         .bind(&folder_path)
+        .bind(user_id)
         .execute(&mut *transaction)
         .await;
 

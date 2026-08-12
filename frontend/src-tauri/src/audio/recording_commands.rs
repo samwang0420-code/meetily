@@ -28,6 +28,7 @@ use super::transcription::{
     reset_speech_detected_flag,
 };
 use crate::hardware::memory_watcher::{start_memory_watcher, stop_memory_watcher};
+use crate::user::commands::latest_session_in_db;
 
 // Re-export TranscriptUpdate for backward compatibility
 pub use super::transcription::TranscriptUpdate;
@@ -237,19 +238,27 @@ pub async fn start_recording_with_meeting_name<R: Runtime>(
     // 拿 AppState.db_manager pool, INSERT placeholder meeting row
     let state = app.state::<crate::state::AppState>();
     let pool = state.db_manager.pool();
-    let placeholder_title = format!("Recording in progress ({})", meeting_name.as_deref().unwrap_or("Untitled"));
+    // §105: 标题存 "Untitled" (i18n 在前端), user_id 从 latest_session 拿
+    let placeholder_title = meeting_name.unwrap_or_else(|| "Untitled".to_string());
+    // §105: 从 auth_sessions 拿最近登录的 user_id, 录音 stop 时再 UPDATE title
+    let user_id: Option<i64> = latest_session_in_db(&app)
+        .await
+        .ok()
+        .flatten()
+        .map(|(_token, uid)| uid);
     match sqlx::query(
-        "INSERT OR IGNORE INTO meetings (id, title, created_at, updated_at, folder_path) VALUES (?, ?, ?, ?, ?)"
+        "INSERT OR IGNORE INTO meetings (id, title, created_at, updated_at, folder_path, user_id) VALUES (?, ?, ?, ?, ?, ?)"
     )
     .bind(&meeting_id)
     .bind(&placeholder_title)
     .bind(chrono::Utc::now())
     .bind(chrono::Utc::now())
     .bind::<Option<String>>(None)
+    .bind(user_id)
     .execute(pool)
     .await
     {
-        Ok(_) => info!("🆔 Inserted placeholder meeting row for diar pickup: {}", meeting_id),
+        Ok(_) => info!("🆔 Inserted placeholder meeting row for diar pickup: {} (user_id={:?})", meeting_id, user_id),
         Err(e) => warn!("Failed to insert placeholder meeting row ({}), diar pickup may be deferred: {}", meeting_id, e),
     }
     info!("🆔 Generated meeting_id for diar pickup: {}", meeting_id);
@@ -407,19 +416,27 @@ pub async fn start_recording_with_devices_and_meeting<R: Runtime>(
     // 拿 AppState.db_manager pool, INSERT placeholder meeting row
     let state = app.state::<crate::state::AppState>();
     let pool = state.db_manager.pool();
-    let placeholder_title = format!("Recording in progress ({})", meeting_name.as_deref().unwrap_or("Untitled"));
+    // §105: 标题存 "Untitled" (i18n 在前端), user_id 从 latest_session 拿
+    let placeholder_title = meeting_name.unwrap_or_else(|| "Untitled".to_string());
+    // §105: 从 auth_sessions 拿最近登录的 user_id, 录音 stop 时再 UPDATE title
+    let user_id: Option<i64> = latest_session_in_db(&app)
+        .await
+        .ok()
+        .flatten()
+        .map(|(_token, uid)| uid);
     match sqlx::query(
-        "INSERT OR IGNORE INTO meetings (id, title, created_at, updated_at, folder_path) VALUES (?, ?, ?, ?, ?)"
+        "INSERT OR IGNORE INTO meetings (id, title, created_at, updated_at, folder_path, user_id) VALUES (?, ?, ?, ?, ?, ?)"
     )
     .bind(&meeting_id)
     .bind(&placeholder_title)
     .bind(chrono::Utc::now())
     .bind(chrono::Utc::now())
     .bind::<Option<String>>(None)
+    .bind(user_id)
     .execute(pool)
     .await
     {
-        Ok(_) => info!("🆔 Inserted placeholder meeting row for diar pickup: {}", meeting_id),
+        Ok(_) => info!("🆔 Inserted placeholder meeting row for diar pickup: {} (user_id={:?})", meeting_id, user_id),
         Err(e) => warn!("Failed to insert placeholder meeting row ({}), diar pickup may be deferred: {}", meeting_id, e),
     }
     info!("🆔 Generated meeting_id for diar pickup: {}", meeting_id);

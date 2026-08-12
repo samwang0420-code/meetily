@@ -540,6 +540,20 @@ ANCHORS = [
     ("103_sherpa_naming_total_ms",
      "frontend/src-tauri/scripts/sherpa_asr.py",
      r"§103: renamed from duration_ms"),
+    # §105: 录音 stop 路径 user_id 写入
+    ("105_save_transcript_user_id",
+     "frontend/src-tauri/src/database/repositories/transcript.rs",
+     r"user_id: Option<i64>"),
+    ("105_placeholder_title_untitled",
+     "frontend/src-tauri/src/audio/recording_commands.rs",
+     r"// §105: 标题存 .Untitled."),
+    ("105_api_save_transcript_user_id",
+     "frontend/src-tauri/src/api/api.rs",
+     r"// §105: 录音 stop 路径加 user_id"),
+    # §105: Sidebar 旧 "Recording in progress (Untitled)" 本地化
+    ("105_sidebar_meeting_title_helper",
+     "frontend/src/components/Sidebar/index.tsx",
+     r"meetingTitle = \(raw: string\)"),
 ]
 
 
