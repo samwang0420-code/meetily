@@ -575,6 +575,16 @@ ANCHORS = [
     ("108_sidecar_llama_helper_synced",
      "scripts/sync_app_bundle.sh",
      r"synced \$sidecar"),
+    # §109: 会议详情页 UI 整理 — i18n key 修复 + TranscriptButtonGroup 隐藏
+    ("109_speaker_title_fixed",
+     "frontend/src/components/MeetingDetails/SummaryPanel.tsx",
+     r"t\('speaker\.title'\)"),
+    ("109_open_folder_label_fixed",
+     "frontend/src/components/MeetingDetails/TranscriptButtonGroup.tsx",
+     r"t\('meeting_details\.open_folder'\)"),
+    ("109_transcript_button_group_hidden",
+     "frontend/src/components/MeetingDetails/TranscriptPanel.tsx",
+     r"\{false &&"),
 ]
 
 

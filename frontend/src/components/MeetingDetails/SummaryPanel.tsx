@@ -331,7 +331,8 @@ export function SummaryPanel({
                 data-testid="open-speaker-roster"
               >
                 <Users className="w-4 h-4" />
-                {t('common.speaker_title_short')}
+                {t('speaker.title')}
+                {/* §109: 之前是 common.speaker_title_short 孤儿 key */}
               </Button>
             </div>
             <div className="flex items-center gap-2 mb-2">

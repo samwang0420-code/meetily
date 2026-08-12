@@ -100,10 +100,10 @@ export function TranscriptButtonGroup({
             Analytics.trackButtonClick('open_recording_folder', 'meeting_details');
             onOpenMeetingFolder();
           }}
-          title={t('meeting_details.open_folder')}
+          title={t('meeting_details.open_folder')} 
         >
           <FolderOpen className="xl:mr-2" size={18} />
-          <span className="hidden lg:inline">{t('meeting_details.recording')}</span>
+          <span className="hidden lg:inline">{t('meeting_details.open_folder')}</span>
         </Button>
 
         {betaFeatures.importAndRetranscribe && meetingId && meetingFolderPath && (

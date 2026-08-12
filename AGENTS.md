@@ -606,3 +606,57 @@ $ grep -rn "meeting_details.notification" frontend/src --include="*.ts" --includ
 - §99.6 (8/10 sync tauri bundle binary, 同样只覆盖 main)
 - §37 (硬闸门) / §56 (AGENTS.md 双校) / §92 (决策迁移铁律)
 - [[108-sync-app-bundle-缺sidecar-llama-helper-not-found]] (Obsidian) / `outputs/§108-...md` (Codex)
+
+## §109 会议详情页 UI 整理 — 2 个 i18n key 错 + TranscriptButtonGroup 重复 (2026-08-12)
+
+**触发**: 用户 8/12 截图反馈 "页面有点乱" — 顶部两套工具栏 + `common.speaker_title_short` 英文 key 字面 + "录音" 按钮错位。
+
+**3 个独立 bug**:
+
+1. **Bug 1 — Speaker Roster 按钮 i18n key 错**:
+   - `SummaryPanel.tsx:334` 用 `t('common.speaker_title_short')` (孤儿 key, 不存在)
+   - 应为 `t('speaker.title')` = '说话人名单' / 'Speaker roster'
+   - 跟 §107 i18n 路径错位模式完全一样 (§56 教训)
+
+2. **Bug 2 — "录音" 按钮 label 错**:
+   - `TranscriptButtonGroup.tsx:101` 用 `t('meeting_details.recording')` = '录音'
+   - 但 onClick 是 `onOpenMeetingFolder` (打开录音文件夹)
+   - 应为 `t('meeting_details.open_folder')` = '打开录音文件夹'
+
+3. **Bug 3 — 顶部两套工具栏重复**:
+   - TranscriptPanel (左列 1/3) 顶部有 TranscriptButtonGroup: 复制 / 导出 MD / 导出 TXT / 打开文件夹 / 重新转录
+   - SummaryPanel (右列 2/3) 顶部有 SummaryGeneratorButtonGroup + SummaryUpdaterButtonGroup: 重新生成 / 语言 / AI 模型 / 模板 / 保存 / 复制 / 导出 MD / 导出 TXT / 查找 / 打开文件夹
+   - **复制 / 导出 MD / 导出 TXT / 打开文件夹 4 个按钮重复出现**, 用户看两套觉得"乱"
+   - 与 §104 "华而不实" 用户原则一致
+
+**修复 (3 文件)**:
+1. `SummaryPanel.tsx:334` `t('common.speaker_title_short')` → `t('speaker.title')`
+2. `TranscriptButtonGroup.tsx:101` `t('meeting_details.recording')` → `t('meeting_details.open_folder')`
+3. `TranscriptPanel.tsx` 整个 TranscriptButtonGroup JSX 包到 `{false && (...)}` 里 (隐藏而非删除, 保留 props 链路, 未来 git log 还原)
+
+**§37 硬闸门**:
+- tsc: 1 §18 bun:test 已知
+- next build OK
+- cargo build --release 1m34s, binary 13:47
+- check_historical_fixes.py **137/137 PASS** (+3 §109 锚点)
+- sync_app_bundle OK
+
+**§15 GUI 验收 (用户必做)**:
+1. `killall meetily && bash scripts/sync_app_bundle.sh && open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'`
+2. 打开任一会话 → 期望:
+   - transcript 列顶部**空** (无 TranscriptButtonGroup 工具栏)
+   - summary 列顶部: "说话人名单" (中文) + 重新生成 / 语言 / AI 模型 / 模板 + 保存 / 复制 / 导出 MD / 导出 TXT / 查找 / 打开文件夹
+   - 整个页**只有一套**工具栏
+
+**还原方法 (§18 精神 — 隐藏 ≠ 删除)**:
+git log 找 §109 之前版本, 删 `{false && ...}` 包裹即可恢复 TranscriptButtonGroup 渲染。
+
+**关联**:
+- §107 (i18n key 路径错位同样模式)
+- §104 (UI 华而不实清理)
+- §90 (v0.8 UI 漏代码 4 项)
+- §56 (AGENTS.md 双校)
+- §18 (隐藏 ≠ 删除)
+- §37 (硬闸门)
+- §92 (决策迁移铁律)
+- [[109-会议详情页UI整理]] (Obsidian) / `outputs/§109-...md` (Codex)
