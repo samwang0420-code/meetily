@@ -772,7 +772,7 @@ const Sidebar: React.FC = () => {
           );
         })()}
 
-        {/* Knowledge Graph (P0-A) */}
+        {/* §104 Meeting Timeline — renamed from Knowledge Graph (P0-A) */}
         {(() => {
           const active = pathname.startsWith('/knowledge');
           return (

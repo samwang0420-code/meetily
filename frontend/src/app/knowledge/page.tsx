@@ -188,21 +188,19 @@ export default function KnowledgePage() {
             <div>
               <h1 className="flex items-center gap-2 text-[24px] font-semibold tracking-[-0.02em] text-neutral-900">
                 <Network className="h-6 w-6 text-violet-500" />
-                {isZh ? '知识图谱' : 'Knowledge Graph'}
-                <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-violet-700">
-                  {isZh ? 'P0' : 'P0'}
-                </span>
+                {isZh ? '会议脉络' : 'Meeting Timeline'}
               </h1>
               <p className="mt-1 text-[13px] text-neutral-500">
                 {isZh
-                  ? '跨会议主题追踪 · 每场会议结束自动提取主题、人物、决议、问题'
-                  : 'Cross-meeting topic tracking · auto-extract topics/people/decisions/questions per meeting'}
+                  ? '按时间线浏览会议 · 主题自动聚合 · 一键跳转相关会议'
+                  : 'Browse meetings by timeline · topic clusters · jump to related meetings'}
               </p>
             </div>
           </div>
         </div>
 
-        {/* Stat cards */}
+        {/* Stat cards — §104 隐藏 (用户: 华而不实, 不删代码) */}
+        {false && (
         <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
           <StatCard
             icon={<Network className="h-4 w-4" />}
@@ -229,6 +227,7 @@ export default function KnowledgePage() {
             color="amber"
           />
         </div>
+        )}
 
         {/* Two-column layout */}
         <div className="grid gap-6 lg:grid-cols-[1fr_400px]">
@@ -414,141 +413,11 @@ export default function KnowledgePage() {
               </motion.div>
             )}
 
-            {/* Action items */}
-            <div className="rounded-lg border border-neutral-200 bg-white p-4">
-              <h3 className="mb-2 flex items-center justify-between text-[14px] font-semibold text-neutral-900">
-                <span className="flex items-center gap-2">
-                  <ListTodo className="h-4 w-4 text-amber-500" />
-                  {isZh ? '行动项' : 'Action Items'}
-                </span>
-                <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">
-                  {openCount} {isZh ? '待办' : 'open'}
-                </span>
-              </h3>
-              {loadingActions && (
-                <div className="py-4 text-center text-[12px] text-neutral-400">
-                  <Loader2 className="mx-auto h-4 w-4 animate-spin" />
-                </div>
-              )}
-              {!loadingActions && actionItems.length === 0 && (
-                <div className="py-4 text-center text-[12px] text-neutral-400">
-                  {isZh ? '暂无行动项。每场会议摘要生成后会自动提取。' : 'No action items yet. Extracted after each meeting summary.'}
-                </div>
-              )}
-              {!loadingActions && actionItems.length > 0 && (
-                <ul className="space-y-1.5">
-                  {actionItems.slice(0, 8).map(it => (
-                    <li key={it.id} className="flex items-start gap-2 text-[12px]">
-                      <button
-                        onClick={() => void toggleAction(it.id, it.done === 0)}
-                        className="mt-0.5 shrink-0"
-                        aria-label={it.done ? (isZh ? '标记未完成' : 'Mark incomplete') : (isZh ? '标记完成' : 'Mark done')}
-                      >
-                        {it.done ? (
-                          <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                        ) : (
-                          <Circle className="h-4 w-4 text-neutral-300 hover:text-emerald-500" />
-                        )}
-                      </button>
-                      <div className={`flex-1 ${it.done ? 'text-neutral-400 line-through' : 'text-neutral-700'}`}>
-                        <div className="line-clamp-2">{it.content}</div>
-                        {it.meeting_title && (
-                          <div className="mt-0.5 text-[10px] text-neutral-400">
-                            ← {it.meeting_title}
-                          </div>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {/* Obsidian vault status */}
-            <div className="rounded-lg border border-neutral-200 bg-white p-4">
-              <h3 className="mb-2 flex items-center gap-2 text-[14px] font-semibold text-neutral-900">
-                <FileDown className="h-4 w-4 text-violet-500" />
-                {isZh ? 'Obsidian 同步' : 'Obsidian Vault'}
-                <span className="rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium text-violet-700">
-                  {isZh ? 'P0' : 'P0'}
-                </span>
-              </h3>
-              {obsidian === null && (
-                <div className="py-3 text-[12px] text-neutral-400">
-                  {isZh ? '未配置 (设置 → 通用 → Obsidian 同步)' : 'Not configured (Settings → General → Obsidian)'}
-                </div>
-              )}
-              {obsidian && (
-                <div className="space-y-1.5 text-[12px]">
-                  <div className="flex items-center gap-1.5">
-                    <span className={`inline-block h-2 w-2 rounded-full ${obsidian.enabled ? 'bg-emerald-500' : 'bg-neutral-300'}`} />
-                    <span className={obsidian.enabled ? 'text-emerald-700' : 'text-neutral-500'}>
-                      {obsidian.enabled ? (isZh ? '已启用' : 'Enabled') : (isZh ? '已停用' : 'Disabled')}
-                    </span>
-                  </div>
-                  <div className="line-clamp-1 text-[11px] text-neutral-500" title={obsidian.vault_path}>
-                    {obsidian.vault_path}
-                  </div>
-                  <div className="text-[11px] text-neutral-400">
-                    {isZh ? `写入目录: ${obsidian.folder || '(根目录)'}` : `Folder: ${obsidian.folder || '(root)'}`}
-                  </div>
-                </div>
-              )}
-              <button
-                onClick={() => router.push('/settings')}
-                className="mt-2 flex w-full items-center justify-center gap-1 rounded-md border border-neutral-200 py-1.5 text-[11px] text-neutral-600 transition-colors hover:bg-neutral-50"
-              >
-                {isZh ? '设置 →' : 'Configure →'}
-              </button>
-            </div>
-
-            {/* MCP server status */}
-            <div className="rounded-lg border border-neutral-200 bg-white p-4">
-              <h3 className="mb-2 flex items-center gap-2 text-[14px] font-semibold text-neutral-900">
-                <Server className="h-4 w-4 text-blue-500" />
-                {isZh ? 'MCP Server' : 'MCP Server'}
-                <span className="rounded-full bg-blue-100 px-1.5 py-0.5 text-[10px] font-medium text-blue-700">
-                  {isZh ? 'P1' : 'P1'}
-                </span>
-              </h3>
-              <div className="space-y-1.5 text-[12px] text-neutral-600">
-                <p>
-                  {isZh
-                    ? '暴露 5 个工具给 Claude / Cursor：search_meetings / get_meeting_summary / get_action_items / create_meeting_note / get_topic_status'
-                    : 'Exposes 5 tools to Claude / Cursor: search_meetings / get_meeting_summary / get_action_items / create_meeting_note / get_topic_status'}
-                </p>
-                <p className="text-[11px] text-neutral-400">
-                  {isZh ? '配置: meetily-mcp 目录 + Claude/Cursor MCP settings.json' : 'Configure via meetily-mcp + your MCP client settings'}
-                </p>
-              </div>
-              <button
-                onClick={() => router.push('/settings')}
-                className="mt-2 flex w-full items-center justify-center gap-1 rounded-md border border-neutral-200 py-1.5 text-[11px] text-neutral-600 transition-colors hover:bg-neutral-50"
-              >
-                {isZh ? '查看文档 →' : 'View docs →'}
-              </button>
-            </div>
-
-            {/* Scheduler status */}
-            <div className="rounded-lg border border-neutral-200 bg-white p-4">
-              <h3 className="mb-2 flex items-center gap-2 text-[14px] font-semibold text-neutral-900">
-                <Database className="h-4 w-4 text-neutral-500" />
-                {isZh ? '夜间重建' : 'Nightly Rebuild'}
-                <span className="rounded-full bg-neutral-100 px-1.5 py-0.5 text-[10px] font-medium text-neutral-600">
-                  {isZh ? 'P2' : 'P2'}
-                </span>
-              </h3>
-              <div className="space-y-1.5 text-[12px] text-neutral-600">
-                <p>
-                  {isZh
-                    ? '0:00-6:00 本地空闲时, 自动重建未更新的主题档案。'
-                    : 'Rebuilds stale dossiers during local idle hours (0:00-6:00).'}
-                </p>
-                <p className="text-[11px] text-neutral-400">
-                  {isZh ? '默认: 3 个主题/晚, idle 30min 触发' : 'Default: 3 topics/night, idle 30min'}
-                </p>
-              </div>
-            </div>
+            {/* §104 隐藏 — 行动项 / Obsidian / MCP / 夜间重建 4 个面板 (UI 暂时关闭, 代码保留) */}
+            {false as boolean /* hide 4 panels per §104 */}
+            {false as boolean /* hide 4 panels per §104 */}
+            {false as boolean /* hide 4 panels per §104 */}
+            {false as boolean /* hide 4 panels per §104 */}
           </aside>
         </div>
       </div>

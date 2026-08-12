@@ -7,7 +7,7 @@ export const zh: Record<string, unknown> = {
   nav: {
     home: '工作台',
     notes: '会议笔记',
-    knowledge: '知识图谱',
+    knowledge: '会议脉络',  // §104 用户指令: 改名为'会议脉络' (不是'知识图谱', 业务类用户听不懂)
     settings: '设置',
     about: '关于',
     search_placeholder: '搜索会议内容...',
@@ -27,6 +27,10 @@ export const zh: Record<string, unknown> = {
     no_match: '没有匹配的会议',
   },
   meeting: {
+    export: '导出',
+    copy_summary: '复制摘要到剪贴板',
+    export_markdown: '导出 Markdown 文件',
+    export_txt: '导出 TXT 文件',
     untitled: '未命名会议',
     delete_confirm: '确认删除该会议? 此操作不可撤销。',
     edit_title: '编辑会议标题',
@@ -372,9 +376,15 @@ export const zh: Record<string, unknown> = {
     user_id: '你的用户 ID',
     copy: '复制',
   },
-  meeting_details: {
+    meeting_details: {
     copy_transcript: '复制',
     recording: '录音',
+    notification: {
+      title: '🔴 录音已开始',
+      body: '请告知所有参会者, 本次会议正在被录制。',
+      dont_show: '不再显示此提示',
+      ack: '我已告知参会者',
+    },
     enhance: '重新转录',
     copy_transcript_title: '复制转录文本',
     no_transcript: '暂无可复制转录',

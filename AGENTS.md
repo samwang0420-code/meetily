@@ -353,3 +353,94 @@ grep "total_ms" /tmp/meetily_verify_103.log | head -3        # 改用 total_ms �
 ```
 
 **关联**: §102 (symphonia stereo downmix fallback 基础) / §37 / §56
+
+## §104 Sidebar 改名 + 会议详情加导出 + 隐藏华而不实 (2026-08-12)
+
+**触发**: 用户 8/11 反馈知识图谱、夜间重建等"华而不实"，判断错了竞品功能 ≠ 用户需求。
+> 不是删掉和折叠，是做成可用的，方便用的，同时又有设计感的，你再仔细琢磨一下
+> 暂时先 Sidebar 改名"知识图谱 → 会议脉络"、会议详情加"导出"按钮两个吧，其他的都隐藏，不是删掉
+
+**真实场景认知** (我之前误把):
+- 知识图谱：跨会议追踪 (用户: 单 PC, 一天 < 5 会议, 跨会议是伪需求)
+- Obsidian 同步：用户不一定用 Obsidian
+- MCP Server：AI 重度用户专属
+- 夜间重建 (0-6 点窗口)：电脑不一直开, 触发率 0
+- ⌥+Space 实时 Q&A：开会还要打字问问题, 反人性
+- 真正的护城河 = 100% 本地 + 离线 + 中文准确率
+
+**改动 (5 文件)**:
+
+1. **Sidebar** `frontend/src/components/Sidebar/index.tsx:775` + i18n zh.ts:10 / en.ts:10
+   - "知识图谱 / Knowledge Graph" → "会议脉络 / Meeting Timeline"
+   - 紫色 nav 按钮保留, 徽章 `topics count` 保留
+
+2. **/knowledge 页标题** `frontend/src/app/knowledge/page.tsx`
+   - `知识图谱 / Knowledge Graph` → `会议脉络 / Meeting Timeline`
+   - subtitle `跨会议主题追踪 · 每场会议结束自动提取主题、人物、决议、问题` → `按时间线浏览会议 · 主题自动聚合 · 一键跳转相关会议`
+
+3. **/knowledge 页 4 个 stat cards + 4 个 panel 隐藏**
+   - 4 个 StatCard (主题总数/决议/项目/待办行动项) → `{false as boolean /* hide per §104 */}`
+   - 4 个 panel JSX 替换为 `{false as boolean /* hide per §104 */}`：
+     - Action items (改放 /meeting-details 内)
+     - Obsidian 同步 (改放 /settings)
+     - MCP Server (改放 /settings)
+     - 夜间重建 (改成本地空闲检测, 不强制 0-6 点)
+   - 隐藏策略: JSX 块从源代码**删除** (用 marker 替代)，state + handlers + i18n keys 保留
+   - 重新启用: `git log -p` 还原 JSX + 删 4 个 marker
+
+4. **会议详情加导出按钮** `frontend/src/app/meeting-details/page-content.tsx`
+   - 顶部"返回工作台"按钮右侧加 `<Download>` 按钮 + `ChevronDown`
+   - dropdown 3 选项: 复制摘要 / Markdown 文件 / TXT 文件
+   - 复用已有 `copyOperations.handleCopySummary` + `handleExportSummary('md'|'txt')`
+   - click-outside 关闭, `data-testid="meeting-export-button"`
+
+5. **i18n 加 4 个 key** `frontend/src/i18n/locales/{zh,en}.ts`
+   - `meeting.export` / `meeting.copy_summary` / `meeting.export_markdown` / `meeting.export_txt`
+   - 顺便修注释格式: `#` Python 风格 → `//` JS 风格 (SWC parser 不接受 `#`)
+
+**§37 硬闸门**:
+- tsc --noEmit: 18 errors (§18 已知, 0 new)
+- next build: OK
+- cargo build --release: 11:40 72M
+- check_historical_fixes: 124/124 PASS
+- sync_app_bundle.sh: §99.6 SHA 一致
+
+**§15 GUI 验收** (用户必做):
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# 1. Sidebar "知识图谱" → "会议脉络"
+# 2. /knowledge 页 → 4 stat card 消失, 4 panel 不显示
+# 3. 会议详情 → 顶部"返回工作台"右有"导出"按钮 + dropdown
+```
+
+**禁止** (§18 强化):
+- 重启 4 个隐藏 panel 时, 不还原旧的"夜间重建 0-6 点"文案
+- 改名"会议脉络"回"知识图谱" (用户已判定)
+
+**关联**: §100 (P0-P2 UI 暴露初始版) / §18 (不主动改华而不实) / §71 (7 款 AI 会议工具调研) / §56 (commit 必带实际改动)
+
+### §104.1 录音通知 Toast 英文 → i18n (2026-08-12 11:45)
+
+**触发**: 用户 8/12 截图反馈右下角弹出 "Recording Started / Inform all participants ..." 全部英文, 主界面是中文。元素最显眼的英文残留。
+
+**根因**: `frontend/src/lib/recordingNotification.tsx` 4 处硬编码英文。该文件是 utility function (非 React 组件), 不能用 `useTranslation` hook。
+
+**修复**:
+- `localT(path: string)` helper: 读 `localStorage['lixianhuiji.locale']` → `DICTS[locale]` → 路径 lookup
+- 4 处英文 → `localT('recording.notification.{title,body,dont_show,ack}')`
+- `i18n/locales/zh.ts` 加 zh 文案, `i18n/locales/en.ts` 加 en 文案
+
+**§37 硬闸门**:
+- tsc --noEmit: 1 error (§18 bun:test 已知)
+- next build: OK
+- cargo build --release: 11:47 72M
+- sync_app_bundle: §99.6 SHA 一致
+
+**§15 GUI 验收**:
+```bash
+killall meetily 2>/dev/null && open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# 开始录音 → 右下角弹出 toast 应显示中文
+```
+
+**关联**: §104 (主改动) / §18 (严禁英文硬编码) / §90 (UI 漏代码 4 项)

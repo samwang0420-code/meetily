@@ -7,7 +7,7 @@ export const en: Record<string, unknown> = {
   nav: {
     home: 'Workspace',
     notes: 'Meeting Notes',
-    knowledge: 'Knowledge Graph',
+    knowledge: 'Meeting Timeline',  // §104: renamed from 'Knowledge Graph' to 'Meeting Timeline' (user-friendly term)
     settings: 'Settings',
     about: 'About',
     search_placeholder: 'Search meeting content...',
@@ -373,9 +373,15 @@ export const en: Record<string, unknown> = {
     user_id: 'Your user ID',
     copy: 'Copy',
   },
-  meeting_details: {
+    meeting_details: {
     copy_transcript: 'Copy',
     recording: 'Recording',
+    notification: {
+      title: '🔴 Recording Started',
+      body: 'Inform all participants this meeting is being recorded.',
+      dont_show: "Don't show this again",
+      ack: "I've Notified Participants",
+    },
     enhance: 'Retranscribe',
     copy_transcript_title: 'Copy Transcript',
     no_transcript: 'No transcript available',
