@@ -568,6 +568,13 @@ ANCHORS = [
     ("107_recording_notification_en",
      "frontend/src/i18n/locales/en.ts",
      r"title: '🔴 Recording Started'"),
+    # §108: sync_app_bundle.sh 同步 sidecar (llama-helper + ffmpeg) 到 .app bundle
+    ("108_sidecar_sync_function",
+     "scripts/sync_app_bundle.sh",
+     r"sync_sidecar\(\)"),
+    ("108_sidecar_llama_helper_synced",
+     "scripts/sync_app_bundle.sh",
+     r"synced \$sidecar"),
 ]
 
 

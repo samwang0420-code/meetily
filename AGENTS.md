@@ -562,3 +562,47 @@ $ grep -rn "meeting_details.notification" frontend/src --include="*.ts" --includ
 - §18 (不主动改无关 bug — 孤儿 key 保留)
 - §56 (AGENTS.md §X 描述 ≠ 代码 commit, 这次 §104.1 描述与代码脱节)
 - [[107-录音通知toast翻译未生效修复]] (Obsidian) / `outputs/§107-...md` (Codex)
+
+## §108 sync_app_bundle.sh 缺 sidecar 同步 — llama-helper not found 修复 (2026-08-12)
+
+**触发**: 用户 8/12 截图: 生成摘要报 "llama-helper binary not found", binary 已更新不生效。
+
+**根因 (1 跳)**: §90 commit `fda59cd` (8/7 01:51) 手造 `target/release/言镜 AI.app/` bundle 只放了 `言镜 AI` 一个 binary, **缺 llama-helper + ffmpeg**。`sync_app_bundle.sh` §99.6 只 sync `meetily`, 没处理 `tauri.conf.json externalBin` 声明的两个 sidecar binary。
+
+```bash
+# 修复前 (用户 bundle):
+/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app/Contents/MacOS/
+  └── 言镜 AI  (72M) ← 唯一 binary, llama-helper / ffmpeg 都没有
+
+# tauri 官方 bundle (8/10 编的) 是完整的:
+/Users/wangwei/Documents/离线会记/target/release/bundle/macos/言镜 AI.app/Contents/MacOS/
+  ├── meetily      (72M)
+  ├── llama-helper (5M)
+  └── ffmpeg       (51M)
+```
+
+**修复 (1 文件)**: `scripts/sync_app_bundle.sh` 加 `sync_sidecar()` 函数, 同时 sync 到用户 bundle + tauri 官方 bundle, sha 对比增量。
+
+**§37 硬闸门**:
+- bash -n 语法检查: OK
+- 实跑 sync_app_bundle.sh: 3 binary 全部 sync 成功
+- 两个 bundle 都验证完整 (各 3 个 binary)
+- check_historical_fixes.py: **134/134 PASS** (+2 §108 锚点)
+
+**§15 GUI 验收 (用户必做)**:
+1. `killall meetily 2>/dev/null`
+2. `bash scripts/sync_app_bundle.sh`
+3. `open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'`
+4. 任意会话 → 生成摘要 → 应该正常生成, 不再报 llama-helper not found
+
+**新铁律 (§108 立)**:
+- 任何 §X 改动影响 .app bundle 完整性, 必须 `sync_app_bundle.sh` 后 `ls .app/Contents/MacOS/` 验证 3 个 binary (main + llama-helper + ffmpeg) 都在
+- cargo build --release pass + sync_app_bundle.sh pass **不等于** .app bundle 完整, 必须实测启动一次确认摘要能生成
+- bundle 手造时 (§90 之类) 必须包含全部 `tauri.conf.json externalBin` 声明的 sidecar, 不只 main binary
+
+**关联**:
+- §90 (commit fda59cd 手造 bundle 缺 sidecar)
+- §93.1 (8/7 .app bundle sync 规则, 只覆盖 main binary)
+- §99.6 (8/10 sync tauri bundle binary, 同样只覆盖 main)
+- §37 (硬闸门) / §56 (AGENTS.md 双校) / §92 (决策迁移铁律)
+- [[108-sync-app-bundle-缺sidecar-llama-helper-not-found]] (Obsidian) / `outputs/§108-...md` (Codex)

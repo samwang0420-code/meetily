@@ -103,6 +103,40 @@ fi
 DST_SIZE=$(stat -f "%z" "$DST_BINARY")
 echo -e "${GREEN}OK${NC}: synced  $DST_SIZE bytes  sha=${DST_HASH:0:12}"
 
+# §108 (2026-08-12): 同步 sidecar binary (llama-helper + ffmpeg) 到 .app bundle
+# 之前只 sync meetily, 但 tauri.conf.json externalBin 声明了 llama-helper + ffmpeg 两个
+# sidecar binary. §90 commit fda59cd 手造的 bundle 只有 言镜 AI 一个文件, 摘要生成时
+# 找 llama-helper 找不到 → "llama-helper binary not found" 报错.
+# 同时也 sync 到 tauri 官方 bundle (target/release/bundle/macos/言镜 AI.app/) 保证两边完整.
+sync_sidecar() {
+    local app_dir="$1"
+    local dst_dir="$app_dir/Contents/MacOS"
+    [[ ! -d "$dst_dir" ]] && return 0
+    for sidecar in llama-helper ffmpeg; do
+        local src_bin="$TARGET_DIR/$sidecar"
+        local dst_bin="$dst_dir/$sidecar"
+        if [[ ! -f "$src_bin" ]]; then
+            echo -e "${YELLOW}WARN${NC}: §108 $sidecar not in $TARGET_DIR (skip)"
+            continue
+        fi
+        if [[ -f "$dst_bin" ]]; then
+            local src_sha=$(shasum "$src_bin" 2>/dev/null | awk '{print $1}')
+            local dst_sha=$(shasum "$dst_bin" 2>/dev/null | awk '{print $1}')
+            if [[ "$src_sha" == "$dst_sha" ]]; then
+                continue  # in sync, skip
+            fi
+        fi
+        cp -f "$src_bin" "$dst_bin"
+        chmod +x "$dst_bin"
+        local new_sha=$(shasum "$dst_bin" 2>/dev/null | awk '{print $1}')
+        local size=$(stat -f "%z" "$dst_bin")
+        echo -e "${GREEN}OK${NC}: §108 synced $sidecar  $size bytes  sha=${new_sha:0:12}"
+    done
+}
+sync_sidecar "$APP_DIR"
+TAURI_BUNDLE="$TARGET_DIR/bundle/macos/言镜 AI.app"
+[[ -d "$TAURI_BUNDLE" ]] && sync_sidecar "$TAURI_BUNDLE"
+
 # §98 (2026-08-10): codesign identifier 跟 CFBundleIdentifier 不一致 → launchd 162 Launch failed.
 # cargo build --release 不重新签名 .app bundle, 旧 binary codesign identifier 还嵌在 Mach-O 内.
 # 即使 Info.plist 已经匹配, 每次 sync 都要 re-sign 让 binary 内 codesign identifier 跟新 bundle 一致.
