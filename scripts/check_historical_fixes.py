@@ -561,6 +561,13 @@ ANCHORS = [
     ("106_fixed_local_only_i18n",
      "frontend/src/i18n/locales/zh.ts",
      r"fixed_local_only:"),
+    # §107: 录音通知路径修复 (recording.notification.* 不再孤儿)
+    ("107_recording_notification_zh",
+     "frontend/src/i18n/locales/zh.ts",
+     r"title: '🔴 录音已开始'"),
+    ("107_recording_notification_en",
+     "frontend/src/i18n/locales/en.ts",
+     r"title: '🔴 Recording Started'"),
 ]
 
 

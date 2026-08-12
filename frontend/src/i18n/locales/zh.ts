@@ -564,6 +564,13 @@ export const zh: Record<string, unknown> = {
   recording: {
     memory_warning: '内存压力 ({{rss}}MB), 已自动建议降级: 关闭 cam++ 说话人分离',
     memory_critical: '内存严重 ({{rss}}MB), 已自动切换到 sense-voice 轻量识别, 关闭说话人分离',
+    // §107: §104.1 实际路径应为 recording.notification.*, 之前放到 topbar.meeting_details.notification 是错的 (孤儿 key, 没人用)
+    notification: {
+      title: '🔴 录音已开始',
+      body: '请告知所有参会者, 本次会议正在被录制。',
+      dont_show: '不再显示此提示',
+      ack: '我已告知参会者',
+    },
   },
   common: {
 

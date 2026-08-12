@@ -560,6 +560,13 @@ export const en: Record<string, unknown> = {
   recording: {
     memory_warning: 'Memory pressure ({{rss}} MB). Suggestion: disable cam++ speaker diarization.',
     memory_critical: 'Memory critical ({{rss}} MB). Auto-switched to sense-voice, speaker diarization off.',
+    // §107: §104.1 actual path is recording.notification.*, topbar.meeting_details.notification was orphan
+    notification: {
+      title: '🔴 Recording Started',
+      body: 'Inform all participants this meeting is being recorded.',
+      dont_show: "Don't show this again",
+      ack: "I've Notified Participants",
+    },
   },
   common: {
 

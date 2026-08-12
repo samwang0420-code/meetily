@@ -501,3 +501,64 @@ killall meetily 2>/dev/null && open '/Users/wangwei/Documents/离线会记/targe
 - §29 (FunASR-Nano Pro tier gate, 免费/会员基于本地模型分发)
 - §92 (决策迁移铁律, outputs + Obsidian + AGENTS.md 三处同日落)
 - [[106-模型设置Modal切换删除-固定本地模式]] (Obsidian) / `outputs/§106-...md` (Codex)
+
+## §107 录音通知 toast 翻译未生效修复 (2026-08-12)
+
+**触发**: 用户 8/12 截图: 录音通知 toast 显示英文 key 字面文本 `recording.notification.title` / `body` / `dont_show` / `ack`, 而不是翻译后的中英文文案。
+
+**根因 (1 跳)**: §104.1 (commit 090238c) 加了 `localT('recording.notification.*')` 4 处调用, 但 i18n keys 实际放到了 `topbar.meeting_details.notification.*` 孤儿路径下。`localT` lookup 失败 → fallback 返回 path 字符串本身 → 用户看到英文 key 字面。
+
+**实证**:
+```
+$ grep -n "录音已开始" frontend/src/i18n/locales/zh.ts
+384:      title: '🔴 录音已开始',   ← 在 topbar.meeting_details.notification (孤儿)
+
+$ grep -rn "meeting_details.notification" frontend/src --include="*.ts" --include="*.tsx"
+(无任何匹配 — 完全孤儿)
+```
+
+**修复 (2 文件, +14/-0)**:
+1. `frontend/src/i18n/locales/zh.ts` 顶级 `recording` 块加 `notification` 子块:
+   ```ts
+   recording: {
+     memory_warning: '...',
+     memory_critical: '...',
+     // §107: §104.1 实际路径应为 recording.notification.*, 之前放到 topbar.meeting_details.notification 是错的 (孤儿 key, 没人用)
+     notification: {
+       title: '🔴 录音已开始',
+       body: '请告知所有参会者, 本次会议正在被录制。',
+       dont_show: '不再显示此提示',
+       ack: '我已告知参会者',
+     },
+   },
+   ```
+2. `frontend/src/i18n/locales/en.ts` 同位置加英文版。
+
+**保留 (§18 精神)**: `topbar.meeting_details.notification.*` 孤儿 key 不删, 防止误伤未来代码。
+
+**§37 硬闸门**:
+- tsc --noEmit: 1 个 §18 bun:test 已知错误 (不动)
+- next build: OK
+- cargo build --release: 1m33s 增量, binary 69M **mtime 13:26**
+- check_historical_fixes.py: **132/132 PASS** (+2 §107 锚点)
+- sync_app_bundle.sh: 同步 binary 到 言镜 AI.app bundle
+
+**§15 GUI 验收 (用户必做)**:
+1. `killall meetily 2>/dev/null`
+2. `open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'`
+3. 开始录音 → 右下角 toast 应显示中文 ("🔴 录音已开始 / 请告知所有参会者...")
+4. 英文 locale → 显示 "🔴 Recording Started / Inform all participants..."
+
+**教训 (§56 强化)**:
+- §104.1 commit 时只验证文件存在 + cargo build pass + tsc pass, 没真正**渲染一次** toast 验证 `localT` 走的路径
+- §37 闸门没补 "tsc/next build 不验证 i18n lookup 实际匹配" 这层
+- **新增**给后续 §X 提醒: 任何 `localT` / `t()` 改动 → §15 GUI 验收必跑
+- 写完 i18n key 后, 必须 grep 一遍确认调用路径 == 声明路径
+
+**关联**:
+- §104.1 (录音通知 i18n 第一次尝试, 路径错)
+- §104 (UI 华而不实清理)
+- §92 (决策迁移铁律)
+- §18 (不主动改无关 bug — 孤儿 key 保留)
+- §56 (AGENTS.md §X 描述 ≠ 代码 commit, 这次 §104.1 描述与代码脱节)
+- [[107-录音通知toast翻译未生效修复]] (Obsidian) / `outputs/§107-...md` (Codex)
