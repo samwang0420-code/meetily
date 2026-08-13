@@ -420,6 +420,14 @@ export const en: Record<string, unknown> = {
     close: 'Close',
     try_again: 'Try again',
   },
+  summaryModelSettings: {
+    auto_summary_title: 'Auto Summary',
+    auto_summary_desc: 'Auto-generate summary after meeting ends (stopping)',
+    model_config_title: 'AI Summary Model',
+    model_config_desc: 'Configure the AI model used for generating meeting summaries.',
+    add_language: '＋ Add language',
+    language_picker_help: 'Click any language to set it as your default. Max 5 quick-switch options.',
+  },
   summary: {
     no_model: 'Please select a model in Settings first',
     title: 'Meeting summary',
