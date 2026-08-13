@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 离线会记 v0.6.0 design tokens (从 src/lib/design-tokens.ts 同步)
+/* 言镜 AI v0.6.0 design tokens (从 src/lib/design-tokens.ts 同步)
    这些 CSS variable 全局可用,Tailwind 通过 bg-app-* text-app-* 等 alias 间接引用。
    任何页面要修改某个 token,直接在这里改 — 不需要重启。 */
 :root {
@@ -203,8 +203,8 @@ body { font-feature-settings: var(--app-font-feature); }
   /* html, */
   body {
     @apply bg-background text-foreground;
-    overflow-y: auto;
-    min-height: 100vh;
+    overflow: hidden;
+    height: 100%;
   }
 
   /* Make the window draggable */

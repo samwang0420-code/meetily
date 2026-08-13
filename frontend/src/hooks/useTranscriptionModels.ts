@@ -45,47 +45,31 @@ export function useTranscriptionModels(transcriptModelConfig: TranscriptModelCon
     setLoadingModels(true);
     const allModels: ModelOption[] = [];
 
-    // 离线会记 W2.5: Whisper 从 enhance 选项删除 (recording 也改为 sherpa, 不再需要 Whisper)
-    // Whisper 体验差 (幻觉多 / 中文漏字), 完全被 SenseVoice-zh 替代
-    // 模型文件 ggml-large-v3-turbo-q5_0.bin 547MB 也即将删除
+    // §90 v0.8+ 转录模型列表 (用户决策 2026-08-07):
+    // 1) FunASR-Nano 947MB (高精度 / Pro 专属 per §29)
+    // 2) SenseVoice-zh 228MB (默认推荐, 用户实测已装 per §38 续)
+    // 3) Paraformer-zh 216MB (备选, 中文 SOTA 但无 timestamp)
+    // 删除: Parakeet (实测不如 SenseVoice, §38 禁用清单)
+    // 删除: Whisper (W2.5 已删)
 
-    // 离线会记 W2.3: 默认推荐 SenseVoice-zh (23 段按句切 + 字级 timestamp + 中文 SOTA)
-    // Paraformer 排在第二位 (W2.2 验证可用, 但无 timestamps, 退回 VAD 段循环)
-    // 用户反馈: "Paraformer 不能看, SenseVoice 默认体验最好"
-    allModels.push({
-      provider: 'sherpa_funasr_nano' as const,
-      name: 'sense-voice-zh-int8',
-      displayName: '✨ SenseVoice-zh (推荐 · 23 段)',
-      size_mb: 228,
-    });
     allModels.push({
       provider: 'sherpa_funasr_nano' as const,
       name: 'funasr-nano-zh',
-      displayName: '🧪 FunASR-Nano (实验性离线精转 · 较慢)',
-      size_mb: 948,
+      displayName: '🧪 FunASR-Nano 高精度 · 947MB (Pro)',
+      size_mb: 947,
+    });
+    allModels.push({
+      provider: 'sherpa_funasr_nano' as const,
+      name: 'sense-voice-zh-int8',
+      displayName: '✨ SenseVoice-zh 推荐 · 228MB',
+      size_mb: 228,
     });
     allModels.push({
       provider: 'sherpa_paraformer' as const,
       name: 'paraformer-zh-int8',
-      displayName: '🐉 Paraformer-zh (备选 · 10 段)',
-      size_mb: 217,
+      displayName: '🐉 Paraformer-zh 备选 · 216MB',
+      size_mb: 216,
     });
-
-    // Fetch Parakeet models
-    try {
-      const parakeetModels = await invoke<RawModelInfo[]>('parakeet_get_available_models');
-      const availableParakeet = parakeetModels
-        .filter((m) => m.status === 'Available')
-        .map((m) => ({
-          provider: 'parakeet' as const,
-          name: m.name,
-          displayName: `⚡ Parakeet: ${m.name}`,
-          size_mb: m.size_mb,
-        }));
-      allModels.push(...availableParakeet);
-    } catch (err) {
-      console.error('Failed to fetch Parakeet models:', err);
-    }
 
     setAvailableModels(allModels);
 

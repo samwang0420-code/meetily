@@ -189,6 +189,32 @@ pub fn get_available_models() -> Vec<ModelDef> {
             sampling: SamplingParams::qwen35_summary(vec!["<|im_end|>".to_string()]),
             description: "High-quality Qwen 3.5 model for built-in summaries. Best local Qwen option in the current lineup.".to_string(),
         },
+        // Gemma 3 4B - Legacy alternative retained for users who prefer Gemma output.
+        ModelDef {
+            name: "gemma3:4b".to_string(),
+            display_name: "Gemma 3 4B (Balanced)".to_string(),
+            gguf_file: "gemma-3-4b-it-Q4_K_M.gguf".to_string(),
+            template: "gemma3".to_string(),
+            download_url: "https://huggingface.co/bartowski/google_gemma-3-4b-it-GGUF/resolve/main/google_gemma-3-4b-it-Q4_K_M.gguf".to_string(),
+            size_mb: 2374,
+            context_size: 32768,
+            layer_count: 35,
+            sampling: SamplingParams::gemma3_instruct(vec!["<end_of_turn>".to_string()]),
+            description: "Balanced model. Great quality/speed trade-off. Requires ~3.5GB RAM.".to_string(),
+        },
+        // Gemma 3 1B - Visible legacy tier retained for already-shipped users.
+        ModelDef {
+            name: "gemma3:1b".to_string(),
+            display_name: "Gemma 3 1B (Fast)".to_string(),
+            gguf_file: "gemma-3-1b-it-Q8_0.gguf".to_string(),
+            template: "gemma3".to_string(),
+            download_url: "https://huggingface.co/bartowski/google_gemma-3-1b-it-GGUF/resolve/main/google_gemma-3-1b-it-Q8_0.gguf".to_string(),
+            size_mb: 1019,
+            context_size: 32768,
+            layer_count: 26,
+            sampling: SamplingParams::gemma3_instruct(vec!["<end_of_turn>".to_string()]),
+            description: "Fastest model. Runs on any hardware with ~1GB RAM. Good for quick summaries.".to_string(),
+        },
     ]
 }
 
@@ -332,6 +358,38 @@ mod tests {
         assert_eq!(qwen_4b.context_size, 32768);
         assert_eq!(qwen_4b.layer_count, 32);
         assert_eq!(qwen_4b.sampling, SamplingParams::qwen35_summary(vec!["<|im_end|>".to_string()]));
+    }
+
+    #[test]
+    fn gemma_models_use_huggingface_urls_and_gemma3_instruct_sampling() {
+        let gemma_1b = get_model_by_name("gemma3:1b").expect("gemma 1b model should exist");
+        assert_eq!(gemma_1b.gguf_file, "gemma-3-1b-it-Q8_0.gguf");
+        assert_eq!(
+            gemma_1b.download_url,
+            "https://huggingface.co/bartowski/google_gemma-3-1b-it-GGUF/resolve/main/google_gemma-3-1b-it-Q8_0.gguf"
+        );
+        assert_eq!(gemma_1b.sampling, SamplingParams::gemma3_instruct(vec!["<end_of_turn>".to_string()]));
+        assert_eq!(gemma_1b.sampling.temperature, 1.0);
+        assert_eq!(gemma_1b.sampling.top_k, 64);
+        assert_eq!(gemma_1b.sampling.top_p, 0.95);
+        assert_eq!(gemma_1b.sampling.presence_penalty, 0.0);
+        assert_eq!(gemma_1b.sampling.frequency_penalty, 0.0);
+        assert_eq!(gemma_1b.sampling.repeat_penalty, 1.0);
+        assert_eq!(gemma_1b.sampling.penalty_last_n, 0);
+
+        let gemma_4b = get_model_by_name("gemma3:4b").expect("gemma 4b model should exist");
+        assert_eq!(
+            gemma_4b.download_url,
+            "https://huggingface.co/bartowski/google_gemma-3-4b-it-GGUF/resolve/main/google_gemma-3-4b-it-Q4_K_M.gguf"
+        );
+        assert_eq!(gemma_4b.sampling, SamplingParams::gemma3_instruct(vec!["<end_of_turn>".to_string()]));
+        assert_eq!(gemma_4b.sampling.temperature, 1.0);
+        assert_eq!(gemma_4b.sampling.top_k, 64);
+        assert_eq!(gemma_4b.sampling.top_p, 0.95);
+        assert_eq!(gemma_4b.sampling.presence_penalty, 0.0);
+        assert_eq!(gemma_4b.sampling.frequency_penalty, 0.0);
+        assert_eq!(gemma_4b.sampling.repeat_penalty, 1.0);
+        assert_eq!(gemma_4b.sampling.penalty_last_n, 0);
     }
 
     #[test]

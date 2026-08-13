@@ -8,35 +8,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from './ui/tooltip';
 import { RecordingStatusBar } from './RecordingStatusBar';
 import { motion, AnimatePresence } from 'framer-motion';
 
-// P1-G: speaker label helper. 把 "speaker_00" / "speaker_01" 解析成数字 index,
-// 然后映射成人类可读标签 + 8 色调色板 (稳定, 按 index mod 8 取色).
-const SPEAKER_PALETTE = [
-  { bg: 'bg-blue-100',   text: 'text-blue-700',   ring: 'ring-blue-200',   bar: 'bg-blue-500'   },
-  { bg: 'bg-emerald-100',text: 'text-emerald-700',ring: 'ring-emerald-200',bar: 'bg-emerald-500'},
-  { bg: 'bg-amber-100',  text: 'text-amber-700',  ring: 'ring-amber-200',  bar: 'bg-amber-500'  },
-  { bg: 'bg-rose-100',   text: 'text-rose-700',   ring: 'ring-rose-200',   bar: 'bg-rose-500'   },
-  { bg: 'bg-violet-100', text: 'text-violet-700', ring: 'ring-violet-200', bar: 'bg-violet-500' },
-  { bg: 'bg-cyan-100',   text: 'text-cyan-700',   ring: 'ring-cyan-200',   bar: 'bg-cyan-500'   },
-  { bg: 'bg-orange-100', text: 'text-orange-700', ring: 'ring-orange-200', bar: 'bg-orange-500' },
-  { bg: 'bg-fuchsia-100',text: 'text-fuchsia-700',ring: 'ring-fuchsia-200',bar: 'bg-fuchsia-500'},
-];
-
-// "speaker_00" -> 0, "speaker_03" -> 3, 其它 -> null
-function parseSpeakerIndex(label?: string | null): number | null {
-  if (!label) return null;
-  const m = /^speaker_(\d+)$/i.exec(label.trim());
-  if (!m) return null;
-  const n = parseInt(m[1], 10);
-  return Number.isFinite(n) && n >= 0 ? n : null;
-}
-
-// 把 speaker index 转成 UI 显示的短标签 (不用 i18n, 跟当前 TranscriptView 风格一致).
-// P1-G: zh "说话人 1" / en "Speaker 1". 用浏览器 language 嗅探, 避免给 TranscriptView 引入 i18n 上下文.
-function speakerLabel(idx: number): string {
-  const isZh = typeof navigator !== 'undefined' && /^zh/i.test(navigator.language || '');
-  return isZh ? `说话人 ${idx + 1}` : `Speaker ${idx + 1}`;
-}
-
 interface TranscriptViewProps {
   transcripts: Transcript[];
   isRecording?: boolean;
@@ -306,10 +277,6 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({ transcripts, isR
         const sizerText = cleanStopWords(isStreaming ? streamingTranscript.fullText : transcript.text)
           || (originalWasEmpty && !isStreaming ? '[Silence]' : '');
 
-        // P1-G: speaker 标签 (仅在 transcript.speaker 已落库时显示)
-        const speakerIdx = parseSpeakerIndex(transcript.speaker);
-        const speakerStyle = speakerIdx !== null ? SPEAKER_PALETTE[speakerIdx % SPEAKER_PALETTE.length] : null;
-
         return (
           <motion.div
             key={transcript.id ? `${transcript.id}-${index}` : `transcript-${index}`}
@@ -321,11 +288,21 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({ transcripts, isR
             <div className="flex items-start gap-2">
               <Tooltip>
                 <TooltipTrigger>
-                  <span className="text-xs text-gray-400 mt-1 flex-shrink-0 min-w-[50px]">
-                    {transcript.audio_start_time !== undefined
-                      ? formatRecordingTime(transcript.audio_start_time)
-                      : transcript.timestamp}
-                  </span>
+                  <div className="flex flex-col items-start min-w-[80px] mt-1 flex-shrink-0">
+                    {/* §91 P1-B: 显示 speaker. 优先 alias ("王伟"), 否则 "Speaker N" */}
+                    {(transcript.speaker_label || transcript.speaker_id !== undefined) && (
+                      <span className="text-xs font-medium text-blue-600 dark:text-blue-400">
+                        {transcript.speaker_label
+                          ? transcript.speaker_label
+                          : `Speaker ${transcript.speaker_id}`}
+                      </span>
+                    )}
+                    <span className="text-xs text-gray-400">
+                      {transcript.audio_start_time !== undefined
+                        ? formatRecordingTime(transcript.audio_start_time)
+                        : transcript.timestamp}
+                    </span>
+                  </div>
                 </TooltipTrigger>
                 <TooltipContent>
                   {transcript.duration !== undefined && (
@@ -341,19 +318,10 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({ transcripts, isR
                   )}
                 </TooltipContent>
               </Tooltip>
-              <div className="flex-1 min-w-0">
-                {speakerStyle && (
-                  // P1-G: speaker 标签 (S1 / S2 ...), 颜色按 speaker index 选
-                  <span
-                    className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded mb-1 mr-2 align-middle ${speakerStyle.bg} ${speakerStyle.text} ring-1 ${speakerStyle.ring}`}
-                    title={`${transcript.speaker}`}
-                  >
-                    {speakerLabel(speakerIdx!)}
-                  </span>
-                )}
+              <div className="flex-1">
                 {isStreaming ? (
                   // Streaming transcript - show in bubble (full width)
-                  <div className={`bg-gray-100 border border-gray-200 rounded-lg px-3 py-2 ${speakerStyle ? `border-l-4 ${speakerStyle.bar.replace('bg-', 'border-l-')}` : ''}`}>
+                  <div className="bg-gray-100 border border-gray-200 rounded-lg px-3 py-2">
                     <div className="relative">
                       <p className="text-base text-gray-800 leading-relaxed" style={{ visibility: 'hidden' }}>
                         {sizerText}
@@ -364,8 +332,8 @@ export const TranscriptView: React.FC<TranscriptViewProps> = ({ transcripts, isR
                     </div>
                   </div>
                 ) : (
-                  // Regular transcript - simple text with optional left color bar
-                  <div className={`relative ${speakerStyle ? `pl-2 border-l-4 ${speakerStyle.bar.replace('bg-', 'border-l-')}` : ''}`}>
+                  // Regular transcript - simple text
+                  <div className="relative">
                     <p className="text-base text-gray-800 leading-relaxed" style={{ visibility: 'hidden' }}>
                       {sizerText}
                     </p>

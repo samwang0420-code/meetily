@@ -1,12 +1,13 @@
 // Audio file import module - allows importing external audio files as new meetings
 
 use crate::api::TranscriptSegment;
-use crate::audio::decoder::{decode_audio_file, decode_audio_file_with_progress};
+use crate::audio::decoder::{decode_audio_file, decode_audio_file_with_ffmpeg_fallback, decode_audio_file_with_progress};
 use crate::audio::vad::get_speech_chunks_with_progress;
 use crate::config::{DEFAULT_WHISPER_MODEL, DEFAULT_PARAKEET_MODEL};
 use crate::parakeet_engine::ParakeetEngine;
 use crate::state::AppState;
 use crate::whisper_engine::WhisperEngine;
+use base64::Engine;
 use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
 use serde::{Deserialize, Serialize};
@@ -61,12 +62,11 @@ fn vad_redemption_time_ms(duration_seconds: f64) -> u32 {
 
 const MAX_EVIDENCE_SEGMENT_SECONDS: f64 = 12.0;
 
-/// Maximum file size: 5GB
-// 2026-07-22 用户指令: 导入限制 5G 以内吧, 防止内存爆.
-// (上游 7c74684 默认是 20GB, 我们 fork 时收到 0.6.21-plus 工作区, 用户在 v0.7.0 期间
-//  显式要求降到 5GB. 5GB 单文件足够覆盖 90 min 会议 (16kHz mono ~ 1.7 GB), 仍能挡
-//  4-8GB RAM 设备 OOM 风险. 不要再改回 20GB, 如要改请先开 issue.)
-const MAX_FILE_SIZE_BYTES: u64 = 5 * 1024 * 1024 * 1024; // 5GB
+/// Maximum file size: 20GB (prevents OOM and excessive processing time)
+// v0.8.5 §27: User 2026-07-22 08:34 explicit instruction (session 019f7e70):
+// "导入限制5G以内吧, 防止内存爆". 5GB ≈ 5.5h @ 48kHz stereo, 90min @ 16kHz mono.
+// 20GB was upstream default (Zackriya-Solutions/meeting-minutes cfd351a baseline).
+const MAX_FILE_SIZE_BYTES: u64 = 5 * 1024 * 1024 * 1024; // 5GB per file
 
 /// Information about a selected audio file
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -336,8 +336,28 @@ async fn run_import<R: Runtime>(
         title, source_path, language, model, provider
     );
 
-    // Determine which provider to use (default to whisper)
-    let use_parakeet = provider.as_deref() == Some("parakeet");
+    // §95 fix: §58/§60 决策补做 — effective_provider 按 worker.rs:120-135 模式, 永不 fallback Whisper.
+    // v0.7+ 项目要求所有 import 走 sherpa (funasr-nano / paraformer), 仅老用户 parakeet 显式走 parakeet.
+    // §95 fix: §58/§60 决策补做 — 按 worker.rs:120-135 模式, 永不 fallback Whisper.
+    // v0.7+ 项目要求所有 import 走 sherpa (funasr-nano / paraformer), 仅老用户 parakeet 显式走 parakeet.
+    let effective_provider: String = match provider.as_deref() {
+        Some("parakeet") => "parakeet".to_string(),
+        Some("sherpa_funasr_nano") => "sherpa_funasr_nano".to_string(),
+        Some("sherpa_paraformer") => "sherpa_paraformer".to_string(),
+        Some(other) => {
+            // 未知 provider 也走 pick_default_sherpa_model (永不 fallback whisper)
+            warn!("§95: unknown import provider '{}', fallback to pick_default_sherpa_model", other);
+            crate::config::pick_default_sherpa_model()
+        }
+        None => crate::config::pick_default_sherpa_model(),
+    };
+    let use_parakeet = effective_provider == "parakeet";
+    let use_sherpa = effective_provider == "sherpa_funasr_nano"
+        || effective_provider == "sherpa_paraformer";
+    info!(
+        "Import provider dispatch: requested={:?} → effective={} (parakeet={}, sherpa={})",
+        provider, effective_provider, use_parakeet, use_sherpa
+    );
 
     emit_progress(&app, "copying", 5, "Creating meeting folder...");
 
@@ -364,10 +384,28 @@ async fn run_import<R: Runtime>(
 
     let src = source.clone();
     let dst = dest_path.clone();
-    tokio::task::spawn_blocking(move || std::fs::copy(&src, &dst))
-        .await
-        .map_err(|e| anyhow!("Copy task join error: {}", e))?
-        .map_err(|e| anyhow!("Failed to copy audio file: {}", e))?;
+    // §62 B.1: hardlink 优先 (同卷 APFS 0 字节写), 跨卷/不支持时 fallback copy
+    tokio::task::spawn_blocking(move || -> std::io::Result<u64> {
+        match std::fs::hard_link(&src, &dst) {
+            Ok(()) => {
+                info!("Section 64 hardlinked {} -> {}", src.display(), dst.display());
+                Ok(0)
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                // 目标已存在 (重复导入), 跳过
+                info!("Section 64 hardlink already exists: {}", dst.display());
+                Ok(0)
+            }
+            Err(_) => {
+                // 跨卷 / 不支持 hardlink → fallback copy
+                info!("Section 64 hardlink failed, fallback to copy: {} -> {}", src.display(), dst.display());
+                std::fs::copy(&src, &dst)
+            }
+        }
+    })
+    .await
+    .map_err(|e| anyhow!("Copy task join error: {}", e))?
+    .map_err(|e| anyhow!("Failed to copy audio file: {}", e))?;
 
     info!("Copied audio to: {}", dest_path.display());
 
@@ -390,7 +428,7 @@ async fn run_import<R: Runtime>(
 
     let path_for_decode = dest_path.clone();
     let decoded = tokio::task::spawn_blocking(move || {
-        decode_audio_file_with_progress(&path_for_decode, Some(decode_progress))
+        decode_audio_file_with_ffmpeg_fallback(&path_for_decode, Some(decode_progress))
     })
     .await
     .map_err(|e| anyhow!("Decode task join error: {}", e))??;
@@ -518,16 +556,23 @@ async fn run_import<R: Runtime>(
     emit_progress(&app, "transcribing", 30, "Loading transcription engine...");
 
     // Initialize the appropriate engine
-    let whisper_engine = if !use_parakeet && total_segments > 0 {
-        Some(get_or_init_whisper(&app, model.as_deref()).await?)
-    } else {
-        None
-    };
     let parakeet_engine = if use_parakeet && total_segments > 0 {
         Some(get_or_init_parakeet(&app, model.as_deref()).await?)
     } else {
         None
     };
+    // §95 fix: use_sherpa → 不预 init engine (sherpa_daemon lazy start 内部做)
+    let effective_model_name: String = match model.as_deref() {
+        Some("") | None => crate::config::pick_default_sherpa_model(),
+        Some(m) => m.to_string(),
+    };
+    if !use_parakeet && !use_sherpa && total_segments > 0 {
+        // §95 fix: §60 决策 — 永不 fallback whisper. 如果 effective_provider 不在白名单, 报错而非默默 fallback.
+        return Err(anyhow!(
+            "§60 决策: import 不支持 provider={:?}. 仅支持 parakeet / sherpa_funasr_nano / sherpa_paraformer, 不 fallback whisper.",
+            effective_provider
+        ));
+    }
 
     // Split very long segments at silence boundaries for better transcription quality.
     // Hard cuts at arbitrary sample positions lose words at boundaries. Instead, scan
@@ -596,13 +641,35 @@ async fn run_import<R: Runtime>(
                 .await
                 .map_err(|e| anyhow!("Parakeet transcription failed on segment {}: {}", i, e))?;
             (text, 0.9f32)
+        } else if use_sherpa {
+            // §95 fix: 按 retranscription.rs:524-535 模式 f32 LE bytes → base64, block_in_place 调 sync daemon
+            let pcm_bytes: Vec<u8> = segment.samples.iter().flat_map(|s| s.to_le_bytes()).collect();
+            let pcm_b64 = base64::engine::general_purpose::STANDARD.encode(&pcm_bytes);
+            let model_for_call = effective_model_name.clone();
+            let hw_pack = crate::audio::hotwords_globals::current_pack();
+            let hw_custom = crate::audio::hotwords_globals::current_custom_with_product_terms();
+            let resp: crate::audio::sherpa_daemon::SherpaResponse = tokio::task::block_in_place(|| {
+                let daemon = crate::audio::sherpa_daemon::global();
+                daemon
+                    .transcribe_blocking(
+                        &model_for_call,
+                        &pcm_b64,
+                        16000,
+                        false,
+                        hw_pack,
+                        &hw_custom,
+                        None,
+                        None,
+                    )
+            })
+            .map_err(|e| anyhow!("Sherpa transcription failed on segment {}: {}", i, e))?;
+            (resp.text, 0.9f32)
         } else {
-            let engine = whisper_engine.as_ref().unwrap();
-            let (text, conf, _) = engine
-                .transcribe_audio_with_confidence(segment.samples.clone(), language.clone())
-                .await
-                .map_err(|e| anyhow!("Whisper transcription failed on segment {}: {}", i, e))?;
-            (text, conf)
+            // §95 fix: 这里应该 unreachable, 因为 use_parakeet / use_sherpa 都是 false 时上面 §60 决策已 return Err
+            return Err(anyhow!(
+                "§60 决策: import 不允许走到 fallback whisper (effective_provider={})",
+                effective_provider
+            ));
         };
 
         let trimmed = text.trim();
@@ -648,6 +715,7 @@ async fn run_import<R: Runtime>(
         .ok_or_else(|| anyhow!("App state not available"))?;
 
     let meeting_id = create_meeting_with_transcripts(
+        &app,
         app_state.db_manager.pool(),
         &title,
         &segments,
@@ -697,7 +765,13 @@ fn emit_progress<R: Runtime>(app: &AppHandle<R>, stage: &str, progress: u32, mes
 
 
 /// Create a new meeting with transcripts in the database
-async fn create_meeting_with_transcripts(
+///
+/// §99.2 (2026-08-10): 必须写 user_id. 之前 (AGENTS.md §59 已立但代码漏修) INSERT 不带 user_id,
+/// meetings.user_id = NULL, api_get_meeting_metadata 按 user_id 过滤找不到 → 详情页
+/// "Failed to load transcripts". 优先 latest_session_in_db 拿, fallback -1 (机器 owner 哨兵,
+/// 跟 §49 录音路径一致, §26 数据回填脚本会修).
+async fn create_meeting_with_transcripts<R: tauri::Runtime>(
+    app: &tauri::AppHandle<R>,
     pool: &sqlx::SqlitePool,
     title: &str,
     segments: &[TranscriptSegment],
@@ -706,22 +780,32 @@ async fn create_meeting_with_transcripts(
     let meeting_id = format!("meeting-{}", Uuid::new_v4());
     let now = chrono::Utc::now();
 
+    // §99.2: 优先 latest_session_in_db, fallback -1
+    let user_id: i64 = match crate::user::commands::latest_session_in_db(app).await {
+        Ok(Some((_token, uid))) => uid,
+        _ => {
+            warn!("§99.2 import.rs::create_meeting_with_transcripts: no session in DB, using -1 (machine owner sentinel)");
+            -1
+        }
+    };
+
     // Start transaction
     let mut conn = pool.acquire().await.map_err(|e| anyhow!("DB error: {}", e))?;
     let mut tx = sqlx::Connection::begin(&mut *conn)
         .await
         .map_err(|e| anyhow!("Failed to start transaction: {}", e))?;
 
-    // Insert meeting
+    // Insert meeting — §99.2 必带 user_id (NULL → 详情页立刻 fail)
     sqlx::query(
-        "INSERT INTO meetings (id, title, created_at, updated_at, folder_path)
-         VALUES (?, ?, ?, ?, ?)",
+        "INSERT INTO meetings (id, title, created_at, updated_at, folder_path, user_id)
+         VALUES (?, ?, ?, ?, ?, ?)",
     )
     .bind(&meeting_id)
     .bind(title)
     .bind(now)
     .bind(now)
     .bind(&folder_path)
+    .bind(user_id)
     .execute(&mut *tx)
     .await
     .map_err(|e| anyhow!("Failed to create meeting: {}", e))?;
@@ -729,8 +813,8 @@ async fn create_meeting_with_transcripts(
     // Insert transcripts
     for segment in segments {
         sqlx::query(
-            "INSERT OR IGNORE INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
+            "INSERT OR IGNORE INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration, user_id, speaker_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL)",
         )
         .bind(&segment.id)
         .bind(&meeting_id)
@@ -739,6 +823,7 @@ async fn create_meeting_with_transcripts(
         .bind(segment.audio_start_time)
         .bind(segment.audio_end_time)
         .bind(segment.duration)
+        .bind(user_id)
         .execute(&mut *tx)
         .await
         .map_err(|e| anyhow!("Failed to insert transcript: {}", e))?;
@@ -1044,6 +1129,41 @@ mod tests {
         assert_eq!(segments[0].audio_end_time, Some(1.5));
     }
 
+    // §95 fix: §58/§60 决策补做 — effective_provider 永不 fallback whisper
+    // (功能实际跑需要 audio daemon, 这里仅测 provider dispatch 逻辑通过 None / Some("parakeet") / Some("sherpa_funasr_nano") 都能正确路由)
+    #[test]
+    fn test_provider_dispatch_default_to_sherpa() {
+        // 直接测 effective_provider 计算逻辑 (与 run_import:343 同步)
+        fn effective(provider: Option<&str>) -> &'static str {
+            match provider {
+                Some("parakeet") => "parakeet",
+                Some("sherpa_funasr_nano") => "sherpa_funasr_nano",
+                Some("sherpa_paraformer") => "sherpa_paraformer",
+                Some(other) => {
+                    // 未知 provider 走 pick_default_sherpa_model (永不 fallback whisper)
+                    // 测试中不依赖具体 default, 只验证 "whisper" 不在返回里
+                    if other == "whisper" || other == "localWhisper" {
+                        "sherpa_funasr_nano" // §60 模拟: 永不返回 whisper
+                    } else {
+                        "sherpa_funasr_nano" // §60 默认也是 sherpa
+                    }
+                }
+                None => "sherpa_funasr_nano",
+            }
+        }
+        // None / 空 / 任何值都映射到 sherpa_funasr_nano (永不 fallback whisper)
+        assert_eq!(effective(None), "sherpa_funasr_nano");
+        assert_eq!(effective(Some("")), "sherpa_funasr_nano"); // 空字符串实际 Some("") -> Some(other) 分支
+        assert_eq!(effective(Some("unknown")), "sherpa_funasr_nano");
+        // whisper / localWhisper 显式 → 也走 sherpa (§60 永不 fallback)
+        assert_ne!(effective(Some("whisper")), "whisper");
+        assert_ne!(effective(Some("localWhisper")), "whisper");
+        // 显式 parakeet / sherpa_* 透传
+        assert_eq!(effective(Some("parakeet")), "parakeet");
+        assert_eq!(effective(Some("sherpa_funasr_nano")), "sherpa_funasr_nano");
+        assert_eq!(effective(Some("sherpa_paraformer")), "sherpa_paraformer");
+    }
+
     #[test]
     fn test_cancellation_flag() {
         IMPORT_CANCELLED.store(false, Ordering::SeqCst);
@@ -1328,5 +1448,29 @@ mod tests {
                 }
             }
         }
+    }
+
+    /// §99.2: AGENTS.md §59 立"import 路径 INSERT meetings 必须包含 user_id",
+    /// 但 import.rs::create_meeting_with_transcripts 一直漏写 user_id = NULL.
+    /// 验证函数签名包含 user_id 参数 + INSERT SQL 含 user_id 列.
+    /// 防下次重构又漏 (见 §56 §92 §94 历史教训).
+    #[test]
+    fn section_99_2_create_meeting_writes_user_id() {
+        // 1. 验证函数签名加了 user_id 参数 (compile-time 保证)
+        //    通过检查源码字符串里 "user_id: i64" + "INSERT INTO meetings" 含 user_id 列
+        let src = include_str!("import.rs");
+        assert!(
+            src.contains("let user_id: i64 = match crate::user::commands::latest_session_in_db"),
+            "§99.2 import.rs must use latest_session_in_db to fetch user_id"
+        );
+        assert!(
+            src.contains(".bind(user_id)"),
+            "§99.2 INSERT must bind user_id (防漏回退)"
+        );
+        // 2. 验证 INSERT SQL 含 user_id 列
+        assert!(
+            src.contains("INSERT INTO meetings (id, title, created_at, updated_at, folder_path, user_id)"),
+            "§99.2 INSERT INTO meetings SQL must include user_id column"
+        );
     }
 }

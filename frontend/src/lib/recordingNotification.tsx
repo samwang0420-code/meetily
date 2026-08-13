@@ -1,6 +1,29 @@
 import { toast } from 'sonner';
 
 import Analytics from '@/lib/analytics';
+import { DICTS, Locale } from '@/i18n';
+
+/**
+ * §104: 录音通知 toast 走 i18n, 跟随主界面 locale.
+ * showRecordingNotification 是 utility function (非 React 组件),
+ * 不能用 useTranslation hook, 改用 localStorage + DICTS 直接 lookup.
+ */
+function localT(path: string): string {
+  if (typeof window === 'undefined') return path;
+  const saved = window.localStorage?.getItem('lixianhuiji.locale');
+  const locale: Locale = (saved === 'en' ? 'en' : 'zh');
+  const dict = DICTS[locale];
+  const parts = path.split('.');
+  let cur: unknown = dict;
+  for (const p of parts) {
+    if (cur && typeof cur === 'object' && p in (cur as Record<string, unknown>)) {
+      cur = (cur as Record<string, unknown>)[p];
+    } else {
+      return path;
+    }
+  }
+  return typeof cur === 'string' ? cur : path;
+}
 
 /**
  * Shows the recording notification toast with compliance message.
@@ -20,11 +43,11 @@ export async function showRecordingNotification(): Promise<void> {
     if (showNotification) {
       let dontShowAgain = false;
 
-      const toastId = toast.info('🔴 录音已开始', {
+      const toastId = toast.info(localT('recording.notification.title'), {
         description: (
           <div className="space-y-3 min-w-[280px]">
             <p className="text-sm font-medium text-gray-900">
-              Inform all participants this meeting is being recorded.
+              {localT('recording.notification.body')}
             </p>
             <label className="flex items-center gap-2 text-xs cursor-pointer hover:bg-blue-100 p-2 rounded transition-colors">
               <input
@@ -34,7 +57,7 @@ export async function showRecordingNotification(): Promise<void> {
                 }}
                 className="rounded border-gray-300 text-blue-600 focus:ring-blue-500 focus:ring-2"
               />
-              <span className="select-none text-gray-700">不再提示</span>
+              <span className="select-none text-gray-700">{localT('recording.notification.dont_show')}</span>
             </label>
             <button
               onClick={async () => {
@@ -49,7 +72,7 @@ export async function showRecordingNotification(): Promise<void> {
               }}
               className="w-full px-3 py-1.5 bg-gray-900 text-white text-xs rounded hover:bg-gray-800 transition-colors font-medium"
             >
-              I've Notified Participants
+              {localT('recording.notification.ack')}
             </button>
           </div>
         ),

@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft } from 'lucide-react';
+import { ArrowLeft, Download, Copy, FileText, ChevronDown } from 'lucide-react';
 import { listen } from '@tauri-apps/api/event';
 import { motion } from 'framer-motion';
 import { Summary, SummaryResponse } from '@/types';
@@ -64,9 +64,24 @@ export default function PageContent({
   const router = useRouter();
   const [isRecording] = useState(false);
   const [summaryResponse] = useState<SummaryResponse | null>(null);
+  // §104 导出菜单 (顶部工具栏)
+  const [exportMenuOpen, setExportMenuOpen] = useState(false);
+  const exportMenuRef = useRef<HTMLDivElement>(null);
 
   // Ref to store the modal open function from SummaryGeneratorButtonGroup
   const openModelSettingsRef = useRef<(() => void) | null>(null);
+
+  // §104 click-outside 关闭导出菜单
+  useEffect(() => {
+    if (!exportMenuOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (exportMenuRef.current && !exportMenuRef.current.contains(e.target as Node)) {
+        setExportMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, [exportMenuOpen]);
 
   // Sidebar context
   const { serverAddress } = useSidebar();
@@ -243,7 +258,7 @@ export default function PageContent({
       transition={{ duration: 0.3, ease: 'easeOut' }}
       className="flex flex-col h-screen bg-gray-50"
     >
-      {/* 顶部固定栏: 返回工作台 */}
+      {/* 顶部固定栏: 返回工作台 + 导出 (§104) */}
       <div className="flex items-center gap-3 px-6 py-3 border-b border-gray-200 bg-white">
         <button
           onClick={() => router.push('/')}
@@ -253,6 +268,44 @@ export default function PageContent({
           <ArrowLeft className="w-4 h-4" />
           <span>返回工作台</span>
         </button>
+
+        {/* 导出按钮 (§104) */}
+        <div className="relative ml-auto" ref={exportMenuRef}>
+          <button
+            onClick={() => setExportMenuOpen((v) => !v)}
+            data-testid="meeting-export-button"
+            className="flex items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            <Download className="h-4 w-4" />
+            <span>{t('meeting.export')}</span>
+            <ChevronDown className="h-3.5 w-3.5" />
+          </button>
+          {exportMenuOpen && (
+            <div className="absolute right-0 top-full z-50 mt-1 w-56 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+              <button
+                onClick={() => { void copyOperations.handleCopySummary(); setExportMenuOpen(false); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <Copy className="h-4 w-4 text-gray-500" />
+                <span>{t('meeting.copy_summary')}</span>
+              </button>
+              <button
+                onClick={() => { void copyOperations.handleExportSummary('md'); setExportMenuOpen(false); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <FileText className="h-4 w-4 text-blue-500" />
+                <span>{t('meeting.export_markdown')}</span>
+              </button>
+              <button
+                onClick={() => { void copyOperations.handleExportSummary('txt'); setExportMenuOpen(false); }}
+                className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50"
+              >
+                <FileText className="h-4 w-4 text-neutral-500" />
+                <span>{t('meeting.export_txt')}</span>
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="flex flex-1 overflow-hidden">
@@ -262,6 +315,7 @@ export default function PageContent({
           onPromptChange={setCustomPrompt}
           onCopyTranscript={copyOperations.handleCopyTranscript}
           onExportMarkdown={() => copyOperations.handleExportTranscript('md')}
+          onExportTxt={() => copyOperations.handleExportTranscript('txt')}
           onOpenMeetingFolder={meetingOperations.handleOpenMeetingFolder}
           isRecording={isRecording}
           disableAutoScroll={true}
@@ -291,6 +345,7 @@ export default function PageContent({
           onSaveAll={meetingData.saveAllChanges}
           onCopySummary={copyOperations.handleCopySummary}
           onExportSummaryMarkdown={() => copyOperations.handleExportSummary('md')}
+          onExportSummaryTxt={() => copyOperations.handleExportSummary('txt')}
           onOpenFolder={meetingOperations.handleOpenMeetingFolder}
           aiSummary={meetingData.aiSummary}
           summaryStatus={summaryGeneration.summaryStatus}

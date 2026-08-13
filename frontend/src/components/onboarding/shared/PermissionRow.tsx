@@ -2,19 +2,17 @@ import React from 'react';
 import { CheckCircle2, Loader2, XCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
-import { useTranslation } from '@/i18n';
 import type { PermissionRowProps } from '@/types/onboarding';
 
 export function PermissionRow({ icon, title, description, status, isPending = false, onAction }: PermissionRowProps) {
-  const { t } = useTranslation();
   const isAuthorized = status === 'authorized';
   const isDenied = status === 'denied';
   const isChecking = isPending;
 
   const getButtonText = () => {
-    if (isChecking) return t('onboarding.checking');
-    if (isDenied) return t('onboarding.open_settings');
-    return t('onboarding.enable');
+    if (isChecking) return 'Checking...';
+    if (isDenied) return 'Open Settings';
+    return 'Enable';
   };
 
   return (

@@ -469,10 +469,11 @@ async fn run_retranscription<R: Runtime>(
     let mut all_transcripts: Vec<(String, f64, f64)> = Vec::new(); // (text, start_ms, end_ms)
     let mut total_confidence = 0.0f32;
 
-    // sherpa backend name (resolved once, reused per segment)
+    // §63: sherpa backend name (resolved once, reused per segment)
+    // §63 fix: sherpa_funasr_nano 实际是 funasr-nano-zh (947MB 高精度), 不再是 sensevoice-zh
     let sherpa_backend = if use_sherpa {
         if effective_provider == "sherpa_funasr_nano" {
-            Some("sensevoice-zh".to_string())
+            Some("funasr-nano-zh".to_string())
         } else {
             Some("paraformer-zh".to_string())
         }
@@ -531,7 +532,7 @@ async fn run_retranscription<R: Runtime>(
             let result: anyhow::Result<crate::audio::sherpa_daemon::SherpaResponse> = tokio::task::block_in_place(|| {
                 let daemon = crate::audio::sherpa_daemon::global();
                 // Level 3: 总是请求 timestamps (RAM<8GB 时 daemon 端自动降级为不返回)
-                daemon.transcribe_blocking(backend, &pcm_b64, 16000, true, hotwords_pack_str, hotwords_custom_str, None, None, None)
+                daemon.transcribe_blocking(backend, &pcm_b64, 16000, true, hotwords_pack_str, hotwords_custom_str, None, None)
             });
             match result {
                 Ok(resp) if !resp.text.trim().is_empty() => {

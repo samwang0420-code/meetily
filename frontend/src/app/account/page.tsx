@@ -16,7 +16,6 @@ export default function AccountPage() {
   const [busy, setBusy] = useState(false);
   const [code, setCode] = useState('');
   const [redeeming, setRedeeming] = useState(false);
-  const [legalModal, setLegalModal] = useState<null | 'terms' | 'privacy'>(null);
 
   // C4: 兑换激活码
   async function redeemCode() {
@@ -64,23 +63,8 @@ export default function AccountPage() {
   }
 
   async function handleLogout() {
-    try {
-      await logout();
-    } catch (e: any) {
-      console.warn('logout invoke failed, clearing local state anyway:', e);
-    }
-    // 强制清本地缓存 + reload, 避免 React #310 (残留 state + router 异常)
-    try {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem('lixianhuiji.session');
-        localStorage.removeItem('lixianhuiji.user');
-      }
-    } catch {}
-    try {
-      window.location.replace('/');
-    } catch {
-      router.push('/');
-    }
+    await logout();
+    router.push('/');
   }
 
   async function copyMid() {
@@ -89,10 +73,8 @@ export default function AccountPage() {
     safeToast.success(t('account.machine_id_copied'));
   }
 
-  // v0.6.10+: 改用 mailto 邮件 + 手动激活流程 (C3).
+  // v0.6.10+: 改用 lead + 手动激活流程 (C3).
   // 不再让前端 bypass 真实支付直接 activate_member.
-  // recordLead 暂保留备用 (admin 后台还有 lead 列表), UI 已改为 mailto 直发.
-  /* eslint-disable @typescript-eslint/no-unused-vars */
   async function recordLead(contactNote?: string) {
     if (!user) return;
     try {
@@ -102,17 +84,16 @@ export default function AccountPage() {
         contact: contactNote || user.email,
         note: 'From account page ' + new Date().toISOString(),
       });
+      setBusy(false);
       safeToast.success(locale === 'zh'
         ? `已记录升级意向 (#${leadId}), 客服会尽快联系您`
         : `Upgrade interest recorded (#${leadId})`,
         { duration: 8000 });
     } catch (e: any) {
-      console.warn('recordLead failed:', e);
-    } finally {
       setBusy(false);
+      safeToast.error(t('account.activate_failed'));
     }
   }
-  /* eslint-enable @typescript-eslint/no-unused-vars */
 
   // admin 激活入口 (本机开发者用) - 通常不暴露在 UI 上
   // 隐藏在 dev mode 下: 用一个秘密按钮组合 (连点 5 次)
@@ -183,9 +164,9 @@ export default function AccountPage() {
         </div>
         <p className="text-xs text-gray-500">
           {locale === 'zh' ? (
-            <>会员与本机绑定, 换机器请重新购买或 <a href="mailto:sam.wang01@icloud.com?subject=离线会记%20-%20会员迁移申请&body=机器ID:%20{machineId ?? '%20'}" className="text-blue-600 hover:underline">联系客服</a> 迁移。</>
+            <>会员与本机绑定, 换机器请重新购买或 <a href="mailto:sam.wang01@icloud.com?subject=言镜 AI%20-%20会员迁移申请&body=机器ID:%20{machineId ?? '%20'}" className="text-blue-600 hover:underline">联系客服</a> 迁移。</>
           ) : (
-            <>会员权益已绑定本机, 如需更换设备请 <a href="mailto:sam.wang01@icloud.com?subject=Offline-Meeting-Notes%20-%20License%20Migration&body=Machine%20ID:%20{machineId ?? '%20'}" className="text-blue-600 hover:underline">contact support</a> to migrate.</>
+            <>Membership is bound to this machine. Re-purchase or <a href="mailto:sam.wang01@icloud.com?subject=Offline-Meeting-Notes%20-%20License%20Migration&body=Machine%20ID:%20{machineId ?? '%20'}" className="text-blue-600 hover:underline">contact support</a> to migrate.</>
           )}
         </p>
       </section>
@@ -230,18 +211,12 @@ export default function AccountPage() {
             <div className="text-3xl font-bold text-blue-700">{t('account.membership_price')}</div>
             <div className="text-xs text-gray-500 mt-1">{t('account.membership_price_unit')}</div>
           </div>
-          {!isMember && (() => {
-            const url = `mailto:sam.wang01@icloud.com?subject=${encodeURIComponent('离线会记 - Pro 购买咨询')}&body=${encodeURIComponent('机器ID: ' + (machineId || ' ') + '%0A%0A我想购买 Pro ¥88 永久买断, 请告诉我支付方式 (微信 / USDT / 信用卡).')}`;
-            return (
-              <a
-                href={url}
-                onClick={() => { try { invoke('open_external_url', { url }); } catch {} }}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg inline-block"
-              >
-                📩 联系客服购买
-              </a>
-            );
-          })()}
+          {!isMember && (
+            <button onClick={() => recordLead('In-app button click')} disabled={busy}
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-lg disabled:opacity-50">
+              {busy ? '提交中...' : '获取支付方式'}
+            </button>
+          )}
           {isMember && (
             <span
               onClick={onTapMemberBadge}
@@ -252,9 +227,31 @@ export default function AccountPage() {
           )}
         </div>
         <p className="text-xs text-gray-600">
-          ¥88 永久买断 (微信 / USDT / 信用卡均可). 客服 1 个工作日内回复.
+          ¥88 永久买断 (微信/USDT/信用卡均可).
+          点上方按钮留联系方式, 客服 1 个工作日内回复.
           离线软件, 不收集任何使用数据.
         </p>
+
+        {/* v0.6.10+: 支付指南卡 */}
+        {!isMember && (
+          <details className="mt-3 text-xs text-neutral-600">
+            <summary className="cursor-pointer text-neutral-700 font-medium hover:text-neutral-900">
+              💳 查看支付方式 + 价格包含什么
+            </summary>
+            <div className="mt-3 space-y-2 pl-2 border-l-2 border-blue-100">
+              <div><strong>微信支付:</strong> ¥88 一次性, 扫客服码 → 把交易号粘过来 → 我们手动激活你的账号</div>
+              <div><strong>USDT-TRC20:</strong> 12 USDT (≈¥88), 钱包地址向客服索取, 同样把交易哈希给我们激活</div>
+              <div><strong>信用卡 (海外):</strong> 通过 Stripe 链接支付, 也可走 Paddle (开票用), 客服发链接</div>
+              <div className="text-neutral-500 pt-1 border-t border-neutral-100 mt-2">
+                <strong>价格包含什么?</strong><br />
+                · 1 台机器永久使用 Pro 全部功能<br />
+                · 后续所有大版本更新免费<br />
+                · 优先回复客服 (sam.wang01@icloud.com)<br />
+                · 换机器可申请 1 次免费迁移 (凭机器 ID)
+              </div>
+            </div>
+          </details>
+        )}
         <div className="text-sm font-medium text-gray-800">{t('account.membership_features')}</div>
         <ul className="text-xs text-gray-600 space-y-1 pl-1">
           <li>• {t('account.membership_feature_unlimited')}</li>
@@ -265,114 +262,17 @@ export default function AccountPage() {
         </ul>
       </section>
 
-      {/* v0.6.10+: 条款链接 - 同页 Modal 打开, 避免 Tauri webview 拦截 target=_blank */}
+      {/* v0.6.10+: 条款链接 */}
       <div className="text-[11px] text-neutral-500 text-center pt-2">
         使用本软件即代表您同意我们的{' '}
-        <button
-          type="button"
-          onClick={() => setLegalModal('terms')}
-          className="text-blue-600 hover:underline"
-        >
+        <Link href="/legal/terms" target="_blank" className="text-blue-600 hover:underline">
           用户协议
-        </button>
+        </Link>
         {' '}和{' '}
-        <button
-          type="button"
-          onClick={() => setLegalModal('privacy')}
-          className="text-blue-600 hover:underline"
-        >
+        <Link href="/legal/privacy" target="_blank" className="text-blue-600 hover:underline">
           隐私政策
-        </button>
+        </Link>
       </div>
-
-      {/* Terms / Privacy Modal (同页打开, 避免 webview 拦截) */}
-      {legalModal && (
-        <div
-          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4"
-          onClick={() => setLegalModal(null)}
-        >
-          <div
-            className="bg-white rounded-xl max-w-2xl w-full max-h-[85vh] overflow-y-auto p-6 space-y-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between border-b border-neutral-200 pb-3">
-              <h2 className="text-lg font-semibold text-neutral-900">
-                {legalModal === 'terms' ? '用户协议 / EULA' : '隐私政策'}
-              </h2>
-              <button
-                onClick={() => setLegalModal(null)}
-                className="text-neutral-500 hover:text-neutral-900 text-sm"
-              >
-                关闭
-              </button>
-            </div>
-            {legalModal === 'terms' ? <LegalTermsBody /> : <LegalPrivacyBody />}
-            <div className="pt-3 border-t border-neutral-200 flex justify-end">
-              <button
-                onClick={() => setLegalModal(null)}
-                className="px-4 py-2 bg-blue-600 text-white text-sm rounded-md hover:bg-blue-700"
-              >
-                我已阅读
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-function LegalTermsBody() {
-  return (
-    <div className="space-y-3 text-sm text-neutral-700">
-      <p className="text-xs text-neutral-500">最后更新: 2026-07-18 · 离线会记 (Meetily) 团队</p>
-      <h3 className="text-base font-medium text-neutral-900">一、许可</h3>
-      <ul className="list-disc pl-5 space-y-1">
-        <li>个人/企业使用: <strong>¥88 永久买断</strong> (绑定 1 台机器)</li>
-        <li>源码: GitHub 开源 (MIT)</li>
-        <li>许可证不可转让: 同一许可证不可在多台机器同时使用</li>
-      </ul>
-      <h3 className="text-base font-medium text-neutral-900">二、免责声明</h3>
-      <ul className="list-disc pl-5 space-y-1">
-        <li>本软件按"原样"提供, 无任何明示或暗示的保证</li>
-        <li>开发者不对转写准确度、摘要质量承担法律责任</li>
-        <li>用户应保留原始录音作为会议记录的法律依据</li>
-        <li>不适用于医疗诊断、法律意见、金融决策等关键场景</li>
-      </ul>
-      <h3 className="text-base font-medium text-neutral-900">三、会员条款</h3>
-      <ul className="list-disc pl-5 space-y-1">
-        <li>会员费一次性, 永久有效 (无订阅)</li>
-        <li>换机器可申请 1 次免费迁移, 之后每次 ¥20</li>
-        <li>7 天内未深度使用可全额退款</li>
-        <li>违反使用条款 (破解 / 滥用) 时, 开发者保留撤销资格</li>
-      </ul>
-    </div>
-  );
-}
-
-function LegalPrivacyBody() {
-  return (
-    <div className="space-y-3 text-sm text-neutral-700">
-      <p className="text-xs text-neutral-500">最后更新: 2026-07-18 · 离线会记 (Meetily) 团队</p>
-      <h3 className="text-base font-medium text-neutral-900">一、数据处理原则</h3>
-      <p>你的会议数据应当留在你设备上, 由你掌控. 默认情况下, 我们不上传任何音频、转写、摘要到外部服务器.</p>
-      <h3 className="text-base font-medium text-neutral-900">二、我们不收集什么</h3>
-      <ul className="list-disc pl-5 space-y-1">
-        <li>不收集你的会议音频</li>
-        <li>不收集你的转写文字</li>
-        <li>不收集你的摘要内容</li>
-        <li>不收集你的录音文件路径</li>
-        <li>不收集你的使用行为</li>
-      </ul>
-      <h3 className="text-base font-medium text-neutral-900">三、本地存储</h3>
-      <ul className="list-disc pl-5 space-y-1">
-        <li>用户账号信息 (邮箱 + 密码哈希) — 仅在本机 SQLite</li>
-        <li>会员状态 — 仅在本机数据库</li>
-        <li>热词配置 — 仅在本机数据库</li>
-        <li>会议元数据 — 仅在本机 IndexedDB</li>
-      </ul>
-      <h3 className="text-base font-medium text-neutral-900">四、第三方组件</h3>
-      <p>本软件使用 sherpa-onnx (本地推理) / Ollama (本地 LLM, 用户自选) 等开源组件, 均在用户本机运行, 不联网.</p>
     </div>
   );
 }

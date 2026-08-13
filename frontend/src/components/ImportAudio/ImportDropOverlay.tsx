@@ -1,14 +1,12 @@
 import React from 'react';
 import { Upload } from 'lucide-react';
 import { getAudioFormatsDisplayList } from '@/constants/audioFormats';
-import { useTranslation } from '@/i18n';
 
 interface ImportDropOverlayProps {
   visible: boolean;
 }
 
 export function ImportDropOverlay({ visible }: ImportDropOverlayProps) {
-  const { t } = useTranslation();
   if (!visible) return null;
 
   return (
@@ -21,7 +19,7 @@ export function ImportDropOverlay({ visible }: ImportDropOverlayProps) {
                       p-12 text-center bg-blue-950/50 shadow-2xl
                       transform scale-100 transition-transform">
         <Upload className="h-16 w-16 text-blue-400 mx-auto mb-4" />
-        <p className="text-xl font-medium text-white">{t('import.overlay.drop_hint')}</p>
+        <p className="text-xl font-medium text-white">Drop audio file to import</p>
         <p className="text-sm text-blue-300 mt-2">{getAudioFormatsDisplayList()}</p>
       </div>
     </div>

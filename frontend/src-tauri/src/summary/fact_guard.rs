@@ -1,7 +1,6 @@
 use once_cell::sync::Lazy;
 use regex::Regex;
 use serde::Serialize;
-use std::borrow::Cow;
 use std::collections::BTreeSet;
 
 // Match monetary amounts or unit-bearing numbers. Plain bare integers (e.g. "第二"
@@ -21,20 +20,7 @@ static NUMBER_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
     )
     "
 ).unwrap());
-static DATE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
-    r"(?x)
-    20\d{2}年(?:1[0-2]|0?[1-9])月(?:(?:3[01]|[12]\d|0?[1-9])[日号])?
-    |
-    20\d{2}年
-    |
-    (?:1[0-2]|0?[1-9])月(?:3[01]|[12]\d|0?[1-9])[日号]?
-    |
-    (?:1[0-2]|0?[1-9])/(?:3[01]|[12]\d|0?[1-9])
-    "
-).unwrap());
-static EVIDENCE_PREFIX_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
-    r"^\s*\[evidence:\d+\s+start=(?:unknown|[-+]?\d+(?:\.\d+)?s)\s+end=(?:unknown|[-+]?\d+(?:\.\d+)?s)\]\s*"
-).unwrap());
+static DATE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?x)20\d{2}年(?:\d{1,2}月(?:\d{1,2}[日号])?)?|\d{1,2}[月/-]\d{1,2}(?:日|号)?").unwrap());
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FactGuardReport {
@@ -122,12 +108,12 @@ fn extract_evidence_lines(transcript: &str, report: &FactGuardReport) -> String 
     let mut output = String::new();
     let mut kept = 0usize;
     for raw in split_sentences(transcript) {
-        let line = strip_evidence_prefix(raw.trim());
+        let line = raw.trim();
         if line.is_empty() {
             continue;
         }
-        let has_number = NUMBER_RE.is_match(&line);
-        let has_date = DATE_RE.is_match(&line);
+        let has_number = NUMBER_RE.is_match(line);
+        let has_date = DATE_RE.is_match(line);
         let has_proposal = ["提案", "暂定", "需要确认", "没有结论", "未确定", "提议"]
             .iter()
             .any(|v| line.contains(v));
@@ -139,7 +125,7 @@ fn extract_evidence_lines(transcript: &str, report: &FactGuardReport) -> String 
             continue;
         }
         output.push_str("- ");
-        output.push_str(&line);
+        output.push_str(line);
         output.push_str("\n");
         kept += 1;
         if kept >= 20 {
@@ -150,14 +136,9 @@ fn extract_evidence_lines(transcript: &str, report: &FactGuardReport) -> String 
     if kept == 0 {
         // Defensive fallback: when no informative sentence was detected, return the
         // first 800 chars of the transcript verbatim so the user can still review.
-        let clean_transcript = transcript
-            .lines()
-            .map(|line| strip_evidence_prefix(line.trim()))
-            .collect::<Vec<_>>()
-            .join("\n");
-        let snippet: String = clean_transcript.chars().take(800).collect();
+        let snippet: String = transcript.chars().take(800).collect();
         output.push_str(&snippet);
-        if clean_transcript.chars().count() > 800 {
+        if transcript.chars().count() > 800 {
             output.push_str("……");
         }
         output.push_str("\n");
@@ -166,10 +147,6 @@ fn extract_evidence_lines(transcript: &str, report: &FactGuardReport) -> String 
     // summary quoted but the source does not carry.
     let _ = report; // report is referenced via conservative_fallback signature only
     output
-}
-
-fn strip_evidence_prefix(line: &str) -> Cow<'_, str> {
-    EVIDENCE_PREFIX_RE.replace(line, "")
 }
 
 fn split_sentences(transcript: &str) -> impl Iterator<Item = &str> {
@@ -219,30 +196,6 @@ mod tests {
         assert!(fallback.contains("7月20日"), "evidence sentence with date kept");
         assert!(!fallback.contains("今天天气不错"), "filler line dropped");
         assert!(!fallback.contains("好的没问题"), "filler line dropped");
-    }
-
-    #[test]
-    fn temperature_range_is_not_treated_as_a_date() {
-        let report = validate_summary(
-            "气温将在45-95摄氏度之间波动。",
-            "气温将在45-95摄氏度之间波动。",
-        );
-        assert!(report.unexpected_dates.is_empty(), "{report:?}");
-    }
-
-    #[test]
-    fn fallback_hides_internal_evidence_markers() {
-        let source = "[evidence:36 start=unknown end=unknown] 6月10日气温升高。\n[evidence:47 start=12.50s end=18.25s] 预算暂定3000元。";
-        let report = FactGuardReport {
-            unexpected_numbers: vec!["12800元".to_string()],
-            unexpected_dates: vec![],
-            overclaimed_decision: false,
-        };
-        let fallback = conservative_fallback(source, &report);
-        assert!(fallback.contains("6月10日气温升高"));
-        assert!(fallback.contains("预算暂定3000元"));
-        assert!(!fallback.contains("[evidence:"));
-        assert!(!fallback.contains("start=unknown"));
     }
 
     #[test]

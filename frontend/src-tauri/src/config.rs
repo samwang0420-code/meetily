@@ -37,22 +37,24 @@ pub const WHISPER_MODEL_CATALOG: &[(&str, &str, u32, &str, &str, &str)] = &[
     ("large-v3-q5_0", "ggml-large-v3-q5_0.bin", 1031, "High", "Slow", "Quantized large model, high accuracy"),
 ];
 
-/// v0.7.0+ fc2a24c: 默认改为 paraformer-zh (用户机器实测只装了 paraformer-zh + funasr-nano).
-/// SenseVoice CER 虽好但模型未下载, 旧版本导致 fallback 加载 Nano (违反 §29 Pro gate).
-/// 这里用 paraformer-zh 作 fallback 兜底, 扫描到任意已装模型都用扫描结果.
-pub const DEFAULT_SHERPA_MODEL: &str = "paraformer-zh";
+/// 当前固定法律录音 A/B: SenseVoice CER 2.17%, FunASR-Nano CER 2.90%.
+/// Nano 尚未通过 10 段完整基准和性能准入，因此默认保持 SenseVoice。
+pub const DEFAULT_SHERPA_MODEL: &str = "sense-voice-zh-int8";
 
-/// v0.7.0+: Sherpa-onnx 模型优先级 (扫描时按此顺序挑选已下载模型).
-/// paraformer-zh 优先 (轻量 227MB, 用户机器必装), Nano 第二 (§29 Pro gate, 兜底),
-/// SenseVoice 最后 (用户机器几乎不装).
+// §97 (2026-08-09): Bundle identifier 切换. 新值为 `tech.yanjingai.app`,
+// 旧值 `cn.lixianhuiji.app` 保留为 LEGACY, 用于数据迁移函数比对.
+pub const APP_BUNDLE_ID: &str = "tech.yanjingai.app";
+pub const APP_BUNDLE_ID_LEGACY: &str = "cn.lixianhuiji.app";
+
+/// v0.7.0+: Sherpa-onnx 模型优先级 (用于 fallback).
 pub const SHERPA_MODEL_FALLBACK_ORDER: &[&str] = &[
+    "sense-voice-zh-int8",
     "paraformer-zh",
     "funasr-nano-zh",
-    "sense-voice-zh-int8",
 ];
 
 /// v0.7.0+: 运行时挑选当前最佳的 Sherpa-onnx 默认模型.
-/// 扫描 ~/Library/Application Support/cn.lixianhuiji.app/models/sherpa/,
+/// 扫描 ~/Library/Application Support/{APP_BUNDLE_ID}/models/sherpa/,
 /// 按 SHERPA_MODEL_FALLBACK_ORDER 优先级取第一个已下载的.
 /// 没有任何下载时回退到 SenseVoice；Nano 仅在用户显式选择时使用。
 pub fn pick_default_sherpa_model() -> String {
@@ -73,9 +75,9 @@ pub fn pick_default_sherpa_model() -> String {
 }
 
 fn dirs_sherpa_models_dir() -> Option<PathBuf> {
-    // macOS: ~/Library/Application Support/cn.lixianhuiji.app/models/sherpa/
-    // Linux: $XDG_DATA_HOME/cn.lixianhuiji.app/models/sherpa/
-    // Windows: %APPDATA%/cn.lixianhuiji.app/models/sherpa/
+    // macOS: ~/Library/Application Support/{APP_BUNDLE_ID}/models/sherpa/
+    // Linux: $XDG_DATA_HOME/{APP_BUNDLE_ID}/models/sherpa/
+    // Windows: %APPDATA%/{APP_BUNDLE_ID}/models/sherpa/
     if let Some(mut p) = dirs_root_app_data() {
         p.push("models");
         p.push("sherpa");
@@ -88,17 +90,17 @@ fn dirs_root_app_data() -> Option<PathBuf> {
     if cfg!(target_os = "macos") {
         std::env::var_os("HOME").map(|h| {
             let mut p = PathBuf::from(h);
-            p.push("Library/Application Support/cn.lixianhuiji.app");
+            p.push(format!("Library/Application Support/{}", APP_BUNDLE_ID));
             p
         })
     } else if cfg!(target_os = "windows") {
-        std::env::var_os("APPDATA").map(|v| PathBuf::from(v).join("cn.lixianhuiji.app"))
+        std::env::var_os("APPDATA").map(|v| PathBuf::from(v).join(APP_BUNDLE_ID))
     } else {
         std::env::var_os("XDG_DATA_HOME")
-            .map(|v| PathBuf::from(v).join("cn.lixianhuiji.app"))
+            .map(|v| PathBuf::from(v).join(APP_BUNDLE_ID))
             .or_else(|| {
                 std::env::var_os("HOME").map(|h| {
-                    PathBuf::from(h).join(".local/share/cn.lixianhuiji.app")
+                    PathBuf::from(h).join(format!(".local/share/{}", APP_BUNDLE_ID))
                 })
             })
     }

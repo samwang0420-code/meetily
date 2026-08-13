@@ -7,15 +7,7 @@ import React from 'react';
 
 export default function TermsPage() {
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-4 text-neutral-900">
-      <button
-        type="button"
-        onClick={() => { try { window.history.length > 1 ? window.history.back() : (window.location.href = '/'); } catch { window.location.href = '/'; } }}
-        className="flex items-center gap-1 text-sm text-neutral-600 hover:text-neutral-900"
-      >
-        <span aria-hidden>←</span>
-        <span>{`返回`}</span>
-      </button>
+    <div className="max-w-3xl mx-auto p-6 prose prose-neutral dark:prose-invert">
       <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">用户协议 / EULA</h1>
       <p className="text-sm text-neutral-500">
         最后更新: 2026-07-18 · 离线会记 (Meetily) 团队
@@ -26,7 +18,7 @@ export default function TermsPage() {
         离线会记按以下方式许可:
       </p>
       <ul className="text-sm text-neutral-700 list-disc pl-6 space-y-1">
-        <li>个人/企业使用: <strong className="font-semibold text-neutral-900">¥88 永久买断</strong> (绑定 1 台机器)</li>
+        <li>个人/企业使用: <strong>¥88 永久买断</strong> (绑定 1 台机器)</li>
         <li>源码: <a href="https://github.com/meetily/meetily" className="text-blue-600 hover:underline">GitHub</a> 开源 (MIT)</li>
         <li>许可证不可转让: 同一许可证不可在多台机器同时使用</li>
       </ul>
@@ -46,7 +38,7 @@ export default function TermsPage() {
         <li>7 天内 (含) 未深度使用可全额退款</li>
         <li>违反使用条款 (破解 / 滥用) 时, 开发者保留撤销资格</li>
         <li>硬件识别码 (machine_id) 基于主板 UUID + 主机名生成, 仅在本机 SQLite 保存, 不上传任何服务器</li>
-        <li>极旧硬件 (例如 2010 前无 UUID 的设备) 可能读取失败, 此时会生成随机标识, 重装系统后可能丢失授权 — 如遇此情况请联系客服 <a href="mailto:sam.wang01@icloud.com" className="text-blue-600 hover:underline">sam.wang01@icloud.com</a> 人工迁移</li>
+        <li>极旧硬件 (例如 2010 前无 UUID 的设备) 可能读取失败, 此时会生成随机标识, 重装系统后可能丢失授权 — 如遇此情况请联系客服 <a href="mailto:lisangjie@icloudsend.com" className="text-blue-600 hover:underline">lisangjie@icloudsend.com</a> 人工迁移</li>
       </ul>
 
       <h2 className="mt-4 text-lg font-medium text-neutral-900">四、数据归属</h2>

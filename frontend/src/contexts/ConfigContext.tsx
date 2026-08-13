@@ -101,24 +101,19 @@ const ConfigContext = createContext<ConfigContextType | undefined>(undefined);
 
 
 export function ConfigProvider({ children }: { children: ReactNode }) {
-  // v0.7.0+ rc6: 默认 builtin-ai + Qwen3.5-2B (用户已下载的本地 LLM, 见
-  // ~/Library/Application Support/cn.lixianhuiji.app/models/summary/Qwen3.5-2B-Q4_K_M.gguf)
-  // 旧默认 ollama/llama3.2:latest 在用户没装 ollama 时会触发 useSummaryGeneration
-  // 的 '未安装 Ollama' 误报 — 这是 v0.6.10 后期到 v0.7.0 没迁干净的回归.
+  // Model configuration state
   const [modelConfig, setModelConfig] = useState<ModelConfig>({
-    provider: 'builtin-ai',
-    model: 'qwen3.5:2b',
+    provider: 'ollama',
+    model: 'llama3.2:latest',
     whisperModel: 'large-v3',
     ollamaEndpoint: null
   });
 
   // Transcript model configuration state
-  // v0.7.0+rc9: 默认 paraformer-zh-int8 (227MB, 中文 ASR 备选, 10 段按句切).
-  // FunASR-Nano (994MB) 是 Pro 专属, 由用户从 Settings 主动切.
-  // sense-voice-zh-int8 是历史遗留 fallback, 模型未下载, DB 里有脏数据时 reset 到 paraformer.
+  // v0.8.5 §38: Default funasr-nano-zh (高精度) per AGENTS.md §29/§38 商业化承诺
   const [transcriptModelConfig, setTranscriptModelConfig] = useState<TranscriptModelProps>({
     provider: 'sherpa_funasr_nano',
-    model: 'paraformer-zh',
+    model: 'funasr-nano-zh',
     apiKey: null
   });
 
@@ -150,7 +145,7 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
   const [selectedLanguage, setSelectedLanguage] = useState<string>(() => {
     if (typeof window !== 'undefined') {
       const saved = localStorage.getItem('primaryLanguage');
-      // 离线会记: 强制 zh 模式,清掉旧的 auto/auto-translate
+      // 言镜 AI: 强制 zh 模式,清掉旧的 auto/auto-translate
       if (saved === 'auto' || saved === 'auto-translate' || saved === 'en') {
         localStorage.removeItem('primaryLanguage');
         return 'zh';
@@ -230,16 +225,12 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
         if (config) {
           console.log('[ConfigContext] Loaded saved transcript config:', config);
           // 兼容老数据: 如果 DB 里是 localWhisper / parakeet, 重置为 SenseVoice
-          // v0.7.0+rc9: 兼容老脏数据 — localWhisper/parakeet/sense-voice 都 reset
-          const is_legacy_model = (config.model === 'sense-voice-zh-int8'
-            || config.model === 'sense-voice-zh'
-            || config.model === 'whisper');
+          // v0.8.5 §38: only fallback to default when provider is truly missing.
+          // Preserve user's chosen model (funasr-nano-zh / sense-voice-zh-int8 / etc).
           const provider = (config.provider === 'localWhisper' || config.provider === 'parakeet')
             ? 'sherpa_funasr_nano'
             : (config.provider || 'sherpa_funasr_nano');
-          const model = (provider === 'sherpa_funasr_nano')
-            ? (is_legacy_model ? 'paraformer-zh' : (config.model || 'paraformer-zh'))
-            : (config.model || 'paraformer-zh-int8');
+          const model = config.model || 'funasr-nano-zh';
           setTranscriptModelConfig({
             provider,
             model,
@@ -479,9 +470,10 @@ export function ConfigProvider({ children }: { children: ReactNode }) {
       }
 
       // Load storage locations
+      // §94 fix: whisper_get_models_directory 悬空 (whisper v0.5+ 弃用, 后端未注册) → 用 parakeet_get_models_directory
       const [dbDir, modelsDir, recordingsDir] = await Promise.all([
         invoke<string>('get_database_directory'),
-        invoke<string>('whisper_get_models_directory'),
+        invoke<string>('parakeet_get_models_directory'),
         invoke<string>('get_default_recordings_folder_path')
       ]);
 

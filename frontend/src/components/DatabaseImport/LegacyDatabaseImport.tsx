@@ -101,7 +101,7 @@ export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImpor
       console.error('Error initializing database:', error);
       setErrorMessage(String(error));
       setImportState('error');
-      safeToast.error(`初始化失败: ${error}`);
+      safeToast.error(`Initialization failed: ${error}`);
       setTimeout(() => setImportState('idle'), 3000);
     }
   };
@@ -166,7 +166,7 @@ export function LegacyDatabaseImport({ isOpen, onComplete }: LegacyDatabaseImpor
               <div className="flex items-start gap-2">
                 <CheckCircle2 className="h-5 w-5 text-green-600 mt-0.5 flex-shrink-0" />
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-green-800">数据库已找到!</p>
+                  <p className="text-sm font-medium text-green-800">Database found!</p>
                   <p className="text-xs text-green-700 mt-1 break-all">{detectedPath}</p>
                 </div>
               </div>

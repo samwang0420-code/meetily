@@ -91,6 +91,40 @@ export function SummaryUpdaterButtonGroup({
         </Button>
       )}
 
+      {onExportTxt && (
+        <Button
+          variant="outline"
+          size="sm"
+          title={t('summary.export_txt_title')}
+          onClick={() => {
+            Analytics.trackButtonClick('export_summary_txt', 'meeting_details');
+            onExportTxt();
+          }}
+          disabled={!hasSummary}
+          className="cursor-pointer"
+        >
+          <FileText />
+          <span className="hidden lg:inline">{t('summary.export_txt')}</span>
+        </Button>
+      )}
+
+      {/* Find button */}
+      {/* {onFind && (
+        <Button
+          variant="outline"
+          size="sm"
+          title="在摘要中查找"
+          onClick={() => {
+            Analytics.trackButtonClick('find_in_summary', 'meeting_details');
+            onFind();
+          }}
+          disabled={!hasSummary}
+          className="cursor-pointer"
+        >
+          <Search />
+          <span className="hidden lg:inline">Find</span>
+        </Button>
+      )} */}
     </ButtonGroup>
   );
 }

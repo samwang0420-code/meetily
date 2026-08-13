@@ -6,6 +6,7 @@ import { Switch } from "./ui/switch"
 import { FolderOpen } from "lucide-react"
 import { invoke } from "@tauri-apps/api/core"
 import Analytics from "@/lib/analytics"
+import AnalyticsConsentSwitch from "./AnalyticsConsentSwitch"
 import { useConfig, NotificationSettings } from "@/contexts/ConfigContext"
 
 export function PreferenceSettings() {
@@ -164,7 +165,7 @@ export function PreferenceSettings() {
       <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
         <h3 className="text-lg font-semibold text-gray-900 mb-4">{t('preferences.data_storage')}</h3>
         <p className="text-sm text-gray-600 mb-6">
-          查看并访问 Meetily 数据存储位置
+          View and access where Meetily stores your data
         </p>
 
         <div className="space-y-4">
@@ -221,6 +222,10 @@ export function PreferenceSettings() {
         </div>
       </div>
 
+      {/* Analytics Section */}
+      <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+        <AnalyticsConsentSwitch />
+      </div>
     </div>
   )
 }

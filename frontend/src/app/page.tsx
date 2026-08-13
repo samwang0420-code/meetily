@@ -27,6 +27,7 @@ import { toast } from 'sonner';
 import { safeToast } from '@/lib/safeToast';
 import { invoke } from '@tauri-apps/api/core';
 import { useRouter } from 'next/navigation';
+import { HardwareStatusBadge } from '@/components/HardwareProfile/HardwareStatusBadge';
 
 export default function Home() {
   // Local page state (not moved to contexts)
@@ -240,7 +241,10 @@ export default function Home() {
       transition={{ duration: 0.3, ease: 'easeOut' }}
       className="flex flex-col h-screen bg-gray-50"
     >
-      {/* v0.7.x: 硬件徽章从首页顶部 chip 移走, 放到账户页. 首页只保留业务信息.*/}
+      {/* v0.7.0+ P0-4: 硬件档位状态徽章 */}
+      <div className="px-4 pt-2">
+        <HardwareStatusBadge />
+      </div>
 
       {/* All Modals supported*/}
       <SettingsModals

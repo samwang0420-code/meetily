@@ -1,0 +1,221 @@
+ M Cargo.lock
+ M frontend/next.config.js
+ M frontend/public/logo-collapsed.png
+ M frontend/public/logo.png
+ M frontend/src-tauri/Cargo.toml
+ M frontend/src-tauri/icons/128x128.png
+ M frontend/src-tauri/icons/128x128@2x.png
+ M frontend/src-tauri/icons/32x32.png
+ M frontend/src-tauri/icons/Square107x107Logo.png
+ M frontend/src-tauri/icons/Square142x142Logo.png
+ M frontend/src-tauri/icons/Square150x150Logo.png
+ M frontend/src-tauri/icons/Square284x284Logo.png
+ M frontend/src-tauri/icons/Square30x30Logo.png
+ M frontend/src-tauri/icons/Square310x310Logo.png
+ M frontend/src-tauri/icons/Square44x44Logo.png
+ M frontend/src-tauri/icons/Square71x71Logo.png
+ M frontend/src-tauri/icons/Square89x89Logo.png
+ M frontend/src-tauri/icons/StoreLogo.png
+ M frontend/src-tauri/icons/app_icon.icns
+ M frontend/src-tauri/icons/app_icon.ico
+ M frontend/src-tauri/icons/icon.icns
+ M frontend/src-tauri/icons/icon.ico
+ M frontend/src-tauri/icons/icon.png
+ M frontend/src-tauri/icons/icon_128x128.png
+ M frontend/src-tauri/icons/icon_128x128@2x.png
+ M frontend/src-tauri/icons/icon_16x16.png
+ M frontend/src-tauri/icons/icon_16x16@2x.png
+ M frontend/src-tauri/icons/icon_256x256.png
+ M frontend/src-tauri/icons/icon_256x256@2x.png
+ M frontend/src-tauri/icons/icon_32x32.png
+ M frontend/src-tauri/icons/icon_32x32@2x.png
+ M frontend/src-tauri/icons/icon_512x512.png
+ M frontend/src-tauri/icons/icon_512x512@2x.png
+ M frontend/src-tauri/src/analytics/commands.rs
+ M frontend/src-tauri/src/audio/audio_processing.rs
+ M frontend/src-tauri/src/audio/import.rs
+ M frontend/src-tauri/src/audio/mod.rs
+ M frontend/src-tauri/src/audio/recording_commands.rs
+ M frontend/src-tauri/src/audio/recording_saver.rs
+ M frontend/src-tauri/src/audio/retranscription.rs
+ M frontend/src-tauri/src/audio/transcription/engine.rs
+ M frontend/src-tauri/src/audio/transcription/mod.rs
+ M frontend/src-tauri/src/audio/transcription/worker.rs
+ M frontend/src-tauri/src/config.rs
+ M frontend/src-tauri/src/database/models.rs
+ M frontend/src-tauri/src/database/repositories/mod.rs
+ M frontend/src-tauri/src/database/repositories/setting.rs
+ M frontend/src-tauri/src/database/repositories/transcript.rs
+ M frontend/src-tauri/src/lib.rs
+ M frontend/src-tauri/src/summary/commands.rs
+ M frontend/src-tauri/src/summary/mod.rs
+ M frontend/src-tauri/src/summary/processor.rs
+ M frontend/src-tauri/src/summary/service.rs
+ M frontend/src-tauri/src/summary/template_commands.rs
+ M frontend/src-tauri/src/summary/templates/defaults.rs
+ M frontend/src-tauri/src/summary/templates/loader.rs
+ M frontend/src-tauri/src/summary/templates/mod.rs
+ M frontend/src-tauri/src/summary/templates/types.rs
+ M frontend/src-tauri/src/whisper_engine/parallel_processor.rs
+ M frontend/src/app/_components/SettingsModal.tsx
+ M frontend/src/app/_components/TranscriptPanel.tsx
+ M frontend/src/app/globals.css
+ M frontend/src/app/layout.tsx
+ M frontend/src/app/meeting-details/page-content.tsx
+ M frontend/src/app/meeting-details/page.tsx
+ M frontend/src/app/metadata.ts
+ M frontend/src/app/metadata.tsx
+ M frontend/src/app/notes/[id]/page.tsx
+ M frontend/src/app/page.tsx
+ M frontend/src/app/settings/page.tsx
+ M frontend/src/components/AISummary/BlockNoteSummaryView.tsx
+ M frontend/src/components/AISummary/index.tsx
+ M frontend/src/components/About.tsx
+ M frontend/src/components/AnalyticsConsentSwitch.tsx
+ M frontend/src/components/AnalyticsDataModal.tsx
+ M frontend/src/components/AudioBackendSelector.tsx
+ M frontend/src/components/BetaSettings.tsx
+ M frontend/src/components/BluetoothPlaybackWarning.tsx
+ M frontend/src/components/BuiltInModelManager.tsx
+ M frontend/src/components/ChunkProgressDisplay.tsx
+ M frontend/src/components/ConfidenceIndicator.tsx
+ M frontend/src/components/DatabaseImport/HomebrewDatabaseDetector.tsx
+ M frontend/src/components/DatabaseImport/LegacyDatabaseImport.tsx
+ M frontend/src/components/DeviceSelection.tsx
+ M frontend/src/components/EditableTitle.tsx
+ M frontend/src/components/EmptyStateSummary.tsx
+ M frontend/src/components/ImportAudio/ImportAudioDialog.tsx
+ M frontend/src/components/Info.tsx
+ M frontend/src/components/LanguagePickerPopover.tsx
+ M frontend/src/components/LanguageSelection.tsx
+ M frontend/src/components/Logo.tsx
+ M frontend/src/components/MainContent/index.tsx
+ M frontend/src/components/MeetingDetails/RetranscribeDialog.tsx
+ M frontend/src/components/MeetingDetails/SummaryGeneratorButtonGroup.tsx
+ M frontend/src/components/MeetingDetails/SummaryPanel.tsx
+ M frontend/src/components/MeetingDetails/SummaryUpdaterButtonGroup.tsx
+ M frontend/src/components/MeetingDetails/TranscriptButtonGroup.tsx
+ M frontend/src/components/MeetingDetails/TranscriptPanel.tsx
+ D frontend/src/components/ModelDownloadProgress.tsx
+ M frontend/src/components/ModelSettingsModal.tsx
+ M frontend/src/components/ParakeetModelManager.tsx
+ M frontend/src/components/PermissionWarning.tsx
+ M frontend/src/components/PreferenceSettings.tsx
+ M frontend/src/components/RecordingControls.tsx
+ M frontend/src/components/RecordingSettings.tsx
+ M frontend/src/components/SettingTabs.tsx
+ M frontend/src/components/Sidebar/SidebarProvider.tsx
+ M frontend/src/components/Sidebar/index.tsx
+ M frontend/src/components/SummaryLanguageSettings.tsx
+ M frontend/src/components/SummaryModelSettings.tsx
+ M frontend/src/components/TranscriptRecovery/TranscriptRecovery.tsx
+ M frontend/src/components/TranscriptSettings.tsx
+ M frontend/src/components/TranscriptView.tsx
+ M frontend/src/components/UpdateDialog.tsx
+ M frontend/src/components/UpdateNotification.tsx
+ M frontend/src/components/VirtualizedTranscriptView.tsx
+ D frontend/src/components/WhisperModelManager.tsx
+ M frontend/src/components/onboarding/steps/DownloadProgressStep.tsx
+ M frontend/src/components/onboarding/steps/PermissionsStep.tsx
+ M frontend/src/components/onboarding/steps/SetupOverviewStep.tsx
+ M frontend/src/components/onboarding/steps/WelcomeStep.tsx
+ M frontend/src/components/shared/DownloadProgressToast.tsx
+ M frontend/src/components/ui/dialog.tsx
+ M frontend/src/components/ui/sheet.tsx
+ M frontend/src/constants/languages.ts
+ M frontend/src/contexts/ConfigContext.tsx
+ M frontend/src/contexts/ImportDialogContext.tsx
+ M frontend/src/contexts/OllamaDownloadContext.tsx
+ M frontend/src/contexts/OnboardingContext.tsx
+ M frontend/src/contexts/RecordingStateContext.tsx
+ M frontend/src/contexts/TranscriptContext.tsx
+ M frontend/src/hooks/meeting-details/useCopyOperations.ts
+ M frontend/src/hooks/meeting-details/useMeetingData.ts
+ M frontend/src/hooks/meeting-details/useMeetingOperations.ts
+ M frontend/src/hooks/meeting-details/useModelConfiguration.ts
+ M frontend/src/hooks/meeting-details/useSummaryGeneration.ts
+ M frontend/src/hooks/meeting-details/useTemplates.ts
+ M frontend/src/hooks/useAudioPlayer.ts
+ M frontend/src/hooks/useImportAudio.ts
+ M frontend/src/hooks/useModalState.ts
+ M frontend/src/hooks/useRecordingStart.ts
+ M frontend/src/hooks/useRecordingStop.ts
+ M frontend/src/hooks/useTranscriptRecovery.ts
+ M frontend/src/hooks/useTranscriptionModels.ts
+ M frontend/src/lib/analytics.ts
+ M frontend/src/lib/builtin-ai.ts
+ M frontend/src/lib/parakeet.ts
+ M frontend/src/lib/recordingNotification.tsx
+ D frontend/src/lib/whisper.ts
+ M frontend/src/services/configService.ts
+ M frontend/src/services/indexedDBService.ts
+ M frontend/src/services/recordingService.ts
+ M frontend/src/services/transcriptService.ts
+ M frontend/src/types/betaFeatures.ts
+ M frontend/src/types/index.ts
+ M frontend/tailwind.config.js
+?? frontend/benchmarks/
+?? frontend/design/
+?? frontend/scripts/__pycache__/
+?? frontend/scripts/build_asr_fixtures.py
+?? frontend/scripts/run_asr_benchmark.py
+?? frontend/scripts/run_diar_benchmark.py
+?? frontend/src-tauri/icons/icon_24x24.png
+?? frontend/src-tauri/icons/icon_48x48.png
+?? frontend/src-tauri/icons/icon_64x64.png
+?? frontend/src-tauri/icons/multi.ico
+?? frontend/src-tauri/icons/test.ico
+?? frontend/src-tauri/migrations/20260709000000_lixianhuiji_user_accounts.sql
+?? frontend/src-tauri/migrations/20260710000000_dedup_transcripts_unique.sql
+?? frontend/src-tauri/migrations/20260718000000_auth_sessions.sql
+?? frontend/src-tauri/migrations/20260718000001_add_quota_tracking.sql
+?? frontend/src-tauri/migrations/20260718000002_add_activation_codes.sql
+?? frontend/src-tauri/migrations/20260719000000_lixianhuiji_commercial_hardening.sql
+?? frontend/src-tauri/scripts/__pycache__/
+?? frontend/src-tauri/scripts/diar.py
+?? frontend/src-tauri/scripts/diar_download.py
+?? frontend/src-tauri/scripts/itn_post.py
+?? frontend/src-tauri/scripts/sherpa_asr.py
+?? frontend/src-tauri/scripts/sherpa_hotwords.py
+?? frontend/src-tauri/scripts/test_daemon_hotwords.py
+?? frontend/src-tauri/scripts/tests/
+?? frontend/src-tauri/src/audio/hotwords_globals.rs
+?? frontend/src-tauri/src/audio/industry_terms.rs
+?? frontend/src-tauri/src/audio/industry_terms.rs.orig
+?? frontend/src-tauri/src/audio/industry_vocab.rs
+?? frontend/src-tauri/src/audio/sherpa_daemon.rs
+?? frontend/src-tauri/src/audio/transcription/sherpa_provider.rs
+?? frontend/src-tauri/src/audio/transcription/sherpa_stream.rs
+?? frontend/src-tauri/src/audio/transcription/worker.rs.bak
+?? frontend/src-tauri/src/audio/transcription/worker.rs.bak2
+?? frontend/src-tauri/src/database/repositories/user.rs
+?? frontend/src-tauri/src/summary/fact_guard.rs
+?? frontend/src-tauri/src/user/
+?? frontend/src-tauri/templates/cross_border_ecommerce.json
+?? frontend/src-tauri/templates/legal_consultation.json
+?? frontend/src-tauri/templates/medical_consultation.json
+?? frontend/src-tauri/tests/
+?? frontend/src/app/_components/CardBoundary.tsx
+?? frontend/src/app/_components/HomeDashboard.tsx
+?? frontend/src/app/_components/QuotaPaywallModal.tsx
+?? frontend/src/app/_components/SettingsModal.tsx.bak
+?? frontend/src/app/account/
+?? frontend/src/app/admin/
+?? frontend/src/app/legal/
+?? frontend/src/app/login/
+?? frontend/src/app/pricing/
+?? frontend/src/app/register/
+?? frontend/src/app/settings/hotwords/
+?? frontend/src/components/AISummary/FactGuardBanner.tsx
+?? frontend/src/components/BrandShield.tsx
+?? frontend/src/components/ErrorBoundary.tsx
+?? frontend/src/components/FeedbackDialog.tsx
+?? frontend/src/components/Topbar.tsx
+?? frontend/src/contexts/AuthContext.tsx
+?? frontend/src/hooks/useQuota.ts
+?? frontend/src/i18n/
+?? frontend/src/lib/design-tokens.ts
+?? frontend/src/lib/safeToast.ts
+?? frontend/tests/lib/pricing-i18n.test.mjs
+?? outputs/
+?? scripts/verify_i18n.mjs

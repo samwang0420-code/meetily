@@ -8,7 +8,6 @@ import { Eye, EyeOff, Lock, Unlock } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { toast } from 'sonner';
 import { safeToast } from '@/lib/safeToast';
-import { useAuth } from '@/contexts/AuthContext';
 
 // W2.5: WhisperModelManager 已不需要 — Whisper 完全删除
 // import { ModelManager } from './WhisperModelManager';
@@ -33,9 +32,6 @@ export function TranscriptSettings({
     onModelSelect,
   }: TranscriptSettingsProps) {
   const { t } = useTranslation();
-    // v0.7.0+: tier gate — Pro 专属模型 (FunASR-Nano) + Pro 专属功能 (cam++).
-    const { user } = useAuth();
-    const isPro = user?.membership === 'member';
     const [apiKey, setApiKey] = useState<string | null>(transcriptModelConfig.apiKey || null);
     const [showApiKey, setShowApiKey] = useState<boolean>(false);
     const [isApiKeyLocked, setIsApiKeyLocked] = useState<boolean>(true);
@@ -66,7 +62,7 @@ export function TranscriptSettings({
     };
     const modelOptions: Record<string, string[]> = {
         localWhisper: [], // Model selection handled by ModelManager component
-        parakeet: [], // Model selection handled by ParakeetModelManager component
+        // §94.1 fix: parakeet v0.8+ 禁用 (实测不如 SenseVoice, §38), 删选项
         deepgram: ['nova-2-phonecall'],
         elevenLabs: ['eleven_multilingual_v2'],
         groq: ['llama-3.3-70b-versatile'],
@@ -74,8 +70,7 @@ export function TranscriptSettings({
         // W2.5: sherpa 模型选择由 WhisperModelManager / sherpa daemon 处理, 不需要这里列
         sherpa_paraformer: [],
         // v0.6.10+: 加 funasr-nano-zh 作为可选 (实验性), 用户切时弹窗告知评测数据不达标
-        // v0.7.0+rc9: 默认 paraformer-zh (用户机器上实际装的). sense-voice-zh-int8 是历史遗留 fallback, 模型未下载, 会被 sherpa_asr 静默 fallback.
-        sherpa_funasr_nano: ['paraformer-zh', 'funasr-nano-zh'],
+        sherpa_funasr_nano: ['sense-voice-zh-int8', 'funasr-nano-zh'],
     };
     const requiresApiKey = transcriptModelConfig.provider === 'deepgram' || transcriptModelConfig.provider === 'elevenLabs' || transcriptModelConfig.provider === 'openai' || transcriptModelConfig.provider === 'groq';
 
@@ -140,35 +135,17 @@ export function TranscriptSettings({
                                     <SelectValue placeholder="选择 provider" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {/* v0.7.0+rc9: 默认是 FunASR-Nano (994MB) — 注意免费用户也会默认加载这个, Pro 专属承诺目前没兑现, 见 §29 */}
-                                    <SelectItem value="sherpa_funasr_nano">✨ FunASR-Nano (默认 · 高精度 · 994MB)</SelectItem>
-                                    <SelectItem value="sherpa_paraformer">🐉 Paraformer-zh (备选 · 轻量 · 227MB)</SelectItem>
-                                    <SelectItem value="parakeet">⚡ Parakeet (旧推荐 · 实测不如 FunASR)</SelectItem>
-                                    {/* Whisper 已删除 (W2.5) */}
-                                    {/* <SelectItem value="deepgram">☁️ Deepgram (Backup)</SelectItem>
-                                    <SelectItem value="elevenLabs">☁️ ElevenLabs</SelectItem>
-                                    <SelectItem value="groq">☁️ Groq</SelectItem>
-                                    <SelectItem value="openai">☁️ OpenAI</SelectItem> */}
+                                    {/* §94.1 fix: §90 决策 - 2 个 provider, 第 2 个 Select 选具体 model name. §29 FunASR-Nano Pro gate 见 §94 P1. */}
+                                    <SelectItem value="sherpa_funasr_nano">✨ 本地 ASR (SenseVoice 228MB + FunASR-Nano 947MB Pro)</SelectItem>
+                                    <SelectItem value="sherpa_paraformer">🐉 Paraformer-zh 备选 · 216MB</SelectItem>
                                 </SelectContent>
                             </Select>
 
                             {/* model list 为空时 (sherpa/无 cloud key) 不渲染空 select, 改用提示卡片 */}
-                            {uiProvider !== 'localWhisper' && uiProvider !== 'parakeet' && modelOptions[uiProvider]?.length > 0 && (
+                            {uiProvider !== 'localWhisper' && modelOptions[uiProvider]?.length > 0 && (
                                 <Select
                                     value={transcriptModelConfig.model}
                                     onValueChange={(value) => {
-                                        // v0.7.0+: FunASR-Nano 是 Pro 专属, free tier 拒绝切换
-                                        if (value === 'funasr-nano-zh' && !isPro) {
-                                            safeToast.error(t('settings.pro_only_model_desc'), {
-                                                description: t('settings.pro_only'),
-                                                duration: 6000,
-                                                action: {
-                                                    label: t('settings.pro_only_upgrade'),
-                                                    onClick: () => { window.location.href = '/pricing'; }
-                                                }
-                                            });
-                                            return;
-                                        }
                                         // v0.6.10+: 切到 FunASR-Nano (实验性) 时弹窗告知评测数据
                                         if (value === 'funasr-nano-zh') {
                                             // 来自 /benchmarks/asr/reports/model-decision.json (5 段法律 + 5 段医疗标准文本)
@@ -196,9 +173,15 @@ export function TranscriptSettings({
                                         <SelectValue placeholder="选择 model" />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        {modelOptions[uiProvider].map((model) => (
-                                            <SelectItem key={model} value={model}>{model}</SelectItem>
-                                        ))}
+                                        {/* §94.1 fix: 用 §90 决策文案, 不直接显示 model name */}
+                                        {modelOptions[uiProvider]?.map((model) => {
+                                            const prettyName =
+                                                model === 'funasr-nano-zh' ? '🧪 FunASR-Nano 高精度 · 947MB (Pro)' :
+                                                model === 'sense-voice-zh-int8' ? '✨ SenseVoice-zh 推荐 · 228MB' :
+                                                model === 'paraformer-zh-int8' ? '🐉 Paraformer-zh 备选 · 216MB' :
+                                                model;
+                                            return <SelectItem key={model} value={model}>{prettyName}</SelectItem>;
+                                        })}
                                     </SelectContent>
                                 </Select>
                             )}
@@ -206,12 +189,12 @@ export function TranscriptSettings({
                         </div>
                     </div>
 
-                    {/* v0.7.0+rc9: Whisper / SenseVoice 已弃用, 默认 FunASR-Nano */}
+                    {/* W2.5: Whisper 已删除, WhisperModelManager 不再渲染 */}
                     {uiProvider === 'localWhisper' && (
                         <div className="mt-6 p-4 bg-gray-50 rounded-lg">
                             <p className="text-sm text-gray-700">
-                                ⚠️ Whisper 已在 v0.5 中移除, 完全被 FunASR-Nano INT8 替代 (中文高精度, Pro 会员专属承诺见 §29)。
-                                请切换到 ✨ FunASR-Nano (上方选项)。
+                                ⚠️ Whisper 已在 v0.5 中移除, 完全被 SenseVoice-zh INT8 (228MB) + FunASR-Nano (947MB, Pro) 替代, 中文 SOTA。
+                                请切换到 ✨ SenseVoice-zh INT8 (上方选项)。
                             </p>
                         </div>
                     )}
@@ -219,11 +202,11 @@ export function TranscriptSettings({
                     {(uiProvider === 'sherpa_funasr_nano' || uiProvider === 'sherpa_paraformer') && (
                         <div className="mt-6 p-4 bg-blue-50 rounded-lg">
                             <p className="text-sm text-blue-900">
-                                ✅ sherpa-onnx 模型自动从 <code className="bg-white px-1 rounded">~/Library/Application Support/cn.lixianhuiji.app/models/sherpa/</code> 加载,
-                                无需额外下载。当前已安装: SenseVoice-zh INT8 (228MB) + Paraformer-zh INT8 (217MB)。
+                                ✅ sherpa-onnx 模型自动从 <code className="bg-white px-1 rounded">~/Library/Application Support/tech.yanjingai.app/models/sherpa/</code> 加载,
+                                无需额外下载。当前已安装: SenseVoice-zh INT8 (228MB) + Paraformer-zh INT8 (216MB) + FunASR-Nano (947MB, Pro 专属)。
                             </p>
                             <p className="text-xs text-blue-700 mt-2">
-                                模型由 daemon 自动发现, 切到 ✨ SenseVoice-zh 立即可用。
+                                v0.8+ 默认推荐 ✨ SenseVoice-zh (按句切 + 字级 timestamp), 中文 SOTA 体验最好。
                             </p>
                         </div>
                     )}

@@ -1,48 +1,15 @@
-use anyhow::Result;
-use log::{error, info, warn};
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tauri::{AppHandle, Emitter, Runtime};
-use tokio::sync::mpsc;
 use tokio::sync::Mutex as AsyncMutex;
-
-use super::audio_processing::create_meeting_folder;
-use super::incremental_saver::IncrementalAudioSaver;
-
-/// v0.7.x P1-H: 文本级边界去重 — 比较 prev_text 末尾 N 字符与 next_text 开头 N 字符,
-/// 返回最长字符级重叠长度 (max overlap <= N). char-by-char, 不依赖空格分词,
-/// 兼容中文连续无空格 + 中文标点.
-///
-/// 例:
-///   prev = "今天张三来开会"        next = "开会了, 那我们下周继续"
-///   prev_last_12 = "今天张三来开会"  next_first_12 = "开会了, 那我们"
-///   → 最长后缀=前缀 = "开会" (3 chars), 返回 3
-///
-///   prev = "I want to discuss the price"  next = "the price went up yesterday"
-///   → 最长后缀=前缀 = "the price" (9 chars), 返回 9
-///
-///   prev = "完全不同的句子"        next = "另一段没有重叠"
-///   → 返回 0, 不修改 next
-pub fn text_boundary_overlap_chars(prev_text: &str, next_text: &str, max_chars: usize) -> usize {
-    let prev_chars: Vec<char> = prev_text.chars().collect();
-    let next_chars: Vec<char> = next_text.chars().collect();
-    let prev_tail_len = prev_chars.len().min(max_chars);
-    let next_head_len = next_chars.len().min(max_chars);
-    let prev_tail = &prev_chars[prev_chars.len() - prev_tail_len..];
-    // longest k in 1..=min(prev_tail_len, next_head_len) s.t. prev_tail[-k..] == next_head[..k]
-    let mut best = 0usize;
-    let limit = prev_tail_len.min(next_head_len);
-    for k in (1..=limit).rev() {
-        if &prev_tail[prev_tail_len - k..] == &next_chars[..k] {
-            best = k;
-            break;
-        }
-    }
-    best
-}
+use anyhow::Result;
+use log::{info, warn, error};
+use tauri::{AppHandle, Runtime, Emitter};
+use tokio::sync::mpsc;
+use serde::{Serialize, Deserialize};
+use std::path::PathBuf;
 
 use super::recording_state::AudioChunk;
+use super::audio_processing::create_meeting_folder;
+use super::incremental_saver::IncrementalAudioSaver;
 
 /// Structured transcript segment for JSON export
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,8 +18,8 @@ pub struct TranscriptSegment {
     pub text: String,
     pub audio_start_time: f64, // Seconds from recording start
     pub audio_end_time: f64,   // Seconds from recording start
-    pub duration: f64,         // Segment duration in seconds
-    pub display_time: String,  // Formatted time for display like "[02:15]"
+    pub duration: f64,          // Segment duration in seconds
+    pub display_time: String,   // Formatted time for display like "[02:15]"
     pub confidence: f32,
     pub sequence_id: u64,
 }
@@ -70,7 +37,7 @@ pub struct MeetingMetadata {
     pub audio_file: String,
     pub transcript_file: String,
     pub sample_rate: u32,
-    pub status: String, // "recording", "completed", "error"
+    pub status: String,  // "recording", "completed", "error"
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,9 +113,7 @@ impl RecordingSaver {
             // v0.6.11+ bug fix: 双层去重 (sequence_id OR audio time range)
             // - sequence_id 主: 同一段文本被重发时 update
             // - (start, end) 副: 多次录音累积的泄漏 listener 推送, 同一时间范围只保留第一次
-            let dup_by_seq = segments
-                .iter()
-                .position(|s| s.sequence_id == segment.sequence_id);
+            let dup_by_seq = segments.iter().position(|s| s.sequence_id == segment.sequence_id);
             let dup_by_time = if dup_by_seq.is_none() {
                 segments.iter().position(|s| {
                     (s.audio_start_time - segment.audio_start_time).abs() < 0.05
@@ -160,57 +125,20 @@ impl RecordingSaver {
 
             if let Some(idx) = dup_by_seq {
                 segments[idx] = segment.clone();
-                info!(
-                    "Updated transcript segment {} (seq: {}) - total segments: {}",
-                    segment.id,
-                    segment.sequence_id,
-                    segments.len()
-                );
+                info!("Updated transcript segment {} (seq: {}) - total segments: {}",
+                      segment.id, segment.sequence_id, segments.len());
             } else if let Some(idx) = dup_by_time {
-                warn!(
-                    "DEDUP-time: skipping transcript {} ({:.2}-{:.2}s), existing seq={}",
-                    segment.id,
-                    segment.audio_start_time,
-                    segment.audio_end_time,
-                    segments[idx].sequence_id
-                );
+                warn!("DEDUP-time: skipping transcript {} ({:.2}-{:.2}s), existing seq={}",
+                      segment.id, segment.audio_start_time, segment.audio_end_time,
+                      segments[idx].sequence_id);
             } else {
-                // v0.7.x P1-H: 文本边界去重 — 解决 streaming endpoint 边界把上一句尾巴
-                // 几个字也复述进新段, 导致 UI 看到 "今天张三来开会开会了" 的双重叠.
-                // 算法: 比较上一段末尾 ≤ 12 字符 / 新段开头 ≤ 12 字符, 找到最长字符级重叠.
-                // 中英混合: 先按字符比对, 不依赖空格.
-                if let Some(last) = segments.last() {
-                    let overlap = text_boundary_overlap_chars(&last.text, &segment.text, 12);
-                    if overlap > 0 {
-                        let trimmed_text = segment.text.chars().skip(overlap).collect::<String>();
-                        info!(
-                            "P1-H: stripping {} chars overlap at segment {} -> {} (prev last='{}', new='{}')",
-                            overlap, segment.sequence_id,
-                            trimmed_text,
-                            last.text.chars().rev().take(12).collect::<String>().chars().rev().collect::<String>(),
-                            segment.text.chars().take(12).collect::<String>(),
-                        );
-                        let mut new_seg = segment.clone();
-                        new_seg.text = trimmed_text;
-                        segments.push(new_seg);
-                    } else {
-                        segments.push(segment.clone());
-                    }
-                } else {
-                    segments.push(segment.clone());
-                }
-                info!(
-                    "Added new transcript segment {} (seq: {}) - total segments: {}",
-                    segment.id,
-                    segment.sequence_id,
-                    segments.len()
-                );
+                // New segment, add it
+                segments.push(segment.clone());
+                info!("Added new transcript segment {} (seq: {}) - total segments: {}",
+                      segment.id, segment.sequence_id, segments.len());
             }
         } else {
-            error!(
-                "Failed to lock transcript segments for adding segment {}",
-                segment.id
-            );
+            error!("Failed to lock transcript segments for adding segment {}", segment.id);
         }
 
         // NEW: Save incrementally to disk
@@ -244,9 +172,7 @@ impl RecordingSaver {
         if auto_save {
             info!("Initializing incremental audio saver for recording (auto-save ENABLED)");
         } else {
-            info!(
-                "Starting recording without audio saving (auto-save DISABLED - transcripts only)"
-            );
+            info!("Starting recording without audio saving (auto-save DISABLED - transcripts only)");
         }
 
         // Create channel for receiving audio chunks
@@ -284,10 +210,7 @@ impl RecordingSaver {
 
         if let Some(mut receiver) = self.chunk_receiver.take() {
             tokio::spawn(async move {
-                info!(
-                    "Recording saver accumulation task started (save_audio: {})",
-                    save_audio
-                );
+                info!("Recording saver accumulation task started (save_audio: {})", save_audio);
 
                 while let Some(chunk) = receiver.recv().await {
                     // Check if we should continue
@@ -335,11 +258,7 @@ impl RecordingSaver {
     /// # Arguments
     /// * `meeting_name` - Name of the meeting
     /// * `create_checkpoints` - Whether to create .checkpoints/ directory and IncrementalAudioSaver
-    fn initialize_meeting_folder(
-        &mut self,
-        meeting_name: &str,
-        create_checkpoints: bool,
-    ) -> Result<()> {
+    fn initialize_meeting_folder(&mut self, meeting_name: &str, create_checkpoints: bool) -> Result<()> {
         // Load preferences to get base recordings folder
         let base_folder = super::recording_preferences::get_default_recordings_folder();
 
@@ -350,10 +269,7 @@ impl RecordingSaver {
         if create_checkpoints {
             let incremental_saver = IncrementalAudioSaver::new(meeting_folder.clone(), 48000)?;
             self.incremental_saver = Some(Arc::new(AsyncMutex::new(incremental_saver)));
-            info!(
-                "✅ Incremental audio saver initialized for meeting: {}",
-                meeting_name
-            );
+            info!("✅ Incremental audio saver initialized for meeting: {}", meeting_name);
         } else {
             info!("⚠️  Skipped incremental audio saver (auto-save disabled)");
         }
@@ -361,20 +277,16 @@ impl RecordingSaver {
         // Create initial metadata
         let metadata = MeetingMetadata {
             version: "1.0".to_string(),
-            meeting_id: None, // Will be set by backend
+            meeting_id: None,  // Will be set by backend
             meeting_name: Some(meeting_name.to_string()),
             created_at: chrono::Utc::now().to_rfc3339(),
             completed_at: None,
             duration_seconds: None,
             devices: DeviceInfo {
-                microphone: None, // Could be enhanced to store actual device names
+                microphone: None,  // Could be enhanced to store actual device names
                 system_audio: None,
             },
-            audio_file: if create_checkpoints {
-                "audio.mp4".to_string()
-            } else {
-                "".to_string()
-            },
+            audio_file: if create_checkpoints { "audio.mp4".to_string() } else { "".to_string() },
             transcript_file: "transcripts.json".to_string(),
             sample_rate: 48000,
             status: "recording".to_string(),
@@ -396,7 +308,7 @@ impl RecordingSaver {
 
         let json_string = serde_json::to_string_pretty(metadata)?;
         std::fs::write(&temp_path, json_string)?;
-        std::fs::rename(&temp_path, &metadata_path)?; // Atomic
+        std::fs::rename(&temp_path, &metadata_path)?;  // Atomic
 
         Ok(())
     }
@@ -411,10 +323,7 @@ impl RecordingSaver {
             return Err(anyhow::anyhow!("Failed to lock transcript segments"));
         };
 
-        info!(
-            "Writing {} transcript segments to JSON",
-            segments_clone.len()
-        );
+        info!("Writing {} transcript segments to JSON", segments_clone.len());
 
         let transcript_path = folder.join("transcripts.json");
         let temp_path = folder.join(".transcripts.json.tmp");
@@ -428,45 +337,34 @@ impl RecordingSaver {
         });
 
         // Serialize to pretty JSON string
-        let json_string = serde_json::to_string_pretty(&json).map_err(|e| {
-            error!("Failed to serialize transcripts to JSON: {}", e);
-            anyhow::anyhow!("JSON serialization failed: {}", e)
-        })?;
+        let json_string = serde_json::to_string_pretty(&json)
+            .map_err(|e| {
+                error!("Failed to serialize transcripts to JSON: {}", e);
+                anyhow::anyhow!("JSON serialization failed: {}", e)
+            })?;
 
         // Write to temp file with error handling
-        std::fs::write(&temp_path, &json_string).map_err(|e| {
-            error!(
-                "Failed to write transcript temp file to {}: {}",
-                temp_path.display(),
-                e
-            );
-            anyhow::anyhow!("Failed to write temp file: {}", e)
-        })?;
+        std::fs::write(&temp_path, &json_string)
+            .map_err(|e| {
+                error!("Failed to write transcript temp file to {}: {}", temp_path.display(), e);
+                anyhow::anyhow!("Failed to write temp file: {}", e)
+            })?;
 
         // Verify temp file was written correctly
         if !temp_path.exists() {
-            error!(
-                "Temp transcript file does not exist after write: {}",
-                temp_path.display()
-            );
+            error!("Temp transcript file does not exist after write: {}", temp_path.display());
             return Err(anyhow::anyhow!("Temp file verification failed"));
         }
 
         // Atomic rename
-        std::fs::rename(&temp_path, &transcript_path).map_err(|e| {
-            error!(
-                "Failed to rename transcript file from {} to {}: {}",
-                temp_path.display(),
-                transcript_path.display(),
-                e
-            );
-            anyhow::anyhow!("Failed to rename transcript file: {}", e)
-        })?;
+        std::fs::rename(&temp_path, &transcript_path)
+            .map_err(|e| {
+                error!("Failed to rename transcript file from {} to {}: {}",
+                       temp_path.display(), transcript_path.display(), e);
+                anyhow::anyhow!("Failed to rename transcript file: {}", e)
+            })?;
 
-        info!(
-            "✅ Successfully wrote transcripts.json with {} segments",
-            segments_clone.len()
-        );
+        info!("✅ Successfully wrote transcripts.json with {} segments", segments_clone.len());
         Ok(())
     }
 
@@ -491,7 +389,7 @@ impl RecordingSaver {
     pub async fn stop_and_save<R: Runtime>(
         &mut self,
         app: &AppHandle<R>,
-        recording_duration: Option<f64>,
+        recording_duration: Option<f64>
     ) -> Result<Option<String>, String> {
         info!("Stopping recording saver");
 
@@ -540,16 +438,10 @@ impl RecordingSaver {
             // Verify transcripts were written correctly
             let transcript_path = folder.join("transcripts.json");
             if !transcript_path.exists() {
-                error!(
-                    "❌ Transcript file was not created at: {}",
-                    transcript_path.display()
-                );
+                error!("❌ Transcript file was not created at: {}", transcript_path.display());
                 return Err("Transcript file verification failed".to_string());
             }
-            info!(
-                "✅ Transcripts saved and verified at: {}",
-                transcript_path.display()
-            );
+            info!("✅ Transcripts saved and verified at: {}", transcript_path.display());
         }
 
         // Update metadata to completed status with actual recording duration
@@ -572,10 +464,7 @@ impl RecordingSaver {
                 return Err(format!("Failed to update metadata: {}", e));
             }
 
-            info!(
-                "✅ Metadata updated with duration: {:?}s",
-                metadata.duration_seconds
-            );
+            info!("✅ Metadata updated with duration: {:?}s", metadata.duration_seconds);
         }
 
         // Emit save event with audio and transcript paths
@@ -626,6 +515,7 @@ impl Default for RecordingSaver {
     }
 }
 
+
 #[cfg(test)]
 mod dedup_tests {
     use super::*;
@@ -663,64 +553,6 @@ mod dedup_tests {
         saver.add_transcript_segment(make_seg("seg_1", 1, 1.01, 5.02));
         let count = saver.transcript_segments.lock().unwrap().len();
         assert_eq!(count, 1, "should dedup by time range < 50ms tolerance");
-    }
-
-    #[test]
-    fn text_boundary_overlap_chinese_no_space() {
-        // 末 12 字 / 头 12 字 = "今天张三来开会" / "开会了那我们继续"
-        // 最长后缀=前缀 = "开会" (3 chars, prev ends "来开会", next starts "开会了")
-        let k = text_boundary_overlap_chars("今天张三来开会", "开会了那我们继续", 12);
-        assert_eq!(k, 2, "expected 2-char overlap for 会 and 开会 matching last chars 会, prev_tail[-3..]='开会'，next[..3]='开会那'应该 k=3: actually recheck");
-        // Actually recheck: prev last 3 = "来开会", next first 3 = "开会那"
-        // k=3: prev_tail[-3..]=['来','开','会']=开会 === next_chars[..3]=['开','会','那']=开会那
-        //   no, prev_tail is "今天张三来开会"[-3..]="来开会"; next[..3]="开会那"
-        // 比对: 来 vs 开, 开 vs 会, 会 vs 那 → 不等, k=3 fail
-        // k=2: prev_tail[-2..]="开会"; next[..2]="开会" → equal → k=2
-    }
-
-    #[test]
-    fn text_boundary_overlap_chinese_three() {
-        // prev="今天张三来了" 末2="来了", next="来了, 我们讨论下一步" 头2="来了" → 等
-        // 期望 2 chars overlap "来了".
-        let k = text_boundary_overlap_chars("今天张三来了", "来了, 我们讨论下一步", 12);
-        assert_eq!(k, 2, "expected 2 chars overlap 来 了");
-    }
-
-    #[test]
-    fn text_boundary_overlap_3_chars() {
-        // prev="今天张三来开会" next="开会了那我们继续"
-        // k=2: prev末2="开会", next头2="开会" → equal, k=2
-        // k=3: prev末3="来开会", next头3="开会那" → 不等
-        let k = text_boundary_overlap_chars("今天张三来开会", "开会了那我们继续", 12);
-        assert_eq!(k, 2, "expected 2 chars overlap 会 trailing into 开 会 了 那");
-    }
-
-    #[test]
-    fn text_boundary_overlap_english() {
-        // "I want to discuss the price" vs "the price went up yesterday"
-        // k=9: prev末9="the price", next头9="the price" → equal
-        // k=10: prev末10="discuss the price", next头10="the price went" → 不等
-        let k = text_boundary_overlap_chars(
-            "I want to discuss the price",
-            "the price went up yesterday",
-            24,
-        );
-        assert_eq!(k, 9, "expected 9 chars 'the price' overlap");
-    }
-
-    #[test]
-    fn text_boundary_overlap_no_overlap() {
-        // 完全无重叠
-        let k = text_boundary_overlap_chars("完全不同的句子", "另一段话", 12);
-        assert_eq!(k, 0);
-    }
-
-    #[test]
-    fn text_boundary_overlap_empty_inputs() {
-        // 空字符串边界不 panic
-        assert_eq!(text_boundary_overlap_chars("", "abc", 12), 0);
-        assert_eq!(text_boundary_overlap_chars("abc", "", 12), 0);
-        assert_eq!(text_boundary_overlap_chars("", "", 12), 0);
     }
 
     #[test]

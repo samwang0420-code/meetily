@@ -313,34 +313,9 @@ export function useCopyOperations({
       const mimeType = format === 'md' ? 'text/markdown;charset=utf-8' : 'text/plain;charset=utf-8';
       const filename = `${safeTitle}_${dateStr}_summary.${ext}`;
 
-      const header = format === 'md'
-        ? `# ${meetingTitle ?? meeting.title}\n\n**Meeting ID:** ${meeting.id}\n**Date:** ${dateStr}\n\n---\n\n`
-        : '';
-
-      // v0.7.x: 商业化 — 给 free / anonymous 用户的 export 加水印 (member 无水印).
-      // 用户登出/无效 session 都视为免费档, 强制水印.
-      let isPro = false;
-      try {
-        const session = typeof window !== 'undefined'
-          ? window.localStorage.getItem('lixianhuiji.session')
-          : null;
-        if (session) {
-          const r = await invokeTauri('quota_get_status', { session }) as { tier?: string } | null;
-          isPro = !!r && r.tier === 'member';
-        }
-      } catch (e) {
-        console.warn('[watermark] tier check failed, default to watermarked', e);
-      }
-
-      const body = format === 'md' ? summaryMarkdown : summaryMarkdown.replace(/^#{1,6}\s+/gm, '').replace(/\*\*(.*?)\*\*/g, '$1');
-      const footer = isPro ? '' : t('summary.watermark_footer');
-
-      const content = header + body + footer;
-
-      if (!isPro && format === 'md') {
-        // md 导出加完水印, toast 二次提示用户
-        safeToast.info(t('summary.watermark_upsell'), { duration: 4000 });
-      }
+      const content = format === 'md'
+        ? `# ${meetingTitle ?? meeting.title}\n\n**Meeting ID:** ${meeting.id}\n**Date:** ${dateStr}\n\n---\n\n${summaryMarkdown}`
+        : summaryMarkdown.replace(/^#{1,6}\s+/gm, '').replace(/\*\*(.*?)\*\*/g, '$1');
       const blob = new Blob([content], { type: mimeType });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');

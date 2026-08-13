@@ -3,7 +3,6 @@ import { Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { OnboardingContainer } from '../OnboardingContainer';
 import { useOnboarding } from '@/contexts/OnboardingContext';
-import { useTranslation } from '@/i18n';
 import {
   Tooltip,
   TooltipContent,
@@ -13,7 +12,6 @@ import {
 
 export function SetupOverviewStep() {
   const { goNext } = useOnboarding();
-  const { t } = useTranslation();
   const [isMac, setIsMac] = useState(false);
 
   useEffect(() => {
@@ -32,12 +30,12 @@ export function SetupOverviewStep() {
     {
       number: 1,
       type: 'transcription',
-      title: t('onboarding.download_transcription_engine'),
+      title: 'Download Transcription Engine',
     },
     {
       number: 2,
       type: 'summarization',
-      title: t('onboarding.download_summary_engine'),
+      title: 'Download Summarization Engine',
     },
   ];
 
@@ -76,7 +74,7 @@ export function SetupOverviewStep() {
                                 </TooltipTrigger>
                                 <TooltipContent className="max-w-xs text-sm">
                                 You can also select external AI providers like OpenAI, Claude, or
-                                {t('onboarding.ollama_for_summary')}
+                                Ollama for summary generation in settings.
                                 </TooltipContent>
                             </Tooltip>
                             </TooltipProvider>

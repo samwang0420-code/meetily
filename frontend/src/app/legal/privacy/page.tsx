@@ -8,15 +8,7 @@ import React from 'react';
 
 export default function PrivacyPage() {
   return (
-    <div className="max-w-3xl mx-auto p-6 space-y-4 text-neutral-900">
-      <button
-        type="button"
-        onClick={() => { try { window.history.length > 1 ? window.history.back() : (window.location.href = '/'); } catch { window.location.href = '/'; } }}
-        className="flex items-center gap-1 text-sm text-neutral-600 hover:text-neutral-900"
-      >
-        <span aria-hidden>←</span>
-        <span>{`返回`}</span>
-      </button>
+    <div className="max-w-3xl mx-auto p-6 prose prose-neutral dark:prose-invert">
       <h1 className="text-2xl font-semibold tracking-tight text-neutral-900">隐私政策</h1>
       <p className="text-sm text-neutral-500">
         最后更新: 2026-07-18 · 离线会记 (Meetily) 团队
@@ -24,7 +16,7 @@ export default function PrivacyPage() {
 
       <h2 className="mt-6 text-lg font-medium text-neutral-900">一、数据处理原则</h2>
       <p className="text-sm text-neutral-700">
-        离线会记的设计原则是: <strong className="font-semibold text-neutral-900">你的会议数据应当留在你设备上, 由你掌控</strong>.
+        离线会记的设计原则是: <strong>你的会议数据应当留在你设备上, 由你掌控</strong>.
         默认情况下, 我们不上传任何音频、转写、摘要到外部服务器.
       </p>
 
@@ -47,7 +39,7 @@ export default function PrivacyPage() {
 
       <h2 className="mt-4 text-lg font-medium text-neutral-900">三之二、本地行为分析 (v0.7.0+)</h2>
       <p className="text-sm text-neutral-700">
-        为帮助我们改进产品, 离线会记会在本机 SQLite 中记录以下事件 (<code className="px-1 py-0.5 rounded bg-neutral-100 text-[12px] font-mono text-neutral-800">analytics_events</code> 表):
+        为帮助我们改进产品, 离线会记会在本机 SQLite 中记录以下事件 (<code>analytics_events</code> 表):
       </p>
       <ul className="text-sm text-neutral-700 list-disc pl-6 space-y-1">
         <li>功能使用: 录音开始/停止、摘要生成、模板选择等</li>
@@ -55,28 +47,28 @@ export default function PrivacyPage() {
         <li>设备/版本信息: OS、架构、应用版本号</li>
       </ul>
       <p className="text-sm text-neutral-700 mt-2">
-        <strong className="font-semibold text-neutral-900">承诺</strong>: 这些数据<strong className="font-semibold text-neutral-900">仅保存在本机数据库</strong>, 不会上传到任何服务器.
+        <strong>承诺</strong>: 这些数据<strong>仅保存在本机数据库</strong>, 不会上传到任何服务器.
         你可以随时在"设置 → 隐私 → 本地行为分析"里关闭此功能, 关闭后不会再写入新事件.
       </p>
 
       <h2 className="mt-4 text-lg font-medium text-neutral-900">三之三、崩溃日志 (v0.7.0+)</h2>
       <p className="text-sm text-neutral-700">
-        如果软件发生严重错误 (panic), 我们会在本地的 <code className="px-1 py-0.5 rounded bg-neutral-100 text-[12px] font-mono text-neutral-800">crashes/</code> 目录写入一份崩溃报告:
+        如果软件发生严重错误 (panic), 我们会在本地的 <code>crashes/</code> 目录写入一份崩溃报告:
       </p>
       <ul className="text-sm text-neutral-700 list-disc pl-6 space-y-1">
-        <li>路径: <code className="px-1 py-0.5 rounded bg-neutral-100 text-[12px] font-mono text-neutral-800">~/Library/Application Support/cn.lixianhuiji.app/crashes/</code> (macOS) / <code className="px-1 py-0.5 rounded bg-neutral-100 text-[12px] font-mono text-neutral-800">%APPDATA%\cn.lixianhuiji.app\crashes\</code> (Windows) / <code className="px-1 py-0.5 rounded bg-neutral-100 text-[12px] font-mono text-neutral-800">~/.local/share/cn.lixianhuiji.app/crashes/</code> (Linux)</li>
+        <li>路径: <code>~/Library/Application Support/tech.yanjingai.app/crashes/</code> (macOS) / <code>%APPDATA%\tech.yanjingai.app\crashes\</code> (Windows) / <code>~/.local/share/tech.yanjingai.app/crashes/</code> (Linux)</li>
         <li>内容: 时间戳、版本号、操作系统、panic 信息、Rust 调用栈</li>
         <li>不包含: 你的会议音频、转写文字、摘要内容</li>
         <li>保留策略: 仅保留最近 50 个崩溃文件, 超出自动清理</li>
       </ul>
       <p className="text-sm text-neutral-700 mt-2">
-        <strong className="font-semibold text-neutral-900">承诺</strong>: 崩溃日志同样<strong className="font-semibold text-neutral-900">仅保存在本机</strong>, 不上传. 如果你主动邮件发送给我们用于问题排查, 我们仅用于修复该具体问题, 不做其他用途.
+        <strong>承诺</strong>: 崩溃日志同样<strong>仅保存在本机</strong>, 不上传. 如果你主动邮件发送给我们用于问题排查, 我们仅用于修复该具体问题, 不做其他用途.
       </p>
 
       <h2 className="mt-4 text-lg font-medium text-neutral-900">四、可选的非本地操作</h2>
       <p className="text-sm text-neutral-700">
         离线会记默认使用本地 ASR 模型, 但用户可在设置里切换到云端 ASR 模型 (Deepgram, OpenAI 等).
-        切换时, 音频会被发送到对应 API. 这是用户<strong className="font-semibold text-neutral-900">主动</strong>选择的行为, 默认不会发生.
+        切换时, 音频会被发送到对应 API. 这是用户<strong>主动</strong>选择的行为, 默认不会发生.
       </p>
 
       <h2 className="mt-4 text-lg font-medium text-neutral-900">五、付费账户</h2>
@@ -99,7 +91,7 @@ export default function PrivacyPage() {
       </p>
 
       <p className="mt-8 text-xs text-neutral-400">
-        本政策与仓库根目录 <code className="px-1 py-0.5 rounded bg-neutral-100 text-[12px] font-mono text-neutral-800">PRIVACY_POLICY.md</code> 同步.
+        本政策与仓库根目录 <code>PRIVACY_POLICY.md</code> 同步.
       </p>
     </div>
   );

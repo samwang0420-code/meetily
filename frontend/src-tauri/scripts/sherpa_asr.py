@@ -36,8 +36,11 @@ from diar import count_speakers, is_available as diar_is_available  # v0.6.14+ S
 # 上层 worker 通过 _diar_pickup(rid) 轮询拿结果 (消费侧下一轮 PR 加 DB 落库)
 
 def _diar_db_path():
-    return os.environ.get("LIXIANHUIJI_DIAR_DB_PATH") or os.path.expanduser(
-        "~/Library/Application Support/cn.lixianhuiji.app/meeting_minutes.sqlite"
+    # §97 (2026-08-09): YANJINGAI env var 优先, 旧 LIXIANHUIJI env var 向后兼容, 最后 fallback 新 bundle id
+    return (
+        os.environ.get("YANJINGAI_DIAR_DB_PATH")
+        or os.environ.get("LIXIANHUIJI_DIAR_DB_PATH")
+        or os.path.expanduser("~/Library/Application Support/tech.yanjingai.app/meeting_minutes.sqlite")
     )
 
 
@@ -167,8 +170,9 @@ def _diar_pickup(rid):
         return None
 
 
+# §97 (2026-08-09): Bundle ID 切换 tech.yanjingai.app
 MODELS_ROOT = os.path.expanduser(
-    "~/Library/Application Support/cn.lixianhuiji.app/models/sherpa"
+    "~/Library/Application Support/tech.yanjingai.app/models/sherpa"
 )
 
 # lazy globals
@@ -999,12 +1003,6 @@ def _stream_session_finalize(req):
 def transcribe(req):
     rid = req.get("id", "")
     tag = req.get("model", "paraformer-zh")
-    # v0.7.0+: 客户端透传的 language hint, recognizer 在 init 时固定 (sensevoice=auto, paraformer=zh, funasr_nano=zh).
-    # 这里只记日志, 帮助排查"为什么我设了 en 没用". 真正改 recognizer 需要重新 init, 当前不在 per-call 范围.
-    req_lang = req.get("language")
-    if req_lang and req_lang not in ("zh", "auto"):
-        sys.stderr.write(f"[sherpa_asr] client requested language='{req_lang}', recognizer language is fixed at init time. Effective: sensevoice=auto (zh+en+yue+ja), others=zh-only.\n")
-        sys.stderr.flush()
     t0 = time.time()
 
     arr, sr = _load_audio(req)
@@ -1051,7 +1049,7 @@ def transcribe(req):
         streams.append(stream)
     rec.decode_streams(streams)
     decode_ms = int((time.time() - decode_t) * 1000)
-    duration_ms = int((time.time() - t0) * 1000)
+    total_ms = int((time.time() - t0) * 1000)  # §103: renamed from duration_ms to avoid ambiguity vs audio_seconds
 
     raw_text = "".join(stream.result.text.strip() for stream in streams)
     if not raw_text and len(arr) / sr >= 1.0:
@@ -1078,7 +1076,7 @@ def transcribe(req):
         "text": raw_text,
         "confidence": 0.92,
         "decode_ms": decode_ms,
-        "duration_ms": duration_ms,
+        "total_ms": total_ms,
         "model": loaded_tag,
         "audio_seconds": round(len(arr) / sr, 2),
     }

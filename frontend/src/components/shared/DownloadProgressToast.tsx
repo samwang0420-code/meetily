@@ -5,7 +5,6 @@ import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
 import { X, Download, Check, Loader2, ArrowBigDownDash } from 'lucide-react';
 import { getDownloadTotalMb } from '@/lib/onboarding-summary-model';
-import { useTranslation } from '@/i18n';
 
 interface DownloadProgress {
   modelName: string;
@@ -56,7 +55,6 @@ function DownloadToastContent({
   download: DownloadProgress;
   onDismiss?: () => void;
 }) {
-  const { t } = useTranslation();
   const isComplete = download.status === 'completed';
   const hasError = download.status === 'error';
   const isCancelled = download.status === 'cancelled';
@@ -88,11 +86,11 @@ function DownloadToastContent({
         </div>
 
         {hasError ? (
-          <p className="text-xs text-red-600">{download.error || t('common.download_failed')}</p>
+          <p className="text-xs text-red-600">{download.error || 'Download failed'}</p>
         ) : isComplete ? (
-          <p className="text-xs text-green-600">{t('common.download_complete')}</p>
+          <p className="text-xs text-green-600">Download complete</p>
         ) : isCancelled ? (
-          <p className="text-xs text-gray-600">{t('common.download_cancelled')}</p>
+          <p className="text-xs text-gray-600">Download cancelled</p>
         ) : (
           <>
             {/* Progress bar */}
@@ -126,7 +124,6 @@ function DownloadToastContent({
 
 // Hook to manage download progress toasts
 export function useDownloadProgressToast() {
-  const { t } = useTranslation();
   const [downloads, setDownloads] = useState<Map<string, DownloadProgress>>(new Map());
   const [dismissedModels, setDismissedModels] = useState<Set<string>>(new Set());
 

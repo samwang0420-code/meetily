@@ -35,8 +35,11 @@ pub struct Transcript {
     pub audio_start_time: Option<f64>,
     pub audio_end_time: Option<f64>,
     pub duration: Option<f64>,
-    // P1-G: speaker label from Diar pickup (e.g. "speaker_00"). None = 未跑 diar.
-    pub speaker: Option<String>,
+    // §91 P1-B UI 完整化: speaker_aliases.label JOIN 后填入. 前端用这个显示"王伟"而不是"Speaker 1".
+    #[serde(default)]
+    pub speaker_label: Option<String>,
+    #[serde(default)]
+    pub speaker_id: Option<i64>,
 }
 
 #[derive(Debug, Clone, FromRow, Serialize, Deserialize)]
@@ -51,7 +54,7 @@ pub struct SummaryProcess {
     pub end_time: Option<chrono::DateTime<chrono::Utc>>,
     pub chunk_count: i64,
     pub processing_time: f64,
-    pub metadata: Option<String>,      // JSON
+    pub metadata: Option<String>, // JSON
     pub result_backup: Option<String>, // Backup of result before regeneration
     pub result_backup_timestamp: Option<chrono::DateTime<chrono::Utc>>, // When backup was created
 }
@@ -103,9 +106,9 @@ pub struct Setting {
 impl Setting {
     /// Parse the custom OpenAI config from JSON string
     pub fn get_custom_openai_config(&self) -> Option<crate::summary::CustomOpenAIConfig> {
-        self.custom_openai_config
-            .as_ref()
-            .and_then(|json| serde_json::from_str(json).ok())
+        self.custom_openai_config.as_ref().and_then(|json| {
+            serde_json::from_str(json).ok()
+        })
     }
 }
 

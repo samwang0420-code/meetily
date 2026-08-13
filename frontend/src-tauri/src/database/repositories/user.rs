@@ -238,17 +238,6 @@ impl HotwordsRepository {
 
 // v0.6.10+: 配额追踪
 impl UsersRepository {
-    /// v0.7.x: 取 user 的 membership tier. 找不到返 "anonymous".
-    pub async fn get_membership(pool: &SqlitePool, user_id: i64) -> Result<String, SqlxError> {
-        let row: Option<(String,)> = sqlx::query_as(
-            "SELECT membership FROM users WHERE id = ?1"
-        )
-        .bind(user_id)
-        .fetch_optional(pool)
-        .await?;
-        Ok(row.map(|(m,)| m).unwrap_or_else(|| "free".into()))
-    }
-
     pub async fn get_quota(
         pool: &SqlitePool,
         user_id: i64,
@@ -346,7 +335,6 @@ pub struct ActivationCodeRow {
     pub expires_at: String,
     pub used_by_user_id: Option<i64>,
     pub used_at: Option<String>,
-    pub bound_user_id: Option<i64>,
     pub generated_by_operator: Option<String>,
     pub note: Option<String>,
     pub created_at: String,
@@ -364,7 +352,6 @@ fn map_activation_code_row(r: sqlx::sqlite::SqliteRow) -> ActivationCodeRow {
         expires_at: r.get("expires_at"),
         used_by_user_id: r.get("used_by_user_id"),
         used_at: r.get("used_at"),
-        bound_user_id: r.get("bound_user_id"),
         generated_by_operator: r.get("generated_by_operator"),
         note: r.get("note"),
         created_at: r.get("created_at"),

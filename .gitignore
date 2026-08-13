@@ -82,10 +82,19 @@ target/
 
 frontend/src-tauri/binaries/
 
-# Codex 会话草稿 / Codex release binary — 永远不入 git (按 §21 / AGENTS.md)
-# 物理文件保留供 Codex 端复查, 但版本库只看代码
-/outputs/
-/release/*.app
-/release/*.dmg
-/release/*.exe
-/release/meetily-*
+# §94: 防 backup/orig/_old 死代码再生
+*.backup
+*.orig
+*.bak
+*_old.rs
+*-old.rs
+core-old.rs
+lib_old_complex.rs
+lib_old_*.rs
+
+# §94: 防 audio_v2 孤儿模块再生
+audio_v2/
+
+# §111: 搜狗 .scel 源文件不 ship (版权 + 体积), 只 ship 转换后精选 JSON
+*.scel
+热词/

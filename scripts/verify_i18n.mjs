@@ -1,10 +1,14 @@
 import fs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import path from 'node:path';
 import ts from '../frontend/node_modules/typescript/lib/typescript.js';
 
-function readLocale(file, variable) {
-  file = file.pathname;
-  const source = fs.readFileSync(file, 'utf8');
-  const sourceFile = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true);
+function readLocale(fileUrl, variable) {
+  // §91 Step 1 Bug 1: 原代码用 file.pathname (URL-encoded), 离线会记/含中文被编码成 %E7%A6%BB...
+  // 导致 fs.readFileSync 找不到. 改用 fileURLToPath + decodeURIComponent
+  const filePath = fileURLToPath(fileUrl);
+  const source = fs.readFileSync(filePath, 'utf8');
+  const sourceFile = ts.createSourceFile(filePath, source, ts.ScriptTarget.Latest, true);
   let initializer;
   sourceFile.forEachChild(node => {
     if (!ts.isVariableStatement(node)) return;

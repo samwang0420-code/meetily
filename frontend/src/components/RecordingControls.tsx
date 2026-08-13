@@ -3,13 +3,16 @@
 import { invoke } from '@tauri-apps/api/core';
 import { appDataDir } from '@tauri-apps/api/path';
 import { useCallback, useEffect, useState, useRef } from 'react';
+import Image from 'next/image';
 import { Play, Pause, Square, Mic, AlertCircle, X } from 'lucide-react';
 import { ProcessRequest, SummaryResponse } from '@/types/summary';
 import { listen } from '@tauri-apps/api/event';
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
+import { toast } from 'sonner';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import Analytics from '@/lib/analytics';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
+import { useTranslation } from '@/i18n';
 
 interface RecordingControlsProps {
   isRecording: boolean;
@@ -46,6 +49,14 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
   // Use global recording state context for pause state (syncs with tray operations)
   const recordingState = useRecordingState();
   const isPaused = recordingState.isPaused;
+  const { t } = useTranslation();
+  // §31 P0: memory watcher emit 给前端 toast 提示降级
+  const [memoryState, setMemoryState] = useState<{
+    rss_mb: number;
+    pressure_state: number;
+    suggestion: string;
+  } | null>(null);
+  const memoryToastShownRef = useRef<number>(0);
 
   const [showPlayback, setShowPlayback] = useState(false);
   const [recordingPath, setRecordingPath] = useState<string | null>(null);
@@ -313,6 +324,39 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
         // No need for duplicate listeners here
 
         // Speech detected listener - for UX feedback when VAD detects speech
+        // §31 P0: memory pressure auto-degrade hint
+        const memoryPressureUnsubscribe = await listen('memory-pressure', (event) => {
+          const p = event.payload as {
+            rss_mb: number;
+            pressure_state: number;
+            suggestion: string;
+            previous_state: number;
+          };
+          setMemoryState({
+            rss_mb: p.rss_mb,
+            pressure_state: p.pressure_state,
+            suggestion: p.suggestion,
+          });
+          // 只在状态升级时弹 toast (避免每 60s 重复打扰)
+          if (
+            p.pressure_state > p.previous_state &&
+            p.pressure_state > memoryToastShownRef.current
+          ) {
+            memoryToastShownRef.current = p.pressure_state;
+            if (p.pressure_state >= 2) {
+              toast.error(
+                t('recording.memory_critical', { rss: p.rss_mb }),
+                { description: p.suggestion, duration: 8000 }
+              );
+            } else {
+              toast.warning(
+                t('recording.memory_warning', { rss: p.rss_mb }),
+                { description: p.suggestion, duration: 6000 }
+              );
+            }
+          }
+        });
+        unsubscribes.push(memoryPressureUnsubscribe);
         const speechDetectedUnsubscribe = await listen('speech-detected', (event) => {
           console.log('speech-detected event received:', event);
           setSpeechDetected(true);
@@ -405,7 +449,7 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
                           {isValidatingModel ? (
                             <div className={`animate-spin rounded-full ${variant === 'hero' ? 'h-8 w-8 border-b-4' : 'h-5 w-5 border-b-2'} border-white`}></div>
                           ) : (
-                            <Mic size={variant === 'hero' ? 36 : 20} />
+                            <Image src="/logo.png" alt="开始录音" width={variant === 'hero' ? 48 : 28} height={variant === 'hero' ? 48 : 28} className="rounded-full" />
                           )}
                         </button>
                       </TooltipTrigger>

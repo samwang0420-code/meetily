@@ -37,29 +37,35 @@ pub(crate) use perf_trace;
 
 // Declare audio module
 pub mod analytics;
-pub mod anthropic;
 pub mod api;
 pub mod audio;
 pub mod config;
 pub mod console_utils;
 pub mod database;
-pub mod groq;
 pub mod notifications;
 pub mod ollama;
 pub mod onboarding;
 pub mod openai;
+pub mod anthropic;
+pub mod groq;
 pub mod openrouter;
 pub mod parakeet_engine;
 pub mod state;
 pub mod summary;
 pub mod tray;
-pub mod user;
 pub mod utils;
+pub mod user;
 pub mod whisper_engine;
+pub mod speaker_auto_attach;
 
 pub mod hardware;
+pub mod action_items;
+pub mod obsidian_export;
+pub mod speaker_aliases;
+pub mod topic_graph;
+pub mod live_qa;
 
-use audio::{list_audio_devices, trigger_audio_permission, AudioDevice};
+use audio::{list_audio_devices, AudioDevice, trigger_audio_permission};
 use log::{error as log_error, info as log_info};
 use notifications::commands::NotificationManagerState;
 use std::sync::Arc;
@@ -128,7 +134,10 @@ async fn start_recording<R: Runtime>(
             )
             .await
             {
-                log_error!("Failed to show recording started notification: {}", e);
+                log_error!(
+                    "Failed to show recording started notification: {}",
+                    e
+                );
             } else {
                 log_info!("Successfully showed recording started notification");
             }
@@ -165,6 +174,9 @@ async fn stop_recording<R: Runtime>(app: AppHandle<R>, args: RecordingArgs) -> R
             RECORDING_FLAG.store(false, Ordering::SeqCst);
             tray::update_tray_menu(&app);
 
+            // v0.8.5 §23: Release sherpa daemon to free ~700MB Python + onnx models
+            crate::audio::sherpa_daemon::shutdown_global_daemon();
+
             // Create the save directory if it doesn't exist
             if let Some(parent) = std::path::Path::new(&args.save_path).parent() {
                 if !parent.exists() {
@@ -186,16 +198,13 @@ async fn stop_recording<R: Runtime>(app: AppHandle<R>, args: RecordingArgs) -> R
             )
             .await
             {
-                log_error!("Failed to show recording stopped notification: {}", e);
+                log_error!(
+                    "Failed to show recording stopped notification: {}",
+                    e
+                );
             } else {
                 log_info!("Successfully showed recording stopped notification");
             }
-
-            // P0-fix: 录完音立刻杀 sherpa daemon, 释放 ~700M onnx 模型.
-            // 用户体感: 录音停止 → 几秒内 RAM 大幅下降 (从 1G+ 到 200M).
-            // 下次 transcribe 会自动重新 spawn (~1-2s).
-            log_info!("[recording stopped] killing sherpa daemon to free onnx model RAM");
-            audio::sherpa_daemon::shutdown_global_daemon();
 
             Ok(())
         }
@@ -361,7 +370,10 @@ async fn start_recording_with_devices_and_meeting<R: Runtime>(
             )
             .await
             {
-                log_error!("Failed to show recording started notification: {}", e);
+                log_error!(
+                    "Failed to show recording started notification: {}",
+                    e
+                );
             }
 
             Ok(())
@@ -388,136 +400,164 @@ pub fn get_language_preference_internal() -> Option<String> {
     LANGUAGE_PREFERENCE.lock().ok().map(|lang| lang.clone())
 }
 
-/// P1-I 兜底: 启动时扫描所有 placeholder "Recording in progress (...)" meetings, 处理崩溃残留.
+// §97 (2026-08-09): identifier 改造后, 首次启动自动从旧 Bundle 目录 (cn.lixianhuiji.app)
+/// 复制 SQLite + decode_cache + models 到新目录 (tech.yanjingai.app).
 ///
-/// 场景: 用户录音中 app 被强杀 (kill / panic / 断电), stop_recording 流程没跑完:
-///   - audio/metadata 已落盘到 folder_path
-///   - transcripts 可能已 INSERT 几段 (取决于崩溃时机)
-///   - 但 api_save_transcript 没被前端调, title 还是 placeholder
-///
-/// 启动时按 folder_path 上的 audio.mp4 存在与否分两种处理:
-///   - audio.mp4 存在: rename title 为 folder basename (Meeting YYYY-MM-DD_HH-MM-SS),
-///     把残留"鬼会议"变成正常可点开会话. 不删任何数据.
-///   - audio.mp4 缺失 (录到一半崩溃): DELETE placeholder + 关联 transcripts.
-///
-/// 复用 is_placeholder_title() 判定 (database::repositories::transcript).
-/// 失败 non-fatal: warn! 写日志, 不阻塞 app 启动.
-async fn placeholder_startup_recovery<R: Runtime>(app: &AppHandle<R>) {
-    use sqlx::Row;
-    let pool = match app.try_state::<database::manager::DatabaseManager>() {
-        Some(s) => s.pool().clone(),
+/// 设计原则 (§97 立铁律):
+/// - 仅 COPY, 不删除旧目录 (§65 老数据观察期)
+/// - 新目录已存在文件 → 跳过 (用户已有部分迁过来的不覆盖)
+/// - 失败仅 warn, 不阻塞启动 (best-effort)
+/// - 只复制 db 文件 (meeting_minutes.sqlite + -shm + -wal) + decode_cache (用户已有大文件不复制)
+pub fn migrate_legacy_app_data() -> anyhow::Result<()> {
+    use std::path::PathBuf;
+
+    // 新旧路径
+    let new_dir = if cfg!(target_os = "macos") {
+        std::env::var_os("HOME").map(|h| {
+            let mut p = PathBuf::from(h);
+            p.push(format!("Library/Application Support/{}", crate::config::APP_BUNDLE_ID));
+            p
+        })
+    } else if cfg!(target_os = "windows") {
+        std::env::var_os("APPDATA").map(|v| PathBuf::from(v).join(crate::config::APP_BUNDLE_ID))
+    } else {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(|v| PathBuf::from(v).join(crate::config::APP_BUNDLE_ID))
+            .or_else(|| {
+                std::env::var_os("HOME").map(|h| {
+                    PathBuf::from(h).join(format!(".local/share/{}", crate::config::APP_BUNDLE_ID))
+                })
+            })
+    };
+    let new_dir = match new_dir {
+        Some(d) => d,
         None => {
-            log::warn!("[placeholder_recovery] db_manager not initialized yet, skip");
-            return;
+            log::info!("§97 migrate_legacy_app_data: cannot resolve new data dir, skip");
+            return Ok(());
         }
     };
 
-    // 1) 找所有 placeholder meetings
-    let rows = match sqlx::query(
-        "SELECT id, folder_path, created_at FROM meetings WHERE title LIKE 'Recording in progress%'"
-    )
-    .fetch_all(&pool)
-    .await
-    {
-        Ok(r) => r,
-        Err(e) => {
-            log::warn!("[placeholder_recovery] query failed: {}", e);
-            return;
-        }
+    let legacy_dir = if cfg!(target_os = "macos") {
+        std::env::var_os("HOME").map(|h| {
+            let mut p = PathBuf::from(h);
+            p.push(format!("Library/Application Support/{}", crate::config::APP_BUNDLE_ID_LEGACY));
+            p
+        })
+    } else if cfg!(target_os = "windows") {
+        std::env::var_os("APPDATA").map(|v| PathBuf::from(v).join(crate::config::APP_BUNDLE_ID_LEGACY))
+    } else {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(|v| PathBuf::from(v).join(crate::config::APP_BUNDLE_ID_LEGACY))
+            .or_else(|| {
+                std::env::var_os("HOME").map(|h| {
+                    PathBuf::from(h).join(format!(".local/share/{}", crate::config::APP_BUNDLE_ID_LEGACY))
+                })
+            })
+    };
+    let legacy_dir = match legacy_dir {
+        Some(d) => d,
+        None => return Ok(()),
     };
 
-    if rows.is_empty() {
-        log::info!("[placeholder_recovery] no placeholder meetings found, skip");
-        return;
+    if !legacy_dir.exists() {
+        log::info!("§97 migrate_legacy_app_data: legacy dir {:?} not found, skip", legacy_dir);
+        return Ok(());
     }
 
-    let mut renamed = 0usize;
-    let mut deleted = 0usize;
-    for row in rows {
-        let id: String = row.get("id");
-        let folder_path: Option<String> = row.try_get("folder_path").ok().flatten();
-        let created_at: String = row.try_get("created_at").unwrap_or_default();
+    std::fs::create_dir_all(&new_dir).map_err(|e| anyhow::anyhow!("create_dir_all {:?}: {}", new_dir, e))?;
 
-        match folder_path.as_deref() {
-            Some(fp) => {
-                let audio_path = std::path::Path::new(fp).join("audio.mp4");
-                if audio_path.exists() {
-                    // audio.mp4 存在: rename title 为 folder basename
-                    // folder 命名规则: "Meeting 2026-07-22_19-33-11_2026-07-22_11-33"
-                    // 直接用 basename, 简单可靠 (含完整日期时间).
-                    let new_title = std::path::Path::new(fp)
-                        .file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or(&created_at)
-                        .to_string();
-                    let res = sqlx::query(
-                        "UPDATE meetings SET title = ?, updated_at = ? WHERE id = ?"
-                    )
-                    .bind(&new_title)
-                    .bind(&created_at)
-                    .bind(&id)
-                    .execute(&pool)
-                    .await;
-                    match res {
-                        Ok(_) => {
-                            log::info!(
-                                "[placeholder_recovery] renamed {} -> '{}'",
-                                id,
-                                new_title
-                            );
-                            renamed += 1;
-                        }
-                        Err(e) => {
-                            log::warn!(
-                                "[placeholder_recovery] rename {} failed: {}",
-                                id,
-                                e
-                            );
-                        }
-                    }
-                } else {
-                    // audio.mp4 缺失: 录到一半崩溃, DELETE placeholder + 关联 transcripts
-                    let res = sqlx::query("DELETE FROM meetings WHERE id = ?")
-                        .bind(&id)
-                        .execute(&pool)
-                        .await;
-                    // ON DELETE CASCADE 处理 transcripts
-                    match res {
-                        Ok(r) => {
-                            log::warn!(
-                                "[placeholder_recovery] deleted orphan placeholder {} ({} rows)",
-                                id,
-                                r.rows_affected()
-                            );
-                            deleted += 1;
-                        }
-                        Err(e) => {
-                            log::warn!("[placeholder_recovery] delete {} failed: {}", id, e);
-                        }
-                    }
-                }
-            }
-            None => {
-                // 没 folder_path: 极早期崩溃, DELETE
-                let res = sqlx::query("DELETE FROM meetings WHERE id = ?")
-                    .bind(&id)
-                    .execute(&pool)
-                    .await;
-                match res {
-                    Ok(_) => {
-                        log::warn!("[placeholder_recovery] deleted no-folder placeholder {}", id);
-                        deleted += 1;
-                    }
-                    Err(e) => log::warn!("[placeholder_recovery] delete {} failed: {}", id, e),
-                }
-            }
+    // §97: 仅复制 db 文件 (3 个: sqlite + shm + wal), 不复制 decode_cache / models 大文件
+    // 用户机器新目录已有 4G decode_cache + models, 复制 4.5G 老目录无意义且可能爆磁盘
+    let files_to_copy = ["meeting_minutes.sqlite", "meeting_minutes.sqlite-shm", "meeting_minutes.sqlite-wal"];
+    let mut copied: Vec<String> = Vec::new();
+    let mut skipped: Vec<String> = Vec::new();
+    for fname in &files_to_copy {
+        let src = legacy_dir.join(fname);
+        let dst = new_dir.join(fname);
+        if !src.exists() {
+            continue;
+        }
+        if dst.exists() {
+            skipped.push(fname.to_string());
+            continue;
+        }
+        std::fs::copy(&src, &dst).map_err(|e| anyhow::anyhow!("copy {:?}: {}", src, e))?;
+        copied.push(fname.to_string());
+    }
+
+    // §99: §97 漏复制 models/. 用户机器新目录 tech.yanjingai.app/models/ 存在但 sherpa 子目录不存在,
+    // 旧目录 cn.lixianhuiji.app/models/sherpa/{funasr-nano-int8,paraformer-zh-int8} 是真模型 (~1.2GB),
+    // 不复制 = sherpa_asr.py daemon 启动后 discovered 0 model packs, 导入转录 0 段识别.
+    // 策略: 新目录 models/sherpa/ 不存在 OR 为空时, 递归复制旧目录整个 models/ 树.
+    let src_models = legacy_dir.join("models");
+    let dst_models = new_dir.join("models");
+    let mut models_copied = 0usize;
+    if src_models.is_dir() {
+        let dst_sherpa = dst_models.join("sherpa");
+        let need_copy = !dst_sherpa.is_dir()
+            || std::fs::read_dir(&dst_sherpa).map(|mut it| it.next().is_none()).unwrap_or(true);
+        if need_copy {
+            copy_dir_recursive(&src_models, &dst_models, &mut models_copied)
+                .map_err(|e| anyhow::anyhow!("copy models {:?} -> {:?}: {}", src_models, dst_models, e))?;
+        } else {
+            log::info!("§99 migrate_legacy_app_data: skip models/ (new dir already populated)");
         }
     }
+
     log::info!(
-        "[placeholder_recovery] done: renamed={}, deleted={}",
-        renamed,
-        deleted
+        "§99 migrate_legacy_app_data: copied_db={:?} skipped_db={:?} models_files_copied={} (legacy={:?}, new={:?})",
+        copied, skipped, models_copied, legacy_dir, new_dir
     );
+    Ok(())
+}
+
+/// §99.2 (2026-08-10): 一次性回填 user_id IS NULL 或 user_id = -1 的老 meetings/transcripts
+/// 到当前登录用户 (latest_session_in_db). 跟 §26 §49 一致, 哨兵 -1 改为真实 user_id.
+/// best-effort, 失败 warn 不阻塞启动.
+async fn backfill_meeting_user_ids<R: tauri::Runtime>(app: &tauri::AppHandle<R>) -> anyhow::Result<()> {
+    let app_state = app.try_state::<crate::state::AppState>()
+        .ok_or_else(|| anyhow::anyhow!("AppState not available"))?;
+    let pool = app_state.db_manager.pool();
+    let user_id: i64 = match crate::user::commands::latest_session_in_db(app).await {
+        Ok(Some((_, uid))) => uid,
+        _ => {
+            log::info!("§99.2 backfill: no active session, skip (避免误把数据挂到错误用户)");
+            return Ok(());
+        }
+    };
+    let m = sqlx::query("UPDATE meetings SET user_id = ? WHERE user_id IS NULL OR user_id = -1")
+        .bind(user_id).execute(pool).await
+        .map_err(|e| anyhow::anyhow!("UPDATE meetings: {}", e))?
+        .rows_affected();
+    let t = sqlx::query("UPDATE transcripts SET user_id = ? WHERE user_id IS NULL OR user_id = -1")
+        .bind(user_id).execute(pool).await
+        .map_err(|e| anyhow::anyhow!("UPDATE transcripts: {}", e))?
+        .rows_affected();
+    log::info!("§99.2 backfill_meeting_user_ids: meetings={} transcripts={} → user_id={}", m, t, user_id);
+    Ok(())
+}
+
+/// §99: 递归复制目录树 (用于 §97 §99 models/ 迁移).
+/// src/models/sherpa/funasr-nano-int8/*.onnx ~ 947MB, 必须用 copy (不能用 hardlink,
+/// 因为 APFS 跨卷 hardlink 失败; 同卷 hardlink 反而让"复制"语义不清, fail 时排查难).
+fn copy_dir_recursive(src: &std::path::Path, dst: &std::path::Path, count: &mut usize) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ft = entry.file_type()?;
+        let src_child = entry.path();
+        let dst_child = dst.join(entry.file_name());
+        if ft.is_dir() {
+            copy_dir_recursive(&src_child, &dst_child, count)?;
+        } else if ft.is_file() {
+            if dst_child.exists() {
+                continue;
+            }
+            std::fs::copy(&src_child, &dst_child)?;
+            *count += 1;
+        }
+    }
+    Ok(())
 }
 
 pub fn run() {
@@ -552,11 +592,19 @@ pub fn run() {
             None::<notifications::manager::NotificationManager<tauri::Wry>>,
         )) as NotificationManagerState<tauri::Wry>)
         .manage(audio::init_system_audio_state())
-        .manage(summary::summary_engine::ModelManagerState(Arc::new(
-            tokio::sync::Mutex::new(None),
-        )))
+        .manage(summary::summary_engine::ModelManagerState(Arc::new(tokio::sync::Mutex::new(None))))
         .manage(SessionStore::default())
         .setup(|_app| {
+            // §97 (2026-08-09): identifier 改造后, 首次启动自动从旧 Bundle 目录 (cn.lixianhuiji.app)
+            // 复制 SQLite + decode_cache + models 到新目录 (tech.yanjingai.app). 旧目录保留, 不删除.
+            if let Err(e) = migrate_legacy_app_data() {
+                log::warn!("§97 migrate_legacy_app_data failed (best-effort, continue): {}", e);
+            }
+
+            // §99.2/§101 (2026-08-10): backfill 移到 database init 之后 (line 700+),
+            // 否则 race condition: backfill spawn 在 AppState 注册之前, try_state::<AppState> 返 None.
+            // 之前版本: "§99.2 backfill_meeting_user_ids failed: AppState not available" warn 一直打.
+
             log::info!("Application setup complete");
 
             // Initialize system tray
@@ -569,11 +617,7 @@ pub fn run() {
             let app_for_notif = _app.handle().clone();
             tauri::async_runtime::spawn(async move {
                 let notif_state = app_for_notif.state::<NotificationManagerState<tauri::Wry>>();
-                match notifications::commands::initialize_notification_manager(
-                    app_for_notif.clone(),
-                )
-                .await
-                {
+                match notifications::commands::initialize_notification_manager(app_for_notif.clone()).await {
                     Ok(manager) => {
                         // Set default consent and permissions on first launch
                         if let Err(e) = manager.set_consent(true).await {
@@ -617,11 +661,7 @@ pub fn run() {
             // Initialize ModelManager for summary engine (async, non-blocking)
             let app_handle_for_model_manager = _app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                match summary::summary_engine::commands::init_model_manager_at_startup(
-                    &app_handle_for_model_manager,
-                )
-                .await
-                {
+                match summary::summary_engine::commands::init_model_manager_at_startup(&app_handle_for_model_manager).await {
                     Ok(_) => log::info!("ModelManager initialized successfully at startup"),
                     Err(e) => {
                         log::warn!("Failed to initialize ModelManager at startup: {}", e);
@@ -646,21 +686,31 @@ pub fn run() {
             })
             .expect("Failed to initialize database");
 
-            // v0.7.0+ P1-I startup recovery: 扫描上轮崩溃残留的 "Recording in progress (...)"
-            // placeholder meetings. 失败 non-fatal (warn 写日志, 不阻塞启动).
-            let app_for_recovery = _app.handle().clone();
+            // §99.2/§101 backfill: 必须在 database::setup 之后 spawn, AppState 已 manage 才能 try_state 成功
+            // §99.5: 必须用 tauri::async_runtime::spawn, 不能用 tokio::spawn —
+            //   Tauri main thread 是 tao event loop, 不是 Tokio runtime,
+            //   tokio::spawn 会 panic: "there is no reactor running"
+            let app_for_backfill = _app.handle().clone();
             tauri::async_runtime::spawn(async move {
-                placeholder_startup_recovery(&app_for_recovery).await;
+                if let Err(e) = backfill_meeting_user_ids(&app_for_backfill).await {
+                    log::warn!("§99.2 backfill_meeting_user_ids failed (best-effort, continue): {}", e);
+                }
             });
+            log::info!("§99.2 user_id backfill scheduled (post-AppState registration)");
+
+            // §P2-B Topic dossier 夜间重建 scheduler (71 报告 P2-B)
+            // 启动后 spawn 后台 task, 0-6 点 + 用户 idle + DB 有 stale topic 时跑.
+            let app_for_scheduler = _app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                topic_graph::scheduler::start_topic_dossier_scheduler(app_for_scheduler).await;
+            });
+            log::info!("Topic dossier nightly scheduler started (idle-only)");
 
             // Initialize bundled templates directory for dynamic template discovery
             log::info!("Initializing bundled templates directory...");
             if let Ok(resource_path) = _app.handle().path().resource_dir() {
                 let templates_dir = resource_path.join("templates");
-                log::info!(
-                    "Setting bundled templates directory to: {:?}",
-                    templates_dir
-                );
+                log::info!("Setting bundled templates directory to: {:?}", templates_dir);
                 summary::templates::set_bundled_templates_dir(templates_dir);
             } else {
                 log::warn!("Failed to resolve resource directory for templates");
@@ -712,10 +762,32 @@ pub fn run() {
             analytics::commands::track_analytics_enabled,
             analytics::commands::track_analytics_disabled,
             analytics::commands::track_analytics_transparency_viewed,
+
             // v0.7.0+ P0-4: 硬件检测
             hardware::device_detect_profile,
             hardware::device_current_memory_mb,
             hardware::device_memory_pressure,
+            // §31 P0 长音频内存自动降级
+            hardware::memory_watcher::device_get_memory_recommendation,
+
+            // §P0-A 跨会议知识图谱 (Phase 1 §78 + Phase 2 §79)
+            topic_graph::api_topic_search,
+            topic_graph::api_topic_recent,
+            topic_graph::api_topic_get_dossier,
+            topic_graph::api_topic_rebuild_dossier,
+            live_qa::api_meeting_live_qa,
+            // §P0-B Obsidian vault 写入
+            obsidian_export::api_obsidian_get_settings,
+            obsidian_export::api_obsidian_set_settings,
+            obsidian_export::api_obsidian_export_meeting,
+            obsidian_export::api_obsidian_preview_markdown,
+            // §P2-A 行动项可点击完成
+            action_items::api_action_item_list,
+            action_items::api_action_item_toggle,
+            // §P1-B speaker alias (MVP)
+            speaker_aliases::api_speaker_alias_list,
+            speaker_aliases::api_speaker_alias_set,
+
             // 离线会记 v0.5.0: 用户/会员管理
             user::commands::user_register,
             user::commands::user_login,
@@ -727,6 +799,8 @@ pub fn run() {
             user::commands::hotwords_get,
             user::commands::hotwords_save,
             user::commands::hotwords_set_globals,
+            user::commands::hotwords_list_packs,
+
             // v0.6.10+: 商业化
             user::commands::quota_get_status,
             user::commands::quota_increment_after_record,
@@ -924,6 +998,9 @@ pub fn run() {
             audio::retranscription::start_retranscription_command,
             audio::retranscription::cancel_retranscription_command,
             audio::retranscription::is_retranscription_in_progress_command,
+            // §94 fix: 之前 invoke_handler 未注册, 前端 transcriptService.ts:102 调会失败
+            // #[tauri::command] macro 注入的 __cmd__ 在 worker module, 需用 worker 路径
+            audio::transcription::worker::get_streaming_timing_stats,
             // v0.6.11: streaming pipeline (实时流式识别)
             audio::sherpa_daemon::sherpa_stream_begin,
             audio::sherpa_daemon::sherpa_stream_chunk,
@@ -955,21 +1032,18 @@ pub fn run() {
                                 log::info!("Database cleanup completed successfully");
                             }
                         } else {
-                            log::warn!(
-                                "AppState not available for database cleanup (likely first launch)"
-                            );
+                            log::warn!("AppState not available for database cleanup (likely first launch)");
                         }
+
+                        // v0.8.5 §23: Release sherpa daemon (kill Python child + onnx models)
+                        log::info!("Cleaning up sherpa daemon...");
+                        crate::audio::sherpa_daemon::shutdown_global_daemon();
 
                         // Clean up sidecar
                         log::info!("Cleaning up sidecar...");
                         if let Err(e) = summary::summary_engine::force_shutdown_sidecar().await {
                             log::error!("Failed to force shutdown sidecar: {}", e);
                         }
-
-                        // P0-fix: 关 app 时杀 sherpa daemon (Python 子进程 + onnx 模型 ~700M).
-                        // 之前 daemon 是 once_cell::Lazy 静态, 进程不退就常驻, 录完音后 RAM 不回收.
-                        log::info!("Cleaning up sherpa daemon...");
-                        audio::sherpa_daemon::shutdown_global_daemon();
                     });
                     log::info!("Application cleanup complete");
                 }
@@ -982,9 +1056,9 @@ pub fn run() {
 /// 任何 Rust 线程 panic 时, 把 backtrace 写到本地 crash log 文件, 用户可查.
 /// 完全本地, 0 网络, 0 第三方依赖.
 fn install_panic_hook() {
+    use std::panic;
     use std::fs;
     use std::io::Write;
-    use std::panic;
 
     let default_hook = panic::take_hook();
     panic::set_hook(Box::new(move |panic_info| {
@@ -992,9 +1066,8 @@ fn install_panic_hook() {
         default_hook(panic_info);
 
         // 2) 写本地 crash log
-        let app_data = std::env::var("LIXIANHUIJI_DATA_DIR").ok().or_else(|| {
-            dirs::data_dir().map(|p| p.join("cn.lixianhuiji.app").to_string_lossy().to_string())
-        });
+        let app_data = std::env::var("LIXIANHUIJI_DATA_DIR").ok()
+            .or_else(|| dirs::data_dir().map(|p| p.join(crate::config::APP_BUNDLE_ID).to_string_lossy().to_string()));
         if let Some(dir) = app_data {
             let crash_dir = std::path::PathBuf::from(&dir).join("crashes");
             let _ = fs::create_dir_all(&crash_dir);
@@ -1005,29 +1078,17 @@ fn install_panic_hook() {
                 let _ = writeln!(f, "=== LixianHuiji Panic Report ===");
                 let _ = writeln!(f, "timestamp: {}", now.to_rfc3339());
                 let _ = writeln!(f, "version: {}", env!("CARGO_PKG_VERSION"));
-                let _ = writeln!(
-                    f,
-                    "os: {} / arch: {}",
-                    std::env::consts::OS,
-                    std::env::consts::ARCH
-                );
-                let _ = writeln!(
-                    f,
-                    "
---- panic_info ---"
-                );
+                let _ = writeln!(f, "os: {} / arch: {}", std::env::consts::OS, std::env::consts::ARCH);
+                let _ = writeln!(f, "
+--- panic_info ---");
                 let _ = writeln!(f, "{}", panic_info);
-                let _ = writeln!(
-                    f,
-                    "
---- backtrace ---"
-                );
+                let _ = writeln!(f, "
+--- backtrace ---");
                 let _ = writeln!(f, "{}", std::backtrace::Backtrace::force_capture());
             }
             // 3) 仅保留最近 50 个 crash 文件
             if let Ok(rd) = fs::read_dir(&crash_dir) {
-                let mut entries: Vec<_> = rd
-                    .flatten()
+                let mut entries: Vec<_> = rd.flatten()
                     .filter(|e| e.path().extension().and_then(|s| s.to_str()) == Some("txt"))
                     .collect();
                 entries.sort_by_key(|e| e.metadata().and_then(|m| m.modified()).ok());

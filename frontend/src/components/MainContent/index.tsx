@@ -19,7 +19,7 @@ const MainContent: React.FC<MainContentProps> = ({ children }) => {
   );
 
   return (
-    <main className={`flex-1 transition-all duration-300 ${isAuthRoute ? '' : (isCollapsed ? 'ml-[68px]' : 'ml-[252px]')}`}>
+    <main className={`flex-1 h-screen overflow-y-auto transition-all duration-300 ${isAuthRoute ? '' : (isCollapsed ? 'ml-[68px]' : 'ml-[252px]')}`}>
       {!isAuthRoute && <Topbar />}
       <div className={isAuthRoute ? '' : 'px-8 py-6'}>{children}</div>
     </main>

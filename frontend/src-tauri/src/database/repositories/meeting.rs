@@ -7,48 +7,15 @@ use tracing::{error, info};
 pub struct MeetingsRepository;
 
 impl MeetingsRepository {
-    /// 按 user_id 过滤会议. user_id=None 时返回该机器所有会议 (admin / debug 用).
-    pub async fn get_meetings(
-        pool: &SqlitePool,
-        user_id: Option<i64>,
-    ) -> Result<Vec<MeetingModel>, sqlx::Error> {
-        let meetings = match user_id {
-            Some(uid) => {
-                sqlx::query_as::<_, MeetingModel>(
-                    "SELECT * FROM meetings WHERE user_id = ?1 ORDER BY created_at DESC",
-                )
-                .bind(uid)
+    pub async fn get_meetings(pool: &SqlitePool) -> Result<Vec<MeetingModel>, sqlx::Error> {
+        let meetings =
+            sqlx::query_as::<_, MeetingModel>("SELECT * FROM meetings ORDER BY created_at DESC")
                 .fetch_all(pool)
-                .await?
-            }
-            None => {
-                sqlx::query_as::<_, MeetingModel>("SELECT * FROM meetings ORDER BY created_at DESC")
-                    .fetch_all(pool)
-                    .await?
-            }
-        };
+                .await?;
         Ok(meetings)
     }
 
-    pub async fn delete_meeting(
-        pool: &SqlitePool,
-        meeting_id: &str,
-        user_id: Option<i64>,
-    ) -> Result<bool, SqlxError> {
-        // v0.7.0+: 必须先验证会议归属. user_id=None = admin / debug only.
-        if let Some(uid) = user_id {
-            let owner: Option<i64> =
-                sqlx::query_scalar("SELECT user_id FROM meetings WHERE id = ?1")
-                    .bind(meeting_id)
-                    .fetch_optional(pool)
-                    .await?;
-            match owner {
-                None => return Ok(false),                // 不存在
-                Some(u) if u != uid => return Ok(false), // 越权 → 当作「不存在」处理 (不泄漏存在性)
-                _ => {}                                  // owner 匹配, 继续删
-            }
-        }
-
+    pub async fn delete_meeting(pool: &SqlitePool, meeting_id: &str) -> Result<bool, SqlxError> {
         if meeting_id.trim().is_empty() {
             return Err(SqlxError::Protocol(
                 "meeting_id cannot be empty".to_string(),
@@ -83,7 +50,6 @@ impl MeetingsRepository {
     pub async fn get_meeting(
         pool: &SqlitePool,
         meeting_id: &str,
-        user_id: Option<i64>,
     ) -> Result<Option<MeetingDetails>, SqlxError> {
         if meeting_id.trim().is_empty() {
             return Err(SqlxError::Protocol(
@@ -91,28 +57,15 @@ impl MeetingsRepository {
             ));
         }
 
-        // v0.7.0+: 先按 user_id 过滤, 不属于该用户的会议直接当不存在 (避免存在性泄漏)
-        if let Some(uid) = user_id {
-            let owner: Option<i64> =
-                sqlx::query_scalar("SELECT user_id FROM meetings WHERE id = ?1")
-                    .bind(meeting_id)
-                    .fetch_optional(pool)
-                    .await?;
-            if owner != Some(uid) {
-                return Err(SqlxError::RowNotFound);
-            }
-        }
-
         let mut conn = pool.acquire().await?;
         let mut transaction = conn.begin().await?;
 
         // Get meeting details
-        let meeting: Option<MeetingModel> = sqlx::query_as(
-            "SELECT id, title, created_at, updated_at, folder_path FROM meetings WHERE id = ?",
-        )
-        .bind(meeting_id)
-        .fetch_optional(&mut *transaction)
-        .await?;
+        let meeting: Option<MeetingModel> =
+            sqlx::query_as("SELECT id, title, created_at, updated_at, folder_path FROM meetings WHERE id = ?")
+                .bind(meeting_id)
+                .fetch_optional(&mut *transaction)
+                .await?;
 
         if meeting.is_none() {
             transaction.rollback().await?;
@@ -120,12 +73,13 @@ impl MeetingsRepository {
         }
 
         if let Some(meeting) = meeting {
-            // Get all transcripts for this meeting
-            let transcripts =
-                sqlx::query_as::<_, Transcript>("SELECT * FROM transcripts WHERE meeting_id = ?")
-                    .bind(meeting_id)
-                    .fetch_all(&mut *transaction)
-                    .await?;
+            // §91 P1-B UI 完整化: LEFT JOIN speaker_aliases 把 label 一起返回, 前端直接用.
+            let transcripts = sqlx::query_as::<_, Transcript>(
+                "SELECT t.id, t.meeting_id, t.transcript, t.timestamp, t.summary, t.action_items, t.key_points,                  t.audio_start_time, t.audio_end_time, t.duration, sa.label AS speaker_label, t.speaker_id                  FROM transcripts t LEFT JOIN speaker_aliases sa ON sa.meeting_id = t.meeting_id AND sa.speaker_id = t.speaker_id                  WHERE t.meeting_id = ?"
+            )
+                .bind(meeting_id)
+                .fetch_all(&mut *transaction)
+                .await?;
 
             transaction.commit().await?;
 
@@ -139,7 +93,8 @@ impl MeetingsRepository {
                     audio_start_time: t.audio_start_time,
                     audio_end_time: t.audio_end_time,
                     duration: t.duration,
-                    speaker: t.speaker,
+                    speaker_label: t.speaker_label,
+                    speaker_id: t.speaker_id,
                 })
                 .collect::<Vec<_>>();
 
@@ -160,7 +115,6 @@ impl MeetingsRepository {
     pub async fn get_meeting_metadata(
         pool: &SqlitePool,
         meeting_id: &str,
-        user_id: Option<i64>,
     ) -> Result<Option<MeetingModel>, SqlxError> {
         if meeting_id.trim().is_empty() {
             return Err(SqlxError::Protocol(
@@ -168,24 +122,11 @@ impl MeetingsRepository {
             ));
         }
 
-        // v0.7.0+: 按 user_id 过滤 (同 get_meeting)
-        if let Some(uid) = user_id {
-            let owner: Option<i64> =
-                sqlx::query_scalar("SELECT user_id FROM meetings WHERE id = ?1")
-                    .bind(meeting_id)
-                    .fetch_optional(pool)
-                    .await?;
-            if owner != Some(uid) {
-                return Ok(None);
-            }
-        }
-
-        let meeting: Option<MeetingModel> = sqlx::query_as(
-            "SELECT id, title, created_at, updated_at, folder_path FROM meetings WHERE id = ?",
-        )
-        .bind(meeting_id)
-        .fetch_optional(pool)
-        .await?;
+        let meeting: Option<MeetingModel> =
+            sqlx::query_as("SELECT id, title, created_at, updated_at, folder_path FROM meetings WHERE id = ?")
+                .bind(meeting_id)
+                .fetch_optional(pool)
+                .await?;
 
         Ok(meeting)
     }
@@ -196,7 +137,6 @@ impl MeetingsRepository {
         meeting_id: &str,
         limit: i64,
         offset: i64,
-        user_id: Option<i64>,
     ) -> Result<(Vec<Transcript>, i64), SqlxError> {
         if meeting_id.trim().is_empty() {
             return Err(SqlxError::Protocol(
@@ -204,30 +144,17 @@ impl MeetingsRepository {
             ));
         }
 
-        // v0.7.0+: 按 user_id 过滤
-        if let Some(uid) = user_id {
-            let owner: Option<i64> =
-                sqlx::query_scalar("SELECT user_id FROM meetings WHERE id = ?1")
-                    .bind(meeting_id)
-                    .fetch_optional(pool)
-                    .await?;
-            if owner != Some(uid) {
-                return Ok((Vec::new(), 0));
-            }
-        }
-
         // Get total count of transcripts for this meeting
-        let total: (i64,) = sqlx::query_as("SELECT COUNT(*) FROM transcripts WHERE meeting_id = ?")
-            .bind(meeting_id)
-            .fetch_one(pool)
-            .await?;
+        let total: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM transcripts WHERE meeting_id = ?"
+        )
+        .bind(meeting_id)
+        .fetch_one(pool)
+        .await?;
 
-        // Get paginated transcripts ordered by audio_start_time
+        // §91 P1-B UI 完整化: LEFT JOIN speaker_aliases 把 label 一起拉
         let transcripts = sqlx::query_as::<_, Transcript>(
-            "SELECT * FROM transcripts
-             WHERE meeting_id = ?
-             ORDER BY audio_start_time ASC
-             LIMIT ? OFFSET ?",
+            "SELECT t.id, t.meeting_id, t.transcript, t.timestamp, t.summary, t.action_items, t.key_points,              t.audio_start_time, t.audio_end_time, t.duration, sa.label AS speaker_label, t.speaker_id              FROM transcripts t LEFT JOIN speaker_aliases sa ON sa.meeting_id = t.meeting_id AND sa.speaker_id = t.speaker_id              WHERE t.meeting_id = ?              ORDER BY t.audio_start_time ASC              LIMIT ? OFFSET ?"
         )
         .bind(meeting_id)
         .bind(limit)
@@ -242,24 +169,11 @@ impl MeetingsRepository {
         pool: &SqlitePool,
         meeting_id: &str,
         new_title: &str,
-        user_id: Option<i64>,
     ) -> Result<bool, SqlxError> {
         if meeting_id.trim().is_empty() {
             return Err(SqlxError::Protocol(
                 "meeting_id cannot be empty".to_string(),
             ));
-        }
-
-        // v0.7.0+: 越权防护
-        if let Some(uid) = user_id {
-            let owner: Option<i64> =
-                sqlx::query_scalar("SELECT user_id FROM meetings WHERE id = ?1")
-                    .bind(meeting_id)
-                    .fetch_optional(pool)
-                    .await?;
-            if owner != Some(uid) {
-                return Ok(false);
-            }
         }
 
         let mut conn = pool.acquire().await?;

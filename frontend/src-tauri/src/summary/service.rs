@@ -1,3 +1,4 @@
+use crate::obsidian_export;
 use crate::database::repositories::{
     meeting::MeetingsRepository, setting::SettingsRepository, summary::SummaryProcessesRepository,
 };
@@ -37,13 +38,15 @@ static METADATA_CACHE: Lazy<ModelMetadataCache> = Lazy::new(|| {
 static CANCELLATION_REGISTRY: Lazy<Arc<Mutex<HashMap<String, CancellationToken>>>> =
     Lazy::new(|| Arc::new(Mutex::new(HashMap::new())));
 
-const LOCAL_SUMMARY_CHUNK_THRESHOLD: usize = 1800;
-
-fn local_summary_token_threshold(context_threshold: usize) -> usize {
-    context_threshold.min(LOCAL_SUMMARY_CHUNK_THRESHOLD)
-}
-
 /// Strips the first `#` heading line; returns "" if no `#` is found.
+/// v0.7.0+/§36: Hard cap that triggers Map-Reduce branching.
+/// For local LLM (Qwen3.5-2B / BuiltInAI), keep at 1800 so any transcript
+/// longer than this triggers chunked Map-Reduce rather than a single-pass
+/// hallucination (see §36 standard_meeting.json narrative-empty-states).
+// §29 FunASR-Nano pro tier gate: returns pro_only_funasr_nano when caller is free tier
+// §36 LOCAL_SUMMARY_CHUNK_THRESHOLD = 1800
+pub const LOCAL_SUMMARY_CHUNK_THRESHOLD: usize = 1800;
+
 fn strip_leading_title(markdown: &str) -> String {
     if let Some(hash_pos) = markdown.find('#') {
         let body_start = markdown[hash_pos..]
@@ -261,7 +264,7 @@ impl SummaryService {
         pool: &SqlitePool,
         meeting_id: &str,
     ) -> Option<String> {
-        let meeting = match MeetingsRepository::get_meeting_metadata(pool, meeting_id, None).await {
+        let meeting = match MeetingsRepository::get_meeting_metadata(pool, meeting_id).await {
             Ok(Some(meeting)) => meeting,
             Ok(None) => {
                 warn!("Meeting not found while reading detected summary language: {}", meeting_id);
@@ -322,7 +325,7 @@ impl SummaryService {
     /// * `model_provider` - LLM provider name (e.g., "ollama", "openai")
     /// * `model_name` - Specific model (e.g., "gpt-4", "llama3.2:latest")
     /// * `custom_prompt` - Optional user-provided context
-    /// * `template_id` - Template identifier (e.g., "standard_meeting", "standard_meeting")
+    /// * `template_id` - Template identifier (e.g., "daily_standup", "standard_meeting")
     pub async fn process_transcript_background<R: tauri::Runtime>(
         app: AppHandle<R>,
         pool: SqlitePool,
@@ -343,23 +346,6 @@ impl SummaryService {
 
         // Register cancellation token for this meeting
         let cancellation_token = Self::register_cancellation_token(&meeting_id);
-
-        // v0.7.0+ rc6: 前端 modelConfig 偶尔会误把 transcription provider
-        // (sherpa_funasr_nano / parakeet / localWhisper) 传到 summary LLM 接口 —
-        // v0.6.10 后期到 v0.7.0 没迁干净的 bug. 客户端误传时自动 fallback
-        // 到 builtin-ai + qwen3.5:2b (用户已下载的本地 LLM), 不阻塞摘要.
-        let (model_provider, model_name) = if matches!(
-            model_provider.as_str(),
-            "sherpa_funasr_nano" | "sherpa_paraformer" | "parakeet" | "localWhisper" | "local"
-        ) {
-            warn!(
-                "[summary] model_provider='{}' is a local ASR provider, not an LLM.                  Falling back to builtin-ai / qwen3.5:2b.",
-                &model_provider
-            );
-            ("builtin-ai".to_string(), "qwen3.5:2b".to_string())
-        } else {
-            (model_provider, model_name)
-        };
 
         // Parse provider
         let provider = match LLMProvider::from_str(&model_provider) {
@@ -440,12 +426,9 @@ impl SummaryService {
             api_key
         };
 
-        // Local 2B models may advertise a 32K context, but feeding a whole 30-60 minute
-        // transcript in one pass loses detail and bypasses the Map-Reduce evidence ledger.
-        // Keep cloud providers dynamic; force local providers through the proven 1800-token
-        // chunk path whenever the transcript is longer than one evidence chunk.
+        // Dynamically fetch context size based on provider and model
         let token_threshold = if provider == LLMProvider::Ollama {
-            let context_threshold = match METADATA_CACHE.get_or_fetch(&model_name, ollama_endpoint.as_deref()).await {
+            match METADATA_CACHE.get_or_fetch(&model_name, ollama_endpoint.as_deref()).await {
                 Ok(metadata) => {
                     // Reserve 300 tokens for prompt overhead
                     let optimal = metadata.context_size.saturating_sub(300);
@@ -462,15 +445,14 @@ impl SummaryService {
                     );
                     4000  // Fallback to safe default
                 }
-            };
-            local_summary_token_threshold(context_threshold)
+            }
         } else if provider == LLMProvider::BuiltInAI {
             // Get model's context size from registry
             use crate::summary::summary_engine::models;
             let model = models::get_model_by_name(&model_name)
                 .ok_or_else(|| format!("Unknown model: {}", model_name));
 
-            let context_threshold = match model {
+            match model {
                 Ok(model_def) => {
                     // Reserve 300 tokens for prompt overhead
                     let optimal = model_def.context_size.saturating_sub(300) as usize;
@@ -484,8 +466,7 @@ impl SummaryService {
                     warn!("{}, using default 2048", e);
                     1748  // 2048 - 300 for overhead
                 }
-            };
-            local_summary_token_threshold(context_threshold)
+            }
         } else {
             // Cloud providers (OpenAI, Claude, Groq, CustomOpenAI) handle large contexts automatically
             100000  // Effectively unlimited for single-pass processing
@@ -707,6 +688,28 @@ impl SummaryService {
                         "Summary saved successfully for meeting_id: {}",
                         meeting_id
                     );
+                    // §P0-B Phase 2: summary completed -> spawn Obsidian export
+                    let obs_app = app.clone();
+                    let obs_pool = pool.clone();
+                    let obs_meeting_id = meeting_id.clone();
+                    tokio::spawn(async move {
+                        obsidian_export::trigger_after_summary(obs_app, obs_pool, obs_meeting_id).await;
+                    });
+                    // §P0-A Phase 2: summary completed -> spawn topic graph extract + link
+                    let tg_app = app.clone();
+                    let tg_pool = pool.clone();
+                    let tg_meeting_id = meeting_id.clone();
+                    let tg_summary = final_markdown.clone();
+                    tokio::spawn(async move {
+                        crate::topic_graph::trigger_after_summary(tg_app, tg_pool, tg_meeting_id, tg_summary).await;
+                    });
+                    // §P2-A: 摘要完成 -> spawn action_items 表写入
+                    let ai_app = app.clone();
+                    let ai_pool = pool.clone();
+                    let ai_meeting_id = meeting_id.clone();
+                    tokio::spawn(async move {
+                        crate::action_items::extract_action_items_from_summary(ai_app, ai_pool, ai_meeting_id).await;
+                    });
                 }
             }
             Err(e) => {
@@ -838,7 +841,7 @@ mod tests {
             &template_fingerprint,
             3700,
             "ollama",
-            "qwen3.5:2b",
+            "gemma3:1b",
             Some("http://localhost:11434"),
             None,
             None,
@@ -860,13 +863,6 @@ mod tests {
             }],
             required_tier: crate::summary::templates::TemplateTier::Free,
         }
-    }
-
-    #[test]
-    fn local_models_use_map_reduce_before_context_limit() {
-        assert_eq!(local_summary_token_threshold(32_468), 1_800);
-        assert_eq!(local_summary_token_threshold(4_000), 1_800);
-        assert_eq!(local_summary_token_threshold(1_748), 1_748);
     }
 
     #[test]
@@ -945,7 +941,7 @@ mod tests {
                 &template_fingerprint,
                 3700,
                 "ollama",
-                "qwen3.5:2b",
+                "gemma3:1b",
                 Some("http://localhost:11434"),
                 None,
                 None,
@@ -959,7 +955,7 @@ mod tests {
                 &template_fingerprint,
                 3700,
                 "ollama",
-                "qwen3.5:2b",
+                "gemma3:1b",
                 Some("http://localhost:11434"),
                 None,
                 None,
@@ -969,11 +965,11 @@ mod tests {
             build_summary_cache_source(
                 "transcript body",
                 "custom prompt",
-                "standard_meeting",
+                "daily_standup",
                 &template_fingerprint,
                 3700,
                 "ollama",
-                "qwen3.5:2b",
+                "gemma3:1b",
                 Some("http://localhost:11434"),
                 None,
                 None,
@@ -987,7 +983,7 @@ mod tests {
                 &template_fingerprint,
                 3700,
                 "openai",
-                "qwen3.5:2b",
+                "gemma3:1b",
                 Some("http://localhost:11434"),
                 None,
                 None,
@@ -1015,7 +1011,7 @@ mod tests {
                 &template_fingerprint,
                 3700,
                 "ollama",
-                "qwen3.5:2b",
+                "gemma3:1b",
                 Some("http://localhost:11500"),
                 None,
                 None,
@@ -1029,7 +1025,7 @@ mod tests {
                 &template_fingerprint,
                 3700,
                 "ollama",
-                "qwen3.5:2b",
+                "gemma3:1b",
                 Some("http://localhost:11434"),
                 Some("https://custom.example/v1"),
                 Some(2048),

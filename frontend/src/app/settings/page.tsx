@@ -1,13 +1,14 @@
 'use client';
 
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
-import { ArrowLeft, Settings2, Mic, Database as DatabaseIcon, Sparkles as SparklesIcon, SparkleIcon, FlaskConical } from 'lucide-react';
+import { ArrowLeft, Settings2, Mic, Database as DatabaseIcon, SparkleIcon, FlaskConical } from 'lucide-react';
 import { useRouter } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
 import { motion } from 'framer-motion';
 import { TranscriptSettings } from '@/components/TranscriptSettings';
 import { RecordingSettings } from '@/components/RecordingSettings';
 import { PreferenceSettings } from '@/components/PreferenceSettings';
+import { ObsidianSettings } from '@/components/ObsidianSettings';
 import { SummaryModelSettings } from '@/components/SummaryModelSettings';
 import { BetaSettings } from '@/components/BetaSettings';
 import { HardwareStatusBadge } from '@/components/HardwareProfile/HardwareStatusBadge';
@@ -21,7 +22,6 @@ const TABS = [
   { value: 'recording', label: '录音', icon: Mic },
   { value: 'Transcriptionmodels', label: '转录', icon: DatabaseIcon },
   { value: 'summaryModels', label: '摘要', icon: SparkleIcon },
-  { value: 'hotwords', label: '热词', icon: SparklesIcon },
   { value: 'beta', label: '试用', icon: FlaskConical }
 ] as const;
 
@@ -134,6 +134,7 @@ export default function SettingsPage() {
 
             <TabsContent value="general">
               <PreferenceSettings />
+              <ObsidianSettings />
             </TabsContent>
             <TabsContent value="recording">
               <RecordingSettings />
@@ -146,15 +147,6 @@ export default function SettingsPage() {
             </TabsContent>
             <TabsContent value="summaryModels">
               <SummaryModelSettings />
-            </TabsContent>
-            <TabsContent value="hotwords" className="mt-6">
-              <div className="p-4 bg-white border border-gray-200 rounded-lg">
-                <h3 className="text-lg font-semibold mb-3">热词设置</h3>
-                <p className="text-sm text-gray-700 mb-4">启用热词词库, 让 ASR 更准确识别专业术语。</p>
-                <a href="/settings/hotwords" className="text-blue-600 hover:underline text-sm">
-                  打开热词设置 →
-                </a>
-              </div>
             </TabsContent>
             <TabsContent value="beta" className="mt-6">
               <BetaSettings />

@@ -1,4 +1,4 @@
-import { useTranslation, translateStage } from '@/i18n';
+import { useTranslation } from '@/i18n';
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import {
   Upload,
@@ -35,7 +35,6 @@ import { toast } from 'sonner';
 import { safeToast } from '@/lib/safeToast';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useImportAudio, ImportResult } from '@/hooks/useImportAudio';
-import { getAudioFormatsDisplayList } from '@/constants/audioFormats';
 import { useRouter } from 'next/navigation';
 import { useSidebar } from '../Sidebar/SidebarProvider';
 import { LANGUAGES } from '@/constants/languages';
@@ -109,7 +108,7 @@ export function ImportAudioDialog({
   }, [router, refetchMeetings, onComplete, onOpenChange]);
 
   const handleImportError = useCallback((error: string) => {
-    safeToast.error('导入失败', { description: error });
+    safeToast.error(t('import_dialog.toast_failed'), { description: error });
   }, []);
 
   const {
@@ -184,9 +183,25 @@ export function ImportAudioDialog({
   const handleSelectFile = async () => {
     const info = await selectFile();
     if (info) {
-      setTitle(info.filename);
+      setTitle(friendlyImportTitle(info.filename));
     }
   };
+
+  // v0.8.5 §69: Replace purely numeric / hex filenames with friendly date title
+  // (e.g. "13430280252492828" → "导入音频 2026-08-06 14:30")
+  function friendlyImportTitle(filename: string): string {
+    if (!filename) return '导入音频';
+    const stem = filename.replace(/\.[^.]+$/, '');
+    const allDigits = /^\d{8,}$/.test(stem);
+    const mostlyNoise = /^\d{6,}[A-Za-z0-9_-]*$/.test(stem) && stem.replace(/\D/g, '').length >= stem.length * 0.7;
+    if (allDigits || mostlyNoise) {
+      const now = new Date();
+      const pad = (n: number) => String(n).padStart(2, '0');
+      const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`;
+      return `导入音频 ${stamp}`;
+    }
+    return filename;
+  }
 
   const handleStartImport = async () => {
     if (!fileInfo) return;
@@ -203,7 +218,7 @@ export function ImportAudioDialog({
   const handleCancel = async () => {
     if (isProcessing) {
       await cancelImport();
-      safeToast.info(t('import.cancelled'));
+      safeToast.info(t('import_dialog.toast_cancelled'));
     }
     onOpenChange(false);
   };
@@ -240,31 +255,31 @@ export function ImportAudioDialog({
             {isProcessing ? (
               <>
                 <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
-                {t('import.dialog.title_processing')}
+                {t('import_dialog.title_processing')}
               </>
             ) : error ? (
               <>
                 <AlertCircle className="h-5 w-5 text-red-600" />
-                {t('import.dialog.title_error')}
+                {t('import_dialog.title_failed')}
               </>
             ) : status === 'complete' ? (
               <>
                 <CheckCircle2 className="h-5 w-5 text-green-600" />
-                {t('import.dialog.title_complete')}
+                {t('import_dialog.title_complete')}
               </>
             ) : (
               <>
                 <Upload className="h-5 w-5 text-blue-600" />
-                {t('import.dialog.title_idle')}
+                {t('import_dialog.title_default')}
               </>
             )}
           </DialogTitle>
           <DialogDescription>
             {isProcessing
-              ? progress?.message || t('meeting_details.processing_audio')
+              ? progress?.message || t('import_dialog.description_processing')
               : error
-              ? t('meeting_details.retranscription_error')
-              : t('import.dialog.title_desc')}
+              ? t('import_dialog.description_failed')
+              : t('import_dialog.description_default')}
           </DialogDescription>
         </DialogHeader>
 
@@ -294,7 +309,7 @@ export function ImportAudioDialog({
 
                   {/* Editable title */}
                   <div className="space-y-1">
-                    <label className="text-sm font-medium text-gray-700">{t('import.dialog.title_label')}</label>
+                    <label className="text-sm font-medium text-gray-700">Meeting Title</label>
                     <Input
                       value={title}
                       onChange={(e) => {
@@ -306,7 +321,7 @@ export function ImportAudioDialog({
                   </div>
 
                   <Button variant="outline" size="sm" onClick={handleSelectFile} className="w-full">
-                    {t('import.dialog.change_file')}
+                    Choose Different File
                   </Button>
                 </div>
               ) : (
@@ -316,21 +331,16 @@ export function ImportAudioDialog({
                     {status === 'validating' ? (
                       <>
                         <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                        {t('import.dialog.select_button_validating')}
+                        Validating...
                       </>
                     ) : (
                       <>
                         <Upload className="h-4 w-4 mr-2" />
-                        {t('import.dialog.select_button')}
+                        Select Audio File
                       </>
                     )}
                   </Button>
-                  <p className="text-sm text-gray-500 mt-2">
-                    {t('import.dialog.format_hint', {
-                      formats: getAudioFormatsDisplayList(),
-                      maxSize: '5 GB',
-                    })}
-                  </p>
+                  <p className="text-sm text-gray-500 mt-2">MP4, WAV, MP3, FLAC, OGG, MKV, WebM, WMA</p>
                 </div>
               )}
 
@@ -396,7 +406,7 @@ export function ImportAudioDialog({
                             disabled={loadingModels}
                           >
                             <SelectTrigger className="w-full">
-                              <SelectValue placeholder={loadingModels ? t('meeting_details.loading_models') : t('meeting_details.select_model')} />
+                              <SelectValue placeholder={loadingModels ? t('common.loading_models') : t('common.select_model_placeholder')} />
                             </SelectTrigger>
                             <SelectContent>
                               {availableModels.map((model) => (
@@ -429,7 +439,7 @@ export function ImportAudioDialog({
                   />
                 </div>
                 <div className="flex justify-between text-xs text-gray-600 mt-1">
-                  <span>{translateStage(progress.stage, t)}</span>
+                  <span>{progress.stage}</span>
                   <span>{Math.round(progress.progress_percentage)}%</span>
                 </div>
               </div>
@@ -464,16 +474,16 @@ export function ImportAudioDialog({
           {isProcessing && (
             <Button variant="outline" onClick={handleCancel}>
               <X className="h-4 w-4 mr-2" />
-              Cancel
+              {t('common.cancel')}
             </Button>
           )}
           {error && (
             <>
               <Button variant="outline" onClick={() => onOpenChange(false)}>
-                Close
+                {t('common.close')}
               </Button>
               <Button onClick={reset} variant="outline">
-                Try Again
+                {t('import_dialog.try_again')}
               </Button>
             </>
           )}

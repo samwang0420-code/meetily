@@ -1,9 +1,7 @@
-use crate::user::SessionStore;
-use crate::database::repositories::user as user_repo;
 use log::{debug as log_debug, error as log_error, info as log_info, warn as log_warn};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use tauri::{AppHandle, Manager, Runtime};
+use tauri::{AppHandle, Runtime};
 use tauri_plugin_store::StoreExt;
 
 use crate::{
@@ -11,9 +9,10 @@ use crate::{
         models::MeetingModel,
         repositories::{
             meeting::MeetingsRepository, setting::SettingsRepository,
-            transcript::TranscriptsRepository, user::UsersRepository,
+            transcript::TranscriptsRepository,
         },
     },
+    speaker_auto_attach,
     state::AppState,
     summary::CustomOpenAIConfig,
 };
@@ -139,10 +138,11 @@ pub struct MeetingTranscript {
     pub audio_end_time: Option<f64>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration: Option<f64>,
-    // P1-G: speaker label (Diar pickup 写库后, 由 api_get_meeting_transcripts 透传).
-    // None 表示该段尚未跑 diar (老库 / 单人录音 / 没启 cam++).
+    // §91 P1-B UI 完整化: alias lookup 拼上的显示名. None = fallback 到 speaker_id / "Speaker N".
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub speaker: Option<String>,
+    pub speaker_label: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speaker_id: Option<i64>,
 }
 
 /// Meeting metadata without transcripts (for pagination)
@@ -322,51 +322,21 @@ async fn make_api_request<R: Runtime, T: for<'de> Deserialize<'de>>(
     })
 }
 
-async fn resolve_user_id_from_session<R: Runtime>(
-    app: &AppHandle<R>,
-    pool: &sqlx::SqlitePool,
-    session: Option<&str>,
-) -> Result<i64, String> {
-    let token = session
-        .filter(|token| !token.trim().is_empty())
-        .ok_or_else(|| "not_logged_in".to_string())?;
-    let from_store = {
-        let sessions: tauri::State<SessionStore> = app.state();
-        let map = sessions
-            .map
-            .lock()
-            .map_err(|_| "session_store_unavailable".to_string())?;
-        map.get(token).copied()
-    };
-    if let Some(user_id) = from_store {
-        return Ok(user_id);
-    }
-    sqlx::query_as::<_, (i64,)>("SELECT user_id FROM auth_sessions WHERE token = ?1 LIMIT 1")
-        .bind(token)
-        .fetch_optional(pool)
-        .await
-        .map_err(|error| format!("session_lookup_failed: {error}"))?
-        .map(|(user_id,)| user_id)
-        .ok_or_else(|| "not_logged_in".to_string())
-}
-
 // API Commands for Tauri
 
 #[tauri::command]
 pub async fn api_get_meetings<R: Runtime>(
-    app: AppHandle<R>,
+    _app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     auth_token: Option<String>,
-    session: Option<String>,
 ) -> Result<Vec<Meeting>, String> {
     log_info!(
         "api_get_meetings called with auth_token(native) : {}",
         auth_token.is_some()
     );
     let pool = state.db_manager.pool();
-    let user_id = resolve_user_id_from_session(&app, pool, session.as_deref()).await?;
     let meetings: Result<Vec<MeetingModel>, sqlx::Error> =
-        MeetingsRepository::get_meetings(pool, Some(user_id)).await;
+        MeetingsRepository::get_meetings(pool).await;
 
     match meetings {
         Ok(meeting_models) => {
@@ -390,11 +360,10 @@ pub async fn api_get_meetings<R: Runtime>(
 
 #[tauri::command]
 pub async fn api_search_transcripts<R: Runtime>(
-    app: AppHandle<R>,
+    _app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     query: String,
     auth_token: Option<String>,
-    session: Option<String>,
 ) -> Result<Vec<TranscriptSearchResult>, String> {
     log_info!(
         "api_search_transcripts called with query: '{}', auth_token: {}",
@@ -404,8 +373,7 @@ pub async fn api_search_transcripts<R: Runtime>(
 
     let pool = state.db_manager.pool();
 
-    let user_id = resolve_user_id_from_session(&app, pool, session.as_deref()).await?;
-    match TranscriptsRepository::search_transcripts(pool, &query, Some(user_id)).await {
+    match TranscriptsRepository::search_transcripts(pool, &query).await {
         Ok(results) => {
             log_info!(
                 "Search completed successfully with {} results.",
@@ -686,40 +654,19 @@ pub async fn api_get_transcript_config<R: Runtime>(
 
 #[tauri::command]
 pub async fn api_save_transcript_config<R: Runtime>(
-    app: AppHandle<R>,
+    _app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
-    sessions: tauri::State<'_, crate::user::commands::SessionStore>,
     provider: String,
     model: String,
     api_key: Option<String>,
-    session: Option<String>,
+    _auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
-        "api_save_transcript_config called (native) for provider '{}', model '{}'",
-        &provider, &model
+        "api_save_transcript_config called (native) for provider '{}'",
+        &provider
     );
-
-    // v0.7.0+: Pro 专属 tier gate — FunASR-Nano 仅 member 可用.
-    // 前端 UI 也会拒绝切换, 这里做硬闸门 (防 curl 绕过 / localStorage 篡改).
-    if model == "funasr-nano-zh" {
-        let user_id = session
-            .as_deref()
-            .and_then(|s| sessions.map.lock().unwrap().get(s).copied());
-        if let Some(uid) = user_id {
-            let pool = state.db_manager.pool();
-            let (_, membership, _) = user_repo::UsersRepository::get_quota(pool, uid)
-                .await
-                .map_err(|e| e.to_string())?;
-            if membership != "member" {
-                return Err("pro_only_funasr_nano".into());
-            }
-        } else {
-            // 匿名用户 = 默认 free, 直接拒
-            return Err("pro_only_funasr_nano".into());
-        }
-    }
-
     let pool = state.db_manager.pool();
+
     if let Err(e) = SettingsRepository::save_transcript_config(pool, &provider, &model).await {
         log_error!("Failed to save transcript config: {}", e);
         return Err(e.to_string());
@@ -801,11 +748,10 @@ pub async fn api_delete_api_key<R: Runtime>(
 
 #[tauri::command]
 pub async fn api_delete_meeting<R: Runtime>(
-    app: AppHandle<R>,
+    _app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     meeting_id: String,
     auth_token: Option<String>,
-    session: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
         "api_delete_meeting called for meeting_id(native): {}, auth_token: {}",
@@ -815,8 +761,7 @@ pub async fn api_delete_meeting<R: Runtime>(
 
     let pool = state.db_manager.pool();
 
-    let user_id = resolve_user_id_from_session(&app, pool, session.as_deref()).await?;
-    match MeetingsRepository::delete_meeting(pool, &meeting_id, Some(user_id)).await {
+    match MeetingsRepository::delete_meeting(pool, &meeting_id).await {
         Ok(true) => {
             log_info!("Successfully deleted meeting {}", meeting_id);
             Ok(serde_json::json!({
@@ -840,11 +785,10 @@ pub async fn api_delete_meeting<R: Runtime>(
 
 #[tauri::command]
 pub async fn api_get_meeting<R: Runtime>(
-    app: AppHandle<R>,
+    _app: AppHandle<R>,
     meeting_id: String,
     state: tauri::State<'_, AppState>,
     auth_token: Option<String>,
-    session: Option<String>,
 ) -> Result<MeetingDetails, String> {
     log_info!(
         "api_get_meeting called(native) for meeting_id: {}, auth_token: {}",
@@ -854,8 +798,7 @@ pub async fn api_get_meeting<R: Runtime>(
 
     let pool = state.db_manager.pool();
 
-    let user_id = resolve_user_id_from_session(&app, pool, session.as_deref()).await?;
-    match MeetingsRepository::get_meeting(pool, &meeting_id, Some(user_id)).await {
+    match MeetingsRepository::get_meeting(pool, &meeting_id).await {
         Ok(Some(meeting)) => {
             log_info!("Successfully retrieved meeting {}", meeting_id);
             Ok(meeting)
@@ -874,20 +817,15 @@ pub async fn api_get_meeting<R: Runtime>(
 /// Get meeting metadata without transcripts (for pagination)
 #[tauri::command]
 pub async fn api_get_meeting_metadata<R: Runtime>(
-    app: AppHandle<R>,
+    _app: AppHandle<R>,
     meeting_id: String,
     state: tauri::State<'_, AppState>,
-    session: Option<String>,
 ) -> Result<MeetingMetadata, String> {
-    log_info!(
-        "api_get_meeting_metadata called for meeting_id: {}",
-        meeting_id
-    );
+    log_info!("api_get_meeting_metadata called for meeting_id: {}", meeting_id);
 
     let pool = state.db_manager.pool();
 
-    let user_id = resolve_user_id_from_session(&app, pool, session.as_deref()).await?;
-    match MeetingsRepository::get_meeting_metadata(pool, &meeting_id, Some(user_id)).await {
+    match MeetingsRepository::get_meeting_metadata(pool, &meeting_id).await {
         Ok(Some(meeting)) => {
             log_info!("Successfully retrieved meeting metadata {}", meeting_id);
             Ok(MeetingMetadata {
@@ -912,12 +850,11 @@ pub async fn api_get_meeting_metadata<R: Runtime>(
 /// Get paginated transcripts for a meeting
 #[tauri::command]
 pub async fn api_get_meeting_transcripts<R: Runtime>(
-    app: AppHandle<R>,
+    _app: AppHandle<R>,
     meeting_id: String,
     limit: i64,
     offset: i64,
     state: tauri::State<'_, AppState>,
-    session: Option<String>,
 ) -> Result<PaginatedTranscriptsResponse, String> {
     log_info!(
         "api_get_meeting_transcripts called for meeting_id: {}, limit: {}, offset: {}",
@@ -928,16 +865,7 @@ pub async fn api_get_meeting_transcripts<R: Runtime>(
 
     let pool = state.db_manager.pool();
 
-    let user_id = resolve_user_id_from_session(&app, pool, session.as_deref()).await?;
-    match MeetingsRepository::get_meeting_transcripts_paginated(
-        pool,
-        &meeting_id,
-        limit,
-        offset,
-        Some(user_id),
-    )
-    .await
-    {
+    match MeetingsRepository::get_meeting_transcripts_paginated(pool, &meeting_id, limit, offset).await {
         Ok((transcripts, total_count)) => {
             log_info!(
                 "Successfully retrieved {} transcripts for meeting {} (total: {})",
@@ -946,7 +874,7 @@ pub async fn api_get_meeting_transcripts<R: Runtime>(
                 total_count
             );
 
-            // Convert Transcript to MeetingTranscript
+            // §91 P1-B: 同样 LEFT JOIN speaker_aliases
             let meeting_transcripts = transcripts
                 .into_iter()
                 .map(|t| MeetingTranscript {
@@ -956,7 +884,8 @@ pub async fn api_get_meeting_transcripts<R: Runtime>(
                     audio_start_time: t.audio_start_time,
                     audio_end_time: t.audio_end_time,
                     duration: t.duration,
-                    speaker: t.speaker,
+                    speaker_label: t.speaker_label,
+                    speaker_id: t.speaker_id,
                 })
                 .collect::<Vec<_>>();
 
@@ -969,11 +898,7 @@ pub async fn api_get_meeting_transcripts<R: Runtime>(
             })
         }
         Err(e) => {
-            log_error!(
-                "Error retrieving transcripts for meeting {}: {}",
-                meeting_id,
-                e
-            );
+            log_error!("Error retrieving transcripts for meeting {}: {}", meeting_id, e);
             Err(format!("Failed to retrieve transcripts: {}", e))
         }
     }
@@ -981,12 +906,11 @@ pub async fn api_get_meeting_transcripts<R: Runtime>(
 
 #[tauri::command]
 pub async fn api_save_meeting_title<R: Runtime>(
-    app: AppHandle<R>,
+    _app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     meeting_id: String,
     title: String,
     auth_token: Option<String>,
-    session: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
         "api_save_meeting_title called for meeting_id: {}, auth_token: {}",
@@ -994,8 +918,7 @@ pub async fn api_save_meeting_title<R: Runtime>(
         auth_token.is_some()
     );
     let pool = state.db_manager.pool();
-    let user_id = resolve_user_id_from_session(&app, pool, session.as_deref()).await?;
-    match MeetingsRepository::update_meeting_title(pool, &meeting_id, &title, Some(user_id)).await {
+    match MeetingsRepository::update_meeting_title(pool, &meeting_id, &title).await {
         Ok(true) => {
             log_info!("Successfully saved meeting title");
             Ok(serde_json::json!({"message": "Meeting title saved successfully"}))
@@ -1013,7 +936,7 @@ pub async fn api_save_meeting_title<R: Runtime>(
 
 #[tauri::command]
 pub async fn api_save_transcript<R: Runtime>(
-    app: AppHandle<R>,
+    _app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     meeting_title: String,
     transcripts: Vec<serde_json::Value>,
@@ -1021,8 +944,6 @@ pub async fn api_save_transcript<R: Runtime>(
     auth_token: Option<String>,
     // v0.7.1+: 长会议 diar pickup — 前端录音停止时从 recording-started 事件拿的 meeting_id
     meeting_id: Option<String>,
-    // v0.7.x: 配额 — 100 段截断需要 user membership tier. 未登录传 None = 走 anonymous.
-    session: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
         "api_save_transcript called for meeting: {}, transcripts: {}, folder_path: {:?}, auth_token: {}",
@@ -1040,41 +961,15 @@ pub async fn api_save_transcript<R: Runtime>(
         );
     }
 
-    // v0.7.x: 配额 + 数据归属都使用同一个当前用户解析结果.
-    let pool = state.db_manager.pool();
-    let user_id = resolve_user_id_from_session(&app, pool, session.as_deref()).await?;
-    let membership = UsersRepository::get_membership(pool, user_id)
-        .await
-        .unwrap_or_else(|_| "free".to_string());
-
     // Convert serde_json::Value to TranscriptSegment
-    let mut transcripts_to_save: Vec<TranscriptSegment> = transcripts
+    let transcripts_to_save: Vec<TranscriptSegment> = transcripts
         .into_iter()
         .map(serde_json::from_value)
         .collect::<Result<Vec<_>, _>>()
         .map_err(|e| {
             log_error!("Failed to parse transcript segments: {}", e);
-            format!(
-                "Invalid transcript data format: {}. Please check the data structure.",
-                e
-            )
+            format!("Invalid transcript data format: {}. Please check the data structure.", e)
         })?;
-
-    // v0.7.x: 配额 — free / anonymous 单次 ≤ 100 段, member 无限制.
-    // 截断逻辑收敛到 user::quota::truncate_segments_for_tier, 有单测覆盖.
-    let original_count = transcripts_to_save.len() as i64;
-    let effective_limit =
-        crate::user::quota::truncate_segments_for_tier(&mut transcripts_to_save, &membership);
-    let truncated = effective_limit != -1;
-    let saved_count = transcripts_to_save.len() as i64;
-    if truncated {
-        log_warn!(
-            "[quota] {} tier hit segment limit: had {}, limit {}, truncating",
-            membership,
-            original_count,
-            effective_limit
-        );
-    }
 
     // Log parsed segments count and first segment details
     if let Some(first_seg) = transcripts_to_save.first() {
@@ -1085,6 +980,15 @@ pub async fn api_save_transcript<R: Runtime>(
                    first_seg.duration);
     }
 
+    let pool = state.db_manager.pool();
+
+    // §105: 录音 stop 路径加 user_id (跟 import 路径一致, 防止 §99 user_id=NULL bug 复发)
+    let user_id = crate::user::commands::latest_session_in_db(&_app)
+        .await
+        .ok()
+        .flatten()
+        .map(|(_token, uid)| uid);
+
     // Now, call the repository with the correctly typed data.
     match TranscriptsRepository::save_transcript(
         pool,
@@ -1092,7 +996,7 @@ pub async fn api_save_transcript<R: Runtime>(
         &transcripts_to_save,
         folder_path,
         meeting_id.as_deref(),
-        Some(user_id),
+        user_id,
     )
     .await
     {
@@ -1105,21 +1009,46 @@ pub async fn api_save_transcript<R: Runtime>(
             // 在 transcripts INSERT 之前/之后完成, 任何一种情况都需要扫一次 pickup dir
             // 把这个 meeting 的 segments 标到新插入的 transcripts.speaker 行.
             if let Err(e) = apply_diar_pickup_to_meeting(&meeting_id, true).await {
-                log_warn!(
-                    "diar pickup apply failed (non-fatal) for {}: {}",
-                    meeting_id,
-                    e
-                );
+                log_warn!("diar pickup apply failed (non-fatal) for {}: {}", meeting_id, e);
+            }
+            // §91 P1-B: auto-attach speaker names from self-intro keywords
+            // transcripts API 段的 speaker_id 字段不在 input, 必须从 DB 拉
+            {
+                use sqlx::Row;
+                let rows = sqlx::query(
+                    "SELECT id, transcript, speaker_id FROM transcripts WHERE meeting_id = ?1 ORDER BY id ASC LIMIT 200",
+                )
+                .bind(&meeting_id)
+                .fetch_all(pool)
+                .await
+                .map_err(|e| format!("auto_attach fetch: {e}"));
+                if let Ok(rows) = rows {
+                    let simple_segs: Vec<speaker_auto_attach::TranscriptSegment> = rows
+                        .iter()
+                        .map(|r| speaker_auto_attach::TranscriptSegment {
+                            speaker_id: r.try_get::<Option<i64>, _>("speaker_id").unwrap_or(None),
+                            text: r.try_get::<String, _>("transcript").unwrap_or_default(),
+                        })
+                        .collect();
+                    let hits = speaker_auto_attach::detect_intros_in_segments(&simple_segs);
+                    if !hits.is_empty() {
+                        match speaker_auto_attach::apply_intro_hits(pool, &meeting_id, &hits).await {
+                            Ok(n) if n > 0 => log_info!(
+                                "[api_save_transcript] auto-attached {} speaker names for meeting {}",
+                                n, meeting_id
+                            ),
+                            Ok(_) => {}
+                            Err(e) => log_warn!(
+                                "speaker_auto_attach failed (non-fatal) for {}: {}", meeting_id, e
+                            ),
+                        }
+                    }
+                }
             }
             Ok(serde_json::json!({
                 "status": "success",
                 "message": "Transcript saved successfully",
-                "meeting_id": meeting_id,
-                "membership": membership,
-                "saved_segments": saved_count,
-                "original_segments": original_count,
-                "truncated": truncated,
-                "segments_limit": if effective_limit == -1 { -1 } else { effective_limit },
+                "meeting_id": meeting_id
             }))
         }
         Err(e) => {
@@ -1358,10 +1287,7 @@ pub async fn api_save_custom_openai_config<R: Runtime>(
 
     match SettingsRepository::save_custom_openai_config(pool, &config).await {
         Ok(()) => {
-            log_info!(
-                "✅ Successfully saved custom OpenAI config for endpoint: {}",
-                config.endpoint
-            );
+            log_info!("✅ Successfully saved custom OpenAI config for endpoint: {}", config.endpoint);
             Ok(serde_json::json!({
                 "status": "success",
                 "message": "Custom OpenAI configuration saved successfully"
@@ -1387,11 +1313,8 @@ pub async fn api_get_custom_openai_config<R: Runtime>(
     match SettingsRepository::get_custom_openai_config(pool).await {
         Ok(config) => {
             if let Some(ref c) = config {
-                log_info!(
-                    "✅ Found custom OpenAI config: endpoint='{}', model='{}'",
-                    c.endpoint,
-                    c.model
-                );
+                log_info!("✅ Found custom OpenAI config: endpoint='{}', model='{}'",
+                    c.endpoint, c.model);
             } else {
                 log_info!("No custom OpenAI config found");
             }
@@ -1474,7 +1397,7 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
                                             .get("message")
                                             .and_then(|m| {
                                                 m.get("content")
-                                                    .or_else(|| m.get("reasoning_content"))
+                                                .or_else(|| m.get("reasoning_content"))
                                             })
                                             .is_some();
 
@@ -1492,33 +1415,17 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
                         }
 
                         // Response was 200 but doesn't match OpenAI format
-                        log_warn!(
-                            "⚠️ Endpoint returned 200 but response doesn't match OpenAI format: {}",
-                            response_text
-                        );
+                        log_warn!("⚠️ Endpoint returned 200 but response doesn't match OpenAI format: {}", response_text);
                         Err("Endpoint is reachable but doesn't appear to be OpenAI-compatible. Response is missing 'choices' array or 'message.content' / 'message.reasoning_content' field.".to_string())
                     }
                     Err(e) => {
-                        log_warn!(
-                            "⚠️ Endpoint returned 200 but response is not valid JSON: {}",
-                            e
-                        );
-                        Err(format!(
-                            "Endpoint is reachable but returned invalid JSON: {}. Response: {}",
-                            e, response_text
-                        ))
+                        log_warn!("⚠️ Endpoint returned 200 but response is not valid JSON: {}", e);
+                        Err(format!("Endpoint is reachable but returned invalid JSON: {}. Response: {}", e, response_text))
                     }
                 }
             } else {
-                log_warn!(
-                    "⚠️ Custom OpenAI connection test failed with status {}: {}",
-                    status,
-                    response_text
-                );
-                Err(format!(
-                    "Connection failed with status {}: {}",
-                    status, response_text
-                ))
+                log_warn!("⚠️ Custom OpenAI connection test failed with status {}: {}", status, response_text);
+                Err(format!("Connection failed with status {}: {}", status, response_text))
             }
         }
         Err(e) => {
@@ -1533,6 +1440,7 @@ pub async fn api_test_custom_openai_connection<R: Runtime>(
         }
     }
 }
+
 
 /// v0.7.0+ P0-2: 长会议 diar pickup 自动回填. 调 Python stdlib 扫 /tmp/lixianhuiji_diar/<meeting_id>*.json
 /// 然后 UPDATE transcripts.speaker. 失败不抛 (non-fatal, 不阻塞 save_transcript 主流程).
@@ -1549,8 +1457,11 @@ async fn apply_diar_pickup_to_meeting(meeting_id: &str, archive: bool) -> Result
 import os, sqlite3, json, sys, glob, time
 meeting_id = sys.argv[1]
 archive_mode = sys.argv[2] == "1"
-db_path = os.environ.get("LIXIANHUIJI_DIAR_DB_PATH") or os.path.expanduser(
-    "~/Library/Application Support/cn.lixianhuiji.app/meeting_minutes.sqlite"
+# §97 (2026-08-09): YANJINGAI env var 优先, 旧 LIXIANHUIJI 兼容, 最后 fallback 新 bundle id
+db_path = (
+    os.environ.get("YANJINGAI_DIAR_DB_PATH")
+    or os.environ.get("LIXIANHUIJI_DIAR_DB_PATH")
+    or os.path.expanduser("~/Library/Application Support/tech.yanjingai.app/meeting_minutes.sqlite")
 )
 if not os.path.exists(db_path):
     sys.exit(0)
@@ -1615,11 +1526,7 @@ finally:
         .map_err(|e| format!("python3 spawn failed: {}", e))?;
     if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(format!(
-            "python helper exited with {:?}: {}",
-            output.status.code(),
-            stderr
-        ));
+        return Err(format!("python helper exited with {:?}: {}", output.status.code(), stderr));
     }
     Ok(())
 }

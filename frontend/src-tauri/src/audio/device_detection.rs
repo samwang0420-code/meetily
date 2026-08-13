@@ -403,11 +403,12 @@ pub fn calculate_buffer_timeout(
         return min_timeout;
     }
 
-    // Calculate base timeout from reported buffer size
-    let base = Duration::from_secs_f64(buffer_size as f64 / sample_rate as f64);
-
-    // Add 2x headroom for jitter (Cap's strategy)
-    let with_headroom = base.mul_f32(2.0);
+    // §40 §56: integer-only math (no f64 / f32) — flaky Bluetooth 160ms test
+    // formula: headroom_nanos = (buffer_size * 1e9 / sample_rate) * 2
+    // u128 safe: 3840 * 1e9 * 2 = 7.68e12 << u64::MAX (1.84e19)
+    let base_nanos: u128 = (buffer_size as u128) * 1_000_000_000u128 / (sample_rate as u128);
+    let with_headroom_nanos: u128 = base_nanos.saturating_mul(2);
+    let with_headroom = Duration::from_nanos(with_headroom_nanos as u64);
 
     // Clamp to device-specific range
     clamp_duration(with_headroom, min_timeout, max_timeout)

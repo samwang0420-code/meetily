@@ -1,5 +1,4 @@
 'use client';
-import { APP_VERSION_SHORT } from '@/lib/version';
 
 import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
@@ -352,7 +351,7 @@ function BrandPanel() {
         <div className="flex items-baseline gap-2">
           <span className="text-[17px] font-semibold tracking-tight text-white">{t('app.name')}</span>
           <span className="rounded border border-white/20 px-1.5 py-px font-mono text-[10px] uppercase tracking-wider text-white/60">
-            {APP_VERSION_SHORT}
+            v0.8.6
           </span>
         </div>
       </div>

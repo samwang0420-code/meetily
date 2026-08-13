@@ -317,19 +317,13 @@ export function ModelSettingsModal({
   }, [skipInitialFetch]);
 
   // Fetch auto-generate setting on mount
+  // §94 fix: api_get_auto_generate_setting 悬空 (后端无 fn) → 保持 default (true), 不 invoke
   useEffect(() => {
-    const fetchAutoGenerateSetting = async () => {
-      try {
-        const enabled = (await invoke('api_get_auto_generate_setting')) as boolean;
-        setAutoGenerateEnabled(enabled);
-        console.log('Auto-generate setting loaded:', enabled);
-      } catch (err) {
-        console.error('Failed to fetch auto-generate setting:', err);
-        // Keep default value (true) on error
-      }
-    };
-
-    fetchAutoGenerateSetting();
+    // backend has no api_get_auto_generate_setting (v0.8.6 business decision:
+    // auto-generate was disabled, the function was never implemented).
+    // We keep the default (true) and skip the call.
+    setAutoGenerateEnabled(true);
+    console.log('Auto-generate setting: default (true) — backend cmd disabled by §91 business decision');
   }, []);
 
   // Sync ollamaEndpoint state when modelConfig.ollamaEndpoint changes from parent
@@ -522,7 +516,7 @@ export function ModelSettingsModal({
       }
     } catch (err) {
       console.error('Error loading Built-in AI models:', err);
-      safeToast.error('加载内置 AI 模型失败');
+      safeToast.error('Failed to load Built-in AI models');
     }
   };
 
@@ -813,137 +807,13 @@ export function ModelSettingsModal({
       <div className="space-y-4">
         <div>
           <Label>{t('model_settings.summary_model')}</Label>
-          <div className="flex space-x-2 mt-1">
-            <Select
-              value={modelConfig.provider}
-              onValueChange={(value) => {
-                const provider = value as ModelConfig['provider'];
-
-                // Clear error state when switching providers
-                setError('');
-
-                // Save current provider's model to localStorage before switching
-                const map = JSON.parse(localStorage.getItem('providerModelMap') || '{}');
-                if (modelConfig.model) {
-                  map[modelConfig.provider] = modelConfig.model;
-                  localStorage.setItem('providerModelMap', JSON.stringify(map));
-                }
-
-                // Try to restore cached model for the new provider
-                const savedModel = map[provider];
-                const providerModels = modelOptions[provider];
-                const defaultModel = providerModels && providerModels.length > 0
-                  ? providerModels[0]
-                  : '';
-                const model = (savedModel && providerModels?.includes(savedModel))
-                  ? savedModel
-                  : defaultModel;
-
-                setModelConfig({
-                  ...modelConfig,
-                  provider,
-                  model,
-                });
-                // API key is now synced automatically via useEffect watching providerApiKeys
-
-                // Load OpenRouter models only when OpenRouter is selected
-                if (provider === 'openrouter') {
-                  loadOpenRouterModels();
-                }
-
-                // Load Built-in AI models when selected
-                if (provider === 'builtin-ai') {
-                  loadBuiltinAiModels();
-                }
-
-                // Load custom OpenAI config when selected
-                if (provider === 'custom-openai') {
-                  invoke<any>('api_get_custom_openai_config').then((config) => {
-                    if (config) {
-                      setCustomOpenAIEndpoint(config.endpoint || '');
-                      setCustomOpenAIModel(config.model || '');
-                      setCustomOpenAIApiKey(config.apiKey || '');
-                      setCustomMaxTokens(config.maxTokens?.toString() || '');
-                      setCustomTemperature(config.temperature?.toString() || '');
-                      setCustomTopP(config.topP?.toString() || '');
-                    }
-                  }).catch((err) => {
-                    console.error('Failed to load custom OpenAI config:', err);
-                  });
-                }
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="选择 provider" />
-              </SelectTrigger>
-              <SelectContent className="max-h-64 overflow-y-auto">
-                <SelectItem value="builtin-ai">Built-in AI (Offline, No API needed)</SelectItem>
-                <SelectItem value="claude">{t('model_settings.claude')}</SelectItem>
-                <SelectItem value="custom-openai">Custom Server (OpenAI)</SelectItem>
-                <SelectItem value="groq">{t('model_settings.groq')}</SelectItem>
-                <SelectItem value="ollama">{t('model_settings.ollama')}</SelectItem>
-                <SelectItem value="openai">{t('model_settings.openai')}</SelectItem>
-                <SelectItem value="openrouter">{t('model_settings.openrouter')}</SelectItem>
-              </SelectContent>
-            </Select>
-
-            {modelConfig.provider !== 'builtin-ai' && modelConfig.provider !== 'custom-openai' && (
-              <Popover open={modelComboboxOpen} onOpenChange={setModelComboboxOpen} modal={true}>
-                <PopoverTrigger asChild>
-                  <Button
-                    variant="outline"
-                    role="combobox"
-                    aria-expanded={modelComboboxOpen}
-                    className="flex-1 max-w-[200px] justify-between font-normal"
-                  >
-                    <span className="truncate">
-                      {modelConfig.model || "选择 model..."}
-                    </span>
-                    <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                  </Button>
-                </PopoverTrigger>
-                <PopoverContent className="w-[250px] p-0" align="start">
-                  <Command>
-                    <CommandInput placeholder="搜索 models..." />
-                    <CommandList className="max-h-[300px]">
-                      {(modelConfig.provider === 'openrouter' && isLoadingOpenRouter) ||
-                       (modelConfig.provider === 'openai' && isLoadingOpenAI) ||
-                       (modelConfig.provider === 'claude' && isLoadingClaude) ||
-                       (modelConfig.provider === 'groq' && isLoadingGroq) ? (
-                        <div className="py-6 text-center text-sm text-muted-foreground">
-                          <RefreshCw className="mx-auto h-4 w-4 animate-spin mb-2" />
-                          Loading models...
-                        </div>
-                      ) : (
-                        <>
-                          <CommandEmpty>未找到模型。</CommandEmpty>
-                          <CommandGroup>
-                            {modelOptions[modelConfig.provider]?.map((model) => (
-                              <CommandItem
-                                key={model}
-                                value={model}
-                                onSelect={(currentValue) => {
-                                  setModelConfig((prev: ModelConfig) => ({ ...prev, model: currentValue }));
-                                  setModelComboboxOpen(false);
-                                }}
-                              >
-                                <Check
-                                  className={cn(
-                                    "mr-2 h-4 w-4",
-                                    modelConfig.model === model ? "opacity-100" : "opacity-0"
-                                  )}
-                                />
-                                <span className="truncate">{model}</span>
-                              </CommandItem>
-                            ))}
-                          </CommandGroup>
-                        </>
-                      )}
-                    </CommandList>
-                  </Command>
-                </PopoverContent>
-              </Popover>
-            )}
+          {/* §106: 切换功能先仅用掉, 固定只用本地 (Built-in AI) 生成摘要 */}
+          <div className="mt-1 flex h-10 w-full items-center justify-between rounded-md border border-input bg-background px-3 py-2 text-sm">
+            <span className="flex items-center gap-2">
+              <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" />
+              Built-in AI (Offline, No API needed)
+            </span>
+            <span className="text-xs text-muted-foreground">{t('model_settings.fixed_local_only') || '固定本地'}</span>
           </div>
         </div>
 
@@ -985,7 +855,7 @@ export function ModelSettingsModal({
                 type="password"
                 value={customOpenAIApiKey}
                 onChange={(e) => setCustomOpenAIApiKey(e.target.value)}
-                placeholder={t('model_settings.api_key_optional')}
+                placeholder="Leave empty if not required"
                 className="mt-1"
               />
             </div>
@@ -1082,7 +952,7 @@ export function ModelSettingsModal({
                 value={apiKey || ''}
                 onChange={(e) => setApiKey(e.target.value)}
                 disabled={isApiKeyLocked}
-                placeholder={t('model_settings.api_key_placeholder')}
+                placeholder="Enter your API key"
                 className="pr-24"
               />
               {isApiKeyLocked && apiKey?.trim() && (
@@ -1332,7 +1202,7 @@ export function ModelSettingsModal({
                         >
                           <div>
                             <b className="font-bold">{model.name}&nbsp;</b>
-                            <span className="text-muted-foreground">大小约为 </span>
+                            <span className="text-muted-foreground">with a size of </span>
                             <span className="font-mono font-bold text-sm">{model.size}</span>
                           </div>
 

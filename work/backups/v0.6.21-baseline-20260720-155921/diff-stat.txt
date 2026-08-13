@@ -1,0 +1,157 @@
+ Cargo.lock                                         |   9 +
+ frontend/next.config.js                            |  28 +-
+ frontend/public/logo-collapsed.png                 | Bin 99635 -> 39231 bytes
+ frontend/public/logo.png                           | Bin 154943 -> 63604 bytes
+ frontend/src-tauri/Cargo.toml                      |   3 +
+ frontend/src-tauri/icons/128x128.png               | Bin 9258 -> 4544 bytes
+ frontend/src-tauri/icons/128x128@2x.png            | Bin 45226 -> 8684 bytes
+ frontend/src-tauri/icons/32x32.png                 | Bin 1197 -> 1216 bytes
+ frontend/src-tauri/icons/Square107x107Logo.png     | Bin 9202 -> 3875 bytes
+ frontend/src-tauri/icons/Square142x142Logo.png     | Bin 12530 -> 4956 bytes
+ frontend/src-tauri/icons/Square150x150Logo.png     | Bin 13032 -> 5000 bytes
+ frontend/src-tauri/icons/Square284x284Logo.png     | Bin 25943 -> 9458 bytes
+ frontend/src-tauri/icons/Square30x30Logo.png       | Bin 2078 -> 1095 bytes
+ frontend/src-tauri/icons/Square310x310Logo.png     | Bin 28507 -> 10242 bytes
+ frontend/src-tauri/icons/Square44x44Logo.png       | Bin 3419 -> 1638 bytes
+ frontend/src-tauri/icons/Square71x71Logo.png       | Bin 6027 -> 2650 bytes
+ frontend/src-tauri/icons/Square89x89Logo.png       | Bin 7551 -> 3253 bytes
+ frontend/src-tauri/icons/StoreLogo.png             | Bin 3971 -> 1736 bytes
+ frontend/src-tauri/icons/app_icon.icns             | Bin 545453 -> 136596 bytes
+ frontend/src-tauri/icons/app_icon.ico              | Bin 115046 -> 8228 bytes
+ frontend/src-tauri/icons/icon.icns                 | Bin 1138625 -> 136596 bytes
+ frontend/src-tauri/icons/icon.ico                  | Bin 142320 -> 8228 bytes
+ frontend/src-tauri/icons/icon.png                  | Bin 209129 -> 17006 bytes
+ frontend/src-tauri/icons/icon_128x128.png          | Bin 9430 -> 4544 bytes
+ frontend/src-tauri/icons/icon_128x128@2x.png       | Bin 24655 -> 8684 bytes
+ frontend/src-tauri/icons/icon_16x16.png            | Bin 620 -> 628 bytes
+ frontend/src-tauri/icons/icon_16x16@2x.png         | Bin 1407 -> 1216 bytes
+ frontend/src-tauri/icons/icon_256x256.png          | Bin 24655 -> 8684 bytes
+ frontend/src-tauri/icons/icon_256x256@2x.png       | Bin 67647 -> 17006 bytes
+ frontend/src-tauri/icons/icon_32x32.png            | Bin 1407 -> 1216 bytes
+ frontend/src-tauri/icons/icon_32x32@2x.png         | Bin 3556 -> 2368 bytes
+ frontend/src-tauri/icons/icon_512x512.png          | Bin 67647 -> 17006 bytes
+ frontend/src-tauri/icons/icon_512x512@2x.png       | Bin 200022 -> 39231 bytes
+ frontend/src-tauri/src/analytics/commands.rs       | 375 +++++++++--
+ frontend/src-tauri/src/audio/audio_processing.rs   |  49 +-
+ frontend/src-tauri/src/audio/import.rs             |  28 +-
+ frontend/src-tauri/src/audio/mod.rs                |   6 +
+ frontend/src-tauri/src/audio/recording_commands.rs |  34 +-
+ frontend/src-tauri/src/audio/recording_saver.rs    |  72 +-
+ frontend/src-tauri/src/audio/retranscription.rs    | 503 +++++++++++++-
+ .../src-tauri/src/audio/transcription/engine.rs    |  46 +-
+ frontend/src-tauri/src/audio/transcription/mod.rs  |   6 +
+ .../src-tauri/src/audio/transcription/worker.rs    | 263 +++++++-
+ frontend/src-tauri/src/config.rs                   |  96 +++
+ frontend/src-tauri/src/database/models.rs          |  15 +
+ .../src-tauri/src/database/repositories/mod.rs     |   1 +
+ .../src-tauri/src/database/repositories/setting.rs |  10 +-
+ .../src/database/repositories/transcript.rs        |   2 +-
+ frontend/src-tauri/src/lib.rs                      | 117 +++-
+ frontend/src-tauri/src/summary/commands.rs         |  11 +
+ frontend/src-tauri/src/summary/mod.rs              |   1 +
+ frontend/src-tauri/src/summary/processor.rs        | 221 ++++++-
+ frontend/src-tauri/src/summary/service.rs          |  66 +-
+ .../src-tauri/src/summary/template_commands.rs     |  22 +-
+ .../src-tauri/src/summary/templates/defaults.rs    |  28 +-
+ frontend/src-tauri/src/summary/templates/loader.rs |  27 +
+ frontend/src-tauri/src/summary/templates/mod.rs    |   6 +-
+ frontend/src-tauri/src/summary/templates/types.rs  |  30 +
+ .../src/whisper_engine/parallel_processor.rs       |  53 +-
+ frontend/src/app/_components/SettingsModal.tsx     |  46 +-
+ frontend/src/app/_components/TranscriptPanel.tsx   |   4 +-
+ frontend/src/app/globals.css                       |  65 +-
+ frontend/src/app/layout.tsx                        |  58 +-
+ frontend/src/app/meeting-details/page-content.tsx  |  72 +-
+ frontend/src/app/meeting-details/page.tsx          |  26 +-
+ frontend/src/app/metadata.ts                       |   4 +-
+ frontend/src/app/metadata.tsx                      |   4 +-
+ frontend/src/app/notes/[id]/page.tsx               |   8 +-
+ frontend/src/app/page.tsx                          | 146 +++--
+ frontend/src/app/settings/page.tsx                 |  16 +-
+ .../components/AISummary/BlockNoteSummaryView.tsx  |  32 +
+ frontend/src/components/AISummary/index.tsx        |  24 +-
+ frontend/src/components/About.tsx                  | 325 ++++++---
+ frontend/src/components/AnalyticsConsentSwitch.tsx |  12 +-
+ frontend/src/components/AnalyticsDataModal.tsx     |  27 +-
+ frontend/src/components/AudioBackendSelector.tsx   |   6 +-
+ frontend/src/components/BetaSettings.tsx           |   8 +-
+ .../src/components/BluetoothPlaybackWarning.tsx    |   2 +-
+ frontend/src/components/BuiltInModelManager.tsx    |  25 +-
+ frontend/src/components/ChunkProgressDisplay.tsx   |  18 +-
+ frontend/src/components/ConfidenceIndicator.tsx    |   2 +-
+ .../DatabaseImport/HomebrewDatabaseDetector.tsx    |  21 +-
+ .../DatabaseImport/LegacyDatabaseImport.tsx        |  19 +-
+ frontend/src/components/DeviceSelection.tsx        |  34 +-
+ frontend/src/components/EditableTitle.tsx          |   4 +-
+ frontend/src/components/EmptyStateSummary.tsx      |  11 +-
+ .../components/ImportAudio/ImportAudioDialog.tsx   |  23 +-
+ frontend/src/components/Info.tsx                   |   6 +-
+ frontend/src/components/LanguagePickerPopover.tsx  | 131 ++--
+ frontend/src/components/LanguageSelection.tsx      | 310 ++++-----
+ frontend/src/components/Logo.tsx                   |   6 +-
+ frontend/src/components/MainContent/index.tsx      |  19 +-
+ .../MeetingDetails/RetranscribeDialog.tsx          |  75 ++-
+ .../MeetingDetails/SummaryGeneratorButtonGroup.tsx | 116 ++--
+ .../src/components/MeetingDetails/SummaryPanel.tsx |  43 +-
+ .../MeetingDetails/SummaryUpdaterButtonGroup.tsx   |  55 +-
+ .../MeetingDetails/TranscriptButtonGroup.tsx       |  52 +-
+ .../components/MeetingDetails/TranscriptPanel.tsx  |  59 +-
+ frontend/src/components/ModelDownloadProgress.tsx  | 130 ----
+ frontend/src/components/ModelSettingsModal.tsx     |  63 +-
+ frontend/src/components/ParakeetModelManager.tsx   |  37 +-
+ frontend/src/components/PermissionWarning.tsx      |  21 +-
+ frontend/src/components/PreferenceSettings.tsx     |  34 +-
+ frontend/src/components/RecordingControls.tsx      |  50 +-
+ frontend/src/components/RecordingSettings.tsx      | 107 ++-
+ frontend/src/components/SettingTabs.tsx            |  19 +-
+ .../src/components/Sidebar/SidebarProvider.tsx     |  33 +-
+ frontend/src/components/Sidebar/index.tsx          | 381 ++++++-----
+ .../src/components/SummaryLanguageSettings.tsx     |   8 +-
+ frontend/src/components/SummaryModelSettings.tsx   |   8 +-
+ .../TranscriptRecovery/TranscriptRecovery.tsx      |  40 +-
+ frontend/src/components/TranscriptSettings.tsx     | 125 +++-
+ frontend/src/components/TranscriptView.tsx         |  66 +-
+ frontend/src/components/UpdateDialog.tsx           |   5 +-
+ frontend/src/components/UpdateNotification.tsx     |   3 +-
+ .../src/components/VirtualizedTranscriptView.tsx   |  59 +-
+ frontend/src/components/WhisperModelManager.tsx    | 729 ---------------------
+ .../onboarding/steps/DownloadProgressStep.tsx      |  22 +-
+ .../onboarding/steps/PermissionsStep.tsx           |   8 +-
+ .../onboarding/steps/SetupOverviewStep.tsx         |   2 +-
+ .../components/onboarding/steps/WelcomeStep.tsx    |   2 +-
+ .../components/shared/DownloadProgressToast.tsx    |   2 +-
+ frontend/src/components/ui/dialog.tsx              |   2 +-
+ frontend/src/components/ui/sheet.tsx               |   2 +-
+ frontend/src/constants/languages.ts                |  67 +-
+ frontend/src/contexts/ConfigContext.tsx            |  50 +-
+ frontend/src/contexts/ImportDialogContext.tsx      |   5 +-
+ frontend/src/contexts/OllamaDownloadContext.tsx    |   7 +-
+ frontend/src/contexts/OnboardingContext.tsx        |  12 +-
+ frontend/src/contexts/RecordingStateContext.tsx    |   4 +-
+ frontend/src/contexts/TranscriptContext.tsx        |  84 ++-
+ .../src/hooks/meeting-details/useCopyOperations.ts | 171 ++++-
+ .../src/hooks/meeting-details/useMeetingData.ts    |  37 +-
+ .../hooks/meeting-details/useMeetingOperations.ts  |   8 +-
+ .../hooks/meeting-details/useModelConfiguration.ts |  11 +-
+ .../hooks/meeting-details/useSummaryGeneration.ts  | 108 +--
+ frontend/src/hooks/meeting-details/useTemplates.ts |  55 +-
+ frontend/src/hooks/useAudioPlayer.ts               |   2 +-
+ frontend/src/hooks/useImportAudio.ts               |   3 +-
+ frontend/src/hooks/useModalState.ts                |   5 +-
+ frontend/src/hooks/useRecordingStart.ts            |  78 ++-
+ frontend/src/hooks/useRecordingStop.ts             | 104 ++-
+ frontend/src/hooks/useTranscriptRecovery.ts        |   7 +-
+ frontend/src/hooks/useTranscriptionModels.ts       |  64 +-
+ frontend/src/lib/analytics.ts                      |   2 +-
+ frontend/src/lib/builtin-ai.ts                     |   2 +-
+ frontend/src/lib/parakeet.ts                       |   4 +-
+ frontend/src/lib/recordingNotification.tsx         |   1 +
+ frontend/src/lib/whisper.ts                        | 334 ----------
+ frontend/src/services/configService.ts             |   6 +-
+ frontend/src/services/indexedDBService.ts          |  98 ++-
+ frontend/src/services/recordingService.ts          |   6 +-
+ frontend/src/services/transcriptService.ts         |  43 ++
+ frontend/src/types/betaFeatures.ts                 |   2 +-
+ frontend/src/types/index.ts                        |  10 +
+ frontend/tailwind.config.js                        |  62 +-
+ 156 files changed, 4740 insertions(+), 2712 deletions(-)

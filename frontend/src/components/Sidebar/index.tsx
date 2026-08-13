@@ -1,8 +1,10 @@
 'use client';
 
 import React, { useState, useMemo, useEffect, useCallback } from 'react';
-import { APP_VERSION, APP_VERSION_SHORT, APP_LICENSE } from '@/lib/version';
-import { ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload } from 'lucide-react';
+import {
+  ChevronDown, ChevronRight, File, Settings, ChevronLeftCircle,
+  BookOpen, ChevronRightCircle, Calendar, StickyNote, Home, Trash2, Mic, Square, Plus, Search, Pencil, NotebookPen, SearchIcon, X, Upload
+} from 'lucide-react';
 import { FeedbackDialog } from '@/components/FeedbackDialog';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
@@ -12,6 +14,7 @@ import type { CurrentMeeting } from '@/components/Sidebar/SidebarProvider';
 import { ConfirmationModal } from '../ConfirmationModel/confirmation-modal';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 import { SettingTabs } from '../SettingTabs';
+import Image from 'next/image';
 import { TranscriptModelProps } from '@/components/TranscriptSettings';
 import Analytics from '@/lib/analytics';
 import { invoke } from '@tauri-apps/api/core';
@@ -62,6 +65,13 @@ const Sidebar: React.FC = () => {
   } = useSidebar();
   const { user, logout } = useAuth();
   const { locale, t } = useTranslation();
+  // §105: 旧 DB 数据 title 是 "Recording in progress (Untitled)" / "Untitled" / 空, 渲染时本地化
+  const meetingTitle = (raw: string) => {
+    if (!raw || raw.trim() === '' || raw === 'Untitled' || raw.startsWith('Recording in progress (')) {
+      return t('meeting.untitled') || '未命名会议';
+    }
+    return raw;
+  };
 
   // Get recording state from RecordingStateContext (single source of truth)
   const { isRecording } = useRecordingState();
@@ -99,6 +109,7 @@ const Sidebar: React.FC = () => {
     model: 'parakeet-tdt-0.6b-v3-int8',
   });
   const [settingsSaveSuccess, setSettingsSaveSuccess] = useState<boolean | null>(null);
+  const [totalTopics, setTotalTopics] = useState(0);
 
   // State for edit modal
   const [editModalState, setEditModalState] = useState<{ isOpen: boolean; meetingId: string | null; currentTitle: string }>({
@@ -127,6 +138,21 @@ const Sidebar: React.FC = () => {
 
 
   const [deleteModalState, setDeleteModalState] = useState<{ isOpen: boolean; itemId: string | null }>({ isOpen: false, itemId: null });
+
+  // P0-A: load topic count for sidebar badge
+  useEffect(() => {
+    const loadTopics = async () => {
+      try {
+        const list = await invoke('api_topic_recent', { limit: 50 });
+        if (Array.isArray(list)) setTotalTopics(list.length);
+      } catch {
+        /* no-op */
+      }
+    };
+    void loadTopics();
+    const interval = setInterval(loadTopics, 60000);
+    return () => clearInterval(interval);
+  }, []);
 
   useEffect(() => {
     // Note: Don't set hardcoded defaults - let DB be the source of truth
@@ -242,18 +268,11 @@ const Sidebar: React.FC = () => {
       };
       console.log('Saving transcript config with payload:', payload);
 
-      const session = typeof window !== 'undefined' ? window.localStorage.getItem('lixianhuiji.session') : null;
       await invoke('api_save_transcript_config', {
         provider: payload.provider,
         model: payload.model,
         apiKey: payload.apiKey,
-        session,
       });
-      // v0.7.0+: Pro 专属 tier gate — funasr-nano-zh 仅 member 可用
-      if (typeof payload.model === 'string' && payload.model === 'funasr-nano-zh') {
-        // 前端 UI 已经拒绝, 这里 catch 后端硬闸门返回 (curl 绕过场景)
-        // 已在 catch 分支统一处理, 此处无额外动作
-      }
 
 
       setSettingsSaveSuccess(true);
@@ -359,7 +378,7 @@ const Sidebar: React.FC = () => {
       await invoke('api_delete_meeting', {
         meetingId: itemId,
       });
-      console.log('会议已删除');
+      console.log('Meeting deleted successfully');
       const updatedMeetings = meetings.filter((m: CurrentMeeting) => m.id !== itemId);
       setMeetings(updatedMeetings);
 
@@ -595,7 +614,7 @@ const Sidebar: React.FC = () => {
       <div key={item.id}>
         <div
           className={`flex items-center transition-all duration-150 group ${item.type === 'folder' && depth === 0
-            ? 'p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors'
+            ? 'p-3 text-lg font-semibold h-10 mx-3 mt-3 rounded-lg'
             : `px-3 py-2 my-0.5 rounded-md text-sm ${isActive ? 'bg-blue-100 text-blue-700 font-medium' :
               hasTranscriptMatch ? 'bg-yellow-50' : 'hover:bg-gray-50'
             } cursor-pointer`
@@ -619,7 +638,7 @@ const Sidebar: React.FC = () => {
               ) : item.id === 'notes' ? (
                 <Calendar className="w-4 h-4 mr-2" />
               ) : null}
-              <span className={depth === 0 ? "" : "font-medium"}>{item.title}</span>
+              <span className={depth === 0 ? "" : "font-medium"}>{meetingTitle(item.title)}</span>
               <div className="ml-auto">
                 {isExpanded ? (
                   <ChevronDown className="w-4 h-4 text-gray-500" />
@@ -643,7 +662,7 @@ const Sidebar: React.FC = () => {
                     <Plus className="w-3.5 h-3.5 text-blue-600" />
                   </div>
                 )}
-                <span className="flex-1 break-words">{item.title}</span>
+                <span className="flex-1 break-words">{meetingTitle(item.title)}</span>
                 {isMeetingItem && (
                   <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity duration-150">
                     <button
@@ -708,59 +727,33 @@ const Sidebar: React.FC = () => {
         )}
       </button>
 
-      {/* Brand: 盾牌 + 文字 + APP_VERSION_SHORT chip (展开态) / 单盾 (折叠态) */}
+      {/* Brand: 盾牌 + 文字 + v0.6.10 chip (展开态) / 单盾 (折叠态) */}
       <div className="flex h-14 items-center border-b border-neutral-200/70 px-3.5">
         {!isCollapsed ? (
           <div className="flex min-w-0 items-center gap-2.5">
             <button
               onClick={() => router.push('/')}
-              aria-label="离线会记"
+              aria-label="言镜 AI"
               className="shrink-0 rounded-md transition-opacity hover:opacity-80"
             >
-              <svg viewBox="0 0 100 100" className="h-7 w-7" fill="none" aria-hidden="true">
-                <path d="M50 5 L90 18 L90 50 C90 75 70 90 50 96 C30 90 10 75 10 50 L10 18 Z" fill="#0B2545"/>
-                <path d="M50 9 L86 21 L86 50 C86 73 68 87 50 92 C32 87 14 73 14 50 L14 21 Z" fill="#FFFFFF"/>
-                <path d="M50 9 L86 21 L86 50 C86 73 68 87 50 92 L50 9 Z" fill="#13A89E"/>
-                <path d="M50 9 L14 21 L14 50 C14 73 32 87 50 92 L50 9 Z" fill="#FFFFFF"/>
-                <rect x="2" y="49" width="14" height="3" fill="#0B2545"/>
-                <rect x="84" y="49" width="14" height="3" fill="#0B2545"/>
-                <rect x="29" y="48" width="4" height="4" rx="2" fill="#0B2545"/>
-                <rect x="37" y="42" width="4" height="16" rx="2" fill="#13A89E"/>
-                <rect x="45" y="35" width="4" height="30" rx="2" fill="#0B2545"/>
-                <rect x="53" y="42" width="4" height="16" rx="2" fill="#FFFFFF"/>
-                <rect x="61" y="45" width="4" height="10" rx="2" fill="#FFFFFF"/>
-                <circle cx="69" cy="50" r="2.5" fill="#FFFFFF"/>
-              </svg>
+                              <Image src="/logo.png" alt="言镜 AI" width={28} height={28} className="h-7 w-7 rounded-md" />
             </button>
             <div className="flex min-w-0 items-baseline gap-1.5">
               <span className="truncate text-[14px] font-semibold tracking-[-0.01em] text-neutral-900 dark:text-neutral-50">
-                离线会记
+                言镜 AI
               </span>
               <span className="shrink-0 rounded border border-neutral-200 px-1 py-px font-mono text-[9.5px] uppercase tracking-wider text-neutral-500 dark:border-neutral-700 dark:text-neutral-500">
-                {APP_VERSION_SHORT}
+                v0.8.6
               </span>
             </div>
           </div>
         ) : (
           <button
             onClick={() => router.push('/')}
-            aria-label="离线会记"
+            aria-label="言镜 AI"
             className="mx-auto rounded-md p-1 transition-opacity hover:opacity-80"
           >
-            <svg viewBox="0 0 100 100" className="h-7 w-7" fill="none" aria-hidden="true">
-              <path d="M50 5 L90 18 L90 50 C90 75 70 90 50 96 C30 90 10 75 10 50 L10 18 Z" fill="#0B2545"/>
-              <path d="M50 9 L86 21 L86 50 C86 73 68 87 50 92 C32 87 14 73 14 50 L14 21 Z" fill="#FFFFFF"/>
-              <path d="M50 9 L86 21 L86 50 C86 73 68 87 50 92 L50 9 Z" fill="#13A89E"/>
-              <path d="M50 9 L14 21 L14 50 C14 73 32 87 50 92 L50 9 Z" fill="#FFFFFF"/>
-              <rect x="2" y="49" width="14" height="3" fill="#0B2545"/>
-              <rect x="84" y="49" width="14" height="3" fill="#0B2545"/>
-              <rect x="29" y="48" width="4" height="4" rx="2" fill="#0B2545"/>
-              <rect x="37" y="42" width="4" height="16" rx="2" fill="#13A89E"/>
-              <rect x="45" y="35" width="4" height="30" rx="2" fill="#0B2545"/>
-              <rect x="53" y="42" width="4" height="16" rx="2" fill="#FFFFFF"/>
-              <rect x="61" y="45" width="4" height="10" rx="2" fill="#FFFFFF"/>
-              <circle cx="69" cy="50" r="2.5" fill="#FFFFFF"/>
-            </svg>
+                          <Image src="/logo.png" alt="言镜 AI" width={28} height={28} className="h-7 w-7 rounded-md" />
           </button>
         )}
       </div>
@@ -786,6 +779,29 @@ const Sidebar: React.FC = () => {
           );
         })()}
 
+        {/* §104 Meeting Timeline — renamed from Knowledge Graph (P0-A) */}
+        {(() => {
+          const active = pathname.startsWith('/knowledge');
+          return (
+            <button onClick={() => router.push('/knowledge')} title={isCollapsed ? t('nav.knowledge') : undefined}
+              data-testid="sidebar-knowledge"
+              className={`relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] font-medium transition-colors ${active ? 'bg-violet-50/80 text-violet-700' : 'text-neutral-600 hover:bg-neutral-50 hover:text-neutral-900'} ${isCollapsed ? 'justify-center' : ''}`}>
+              {active && <span className="absolute left-0 top-1/2 h-5 w-0.5 -translate-y-1/2 rounded-r bg-violet-600" />}
+              <BookOpen className={`h-[18px] w-[18px] ${active ? 'text-violet-600' : 'text-neutral-500'}`} />
+              {!isCollapsed && (
+                <>
+                  <span className="truncate">{t('nav.knowledge')}</span>
+                  {totalTopics > 0 && (
+                    <span className="ml-auto rounded-full bg-violet-100 px-1.5 py-0.5 text-[10px] font-medium tabular-nums text-violet-700">
+                      {totalTopics}
+                    </span>
+                  )}
+                </>
+              )}
+            </button>
+          );
+        })()}
+
         {/* Recording CTA */}
         {(() => {
           const active = isRecording;
@@ -798,14 +814,6 @@ const Sidebar: React.FC = () => {
             </button>
           );
         })()}
-
-        {/* Import audio (v0.7.x: Beta 已毕业, 不再受 betaFeatures 旗控制) */}
-        <button onClick={() => { openImportDialog(); }}
-          title={isCollapsed ? t('nav.import_audio') : undefined}
-          className={`relative flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-[13.5px] font-medium transition-colors text-neutral-600 hover:bg-blue-50 hover:text-blue-700 ${isCollapsed ? 'justify-center' : ''}`}>
-          <Upload className={`h-[18px] w-[18px] text-blue-600`} />
-          {!isCollapsed && <span className="truncate">{t('nav.import_audio')}</span>}
-        </button>
 
         {/* Library: meetings folder */}
         {!isCollapsed && filteredSidebarItems.filter(i => i.type === 'folder').map(item => (
@@ -872,15 +880,25 @@ const Sidebar: React.FC = () => {
         <div className="flex items-center justify-between">
           {!isCollapsed ? (
             <>
-              <span>{APP_VERSION_SHORT} · {APP_LICENSE}</span>
+              <span>v0.8.6 · MIT</span>
               <span className="inline-flex items-center gap-1 text-emerald-600">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />offline
               </span>
             </>
           ) : (
-            <span className="mx-auto">{APP_VERSION_SHORT}</span>
+            <span className="mx-auto">v0.8.6</span>
           )}
         </div>
+        {!isCollapsed && (
+          <a
+            href="mailto:sam.wang01@icloud.com?subject=言镜 AI - 反馈&body=版本 v0.8.6 · macOS"
+            className="mt-1.5 flex items-center gap-1 text-[10px] text-neutral-500 hover:text-blue-600 transition-colors truncate"
+            title="联系客服: sam.wang01@icloud.com"
+          >
+            <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>
+            <span className="truncate">客服: sam.wang01@icloud.com</span>
+          </a>
+        )}
       </div>
     <FeedbackDialog
         open={feedbackOpen}

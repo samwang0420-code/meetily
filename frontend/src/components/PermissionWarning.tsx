@@ -101,10 +101,10 @@ export function PermissionWarning({
             {!hasMicrophone && (
               <>
                 <p className="mb-3">
-                  {t('permissions.mic_no_devices')}
+                  Meetily needs access to your microphone to record meetings. No microphone devices were detected.
                 </p>
                 <div className="space-y-2 text-sm mb-4">
-                  <p className="font-medium">请检查:</p>
+                  <p className="font-medium">Please check:</p>
                   <ul className="list-disc list-inside ml-2 space-y-1">
                     <li>{t('devices_warning.mic_ok')}</li>
                     <li>{t('devices_warning.mic_granted')}</li>
@@ -119,12 +119,12 @@ export function PermissionWarning({
               <>
                 <p className="mb-3">
                   {hasMicrophone
-                    ? t('permissions.system_audio_unavailable')
-                    : t('permissions.system_audio_also_unavailable')}
+                    ? 'System audio capture is not available. You can still record with your microphone, but computer audio won\'t be captured.'
+                    : 'System audio capture is also not available.'}
                 </p>
                 {isMacOS && (
                   <div className="space-y-2 text-sm mb-4">
-                    <p className="font-medium">在 macOS 上启用系统音频:</p>
+                    <p className="font-medium">To enable system audio on macOS:</p>
                     <ul className="list-disc list-inside ml-2 space-y-1">
                       <li>Install a virtual audio device (e.g., BlackHole 2ch)</li>
                       <li>{t('devices_warning.screen_recording')}</li>

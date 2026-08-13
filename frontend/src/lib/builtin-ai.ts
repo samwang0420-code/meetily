@@ -92,7 +92,9 @@ export class BuiltInAIAPI {
     await invoke('builtin_ai_delete_model', { modelName });
   }
 
+  // §94 fix: builtin_ai_get_models_directory 悬空 (后端无此 fn)
+  // → 用 parakeet_get_models_directory (后端有, 已注册)
   static async getModelsDirectory(): Promise<string> {
-    return await invoke('builtin_ai_get_models_directory');
+    return await invoke('parakeet_get_models_directory');
   }
 }

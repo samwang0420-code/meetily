@@ -7,15 +7,25 @@ import { BlockNoteSummaryView, BlockNoteSummaryViewRef } from '@/components/AISu
 import { EmptyStateSummary } from '@/components/EmptyStateSummary';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 import { SummaryGeneratorButtonGroup } from './SummaryGeneratorButtonGroup';
+import { ActionItemsList } from './ActionItemsList';
+import { SpeakerRosterDrawer } from '@/components/SpeakerRoster/SpeakerRosterDrawer';
 import { SummaryUpdaterButtonGroup } from './SummaryUpdaterButtonGroup';
 import Analytics from '@/lib/analytics';
 import { useEffect, useRef, useState, RefObject } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
 import { safeToast } from '@/lib/safeToast';
-import { Languages, ChevronDown } from 'lucide-react';
+import { Languages, ChevronDown, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+} from '@/components/ui/dropdown-menu';
+import { Settings, Download, Sparkles, Save, Copy, FileCode, FileText, FolderOpen, FileType } from 'lucide-react';
 import { LanguagePickerPopover } from '@/components/LanguagePickerPopover';
 import { useRecentLanguages } from '@/hooks/useRecentLanguages';
 import { labelForCode } from '@/lib/summary-languages';
@@ -107,6 +117,7 @@ export function SummaryPanel({
   const { t, locale } = useTranslation();
   const [summaryLang, setSummaryLang] = useState<string | null>(null);
   const [summaryLangStorage, setSummaryLangStorage] = useState<SummaryLanguageStorage>('metadata');
+  const [speakerDrawerOpen, setSpeakerDrawerOpen] = useState(false);
   const [langPickerOpen, setLangPickerOpen] = useState(false);
   const [streamedMarkdown, setStreamedMarkdown] = useState('');
   // v0.7.0+ P0-1: Map-Reduce 阶段显示
@@ -187,7 +198,7 @@ export function SummaryPanel({
         }
       } catch (err) {
         console.error('Failed to load summary language:', err);
-        safeToast.warning('无法加载保存的摘要语言', {
+        safeToast.warning('Could not load saved summary language', {
           description: 'Using Auto until meeting metadata can be read.',
         });
         if (!cancelled && languageLoadVersionRef.current === loadVersion) setSummaryLang(null);
@@ -315,47 +326,105 @@ export function SummaryPanel({
           onChange={onTitleChange}
         /> */}
 
-        {/* Button groups - only show when summary exists */}
+        {/* §110: 9 按钮 → 4 元素 (说话人/重新生成/⚙️ 设置下拉/📤 导出下拉) */}
         {aiSummary && !isSummaryLoading && (
           <div className="flex items-center justify-center w-full pt-0 gap-2">
-            {/* Left-aligned: Summary Generator Button Group */}
-            <div className="flex-shrink-0">
-              <SummaryGeneratorButtonGroup
-                modelConfig={modelConfig}
-                setModelConfig={setModelConfig}
-                onSaveModelConfig={onSaveModelConfig}
-                onGenerateSummary={onGenerateSummary}
-                onStopGeneration={onStopGeneration}
-                customPrompt={customPrompt}
-                summaryStatus={summaryStatus}
-                availableTemplates={availableTemplates}
-                selectedTemplate={selectedTemplate}
-                onTemplateSelect={onTemplateSelect}
-                hasTranscripts={transcripts.length > 0}
-                hasSummary={!!aiSummary}
-                isModelConfigLoading={isModelConfigLoading}
-                onOpenModelSettings={onOpenModelSettings}
-                languageSlot={languageSlot}
-               summaryPhase={summaryPhase} />
-            </div>
+            {/* 1. 说话人名单 — 独立 button (触发 drawer) */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setSpeakerDrawerOpen(true)}
+              className="flex items-center gap-2 ml-2"
+              data-testid="open-speaker-roster"
+            >
+              <Users className="w-4 h-4" />
+              {t('speaker.title')}
+            </Button>
+            {/* 2. 重新生成 — 主操作 (独立 button) */}
+            <Button
+              variant="outline"
+              size="sm"
+              className="bg-gradient-to-r from-blue-50 to-purple-50 hover:from-blue-100 hover:to-purple-100 border-blue-200 xl:px-4"
+              onClick={() => {
+                Analytics.trackButtonClick('regenerate_summary_header', 'meeting_details');
+                onRegenerateSummary();
+              }}
+              disabled={isSummaryLoading}
+              title={t('summary.regenerate')}
+            >
+              <Sparkles className="w-4 h-4" />
+              <span className="hidden lg:inline">{t('summary.regenerate')}</span>
+            </Button>
 
-            {/* Right-aligned: Summary Updater Button Group */}
-            <div className="flex-shrink-0">
-              <SummaryUpdaterButtonGroup
-                isSaving={isSaving}
-                isDirty={isTitleDirty || (summaryRef.current?.isDirty || false)}
-                onSave={onSaveAll}
-                onCopy={onCopySummary}
-                onExportMarkdown={onExportSummaryMarkdown}
-                onExportTxt={onExportSummaryTxt}
-                onFind={() => {
-                  // TODO: Implement find in summary functionality
-                  console.log('Find in summary clicked');
-                }}
-                onOpenFolder={onOpenFolder}
-                hasSummary={!!aiSummary}
-              />
-            </div>
+            {/* 3. ⚙️ 设置下拉 — 自动检测 / AI 模型 / 模板 */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" title={t('summary.settings_title')}>
+                  <Settings className="w-4 h-4" />
+                  <span className="hidden lg:inline">{t('summary.settings_title')}</span>
+                  <ChevronDown className="w-3 h-3 ml-1 opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-48">
+                <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="cursor-default p-0">
+                  <div className="flex items-center w-full">
+                    <Languages className="w-4 h-4 mr-2" />
+                    {languageSlot}
+                  </div>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={() => onOpenModelSettings?.(() => {})}>
+                  <Sparkles className="w-4 h-4 mr-2" />
+                  {t('summary.ai_model')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => {
+                  if (availableTemplates.length > 0) {
+                    onTemplateSelect(availableTemplates[0].id, availableTemplates[0].name);
+                  }
+                }}>
+                  <FileType className="w-4 h-4 mr-2" />
+                  {t('summary.template')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            {/* 4. 📤 导出下拉 — 保存 / 复制 / MD / TXT / 打开文件夹 */}
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button variant="outline" size="sm" title={t('summary.export_md_title')}>
+                  <Download className="w-4 h-4" />
+                  <span className="hidden lg:inline">{t('meeting_details.export_md')}</span>
+                  <ChevronDown className="w-3 h-3 ml-1 opacity-50" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem onClick={onSaveAll} disabled={isSaving}>
+                  <Save className="w-4 h-4 mr-2" />
+                  {t('summary.save')}
+                  {(isTitleDirty || (summaryRef.current?.isDirty || false)) && (
+                    <span className="ml-auto w-2 h-2 rounded-full bg-green-500" />
+                  )}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onCopySummary} disabled={!aiSummary}>
+                  <Copy className="w-4 h-4 mr-2" />
+                  {t('summary.copy')}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={onExportSummaryMarkdown} disabled={!aiSummary}>
+                  <FileCode className="w-4 h-4 mr-2" />
+                  {t('summary.export_md')}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={onExportSummaryTxt} disabled={!aiSummary}>
+                  <FileText className="w-4 h-4 mr-2" />
+                  {t('summary.export_txt')}
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={onOpenFolder}>
+                  <FolderOpen className="w-4 h-4 mr-2" />
+                  {t('meeting_details.open_folder')}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         )}
       </div>
@@ -385,7 +454,7 @@ export function SummaryPanel({
               <div className="mx-auto max-w-4xl rounded-xl border border-blue-100 bg-blue-50/40 p-5">
                 <div className="mb-3 flex items-center gap-2 text-xs font-medium text-blue-700">
                   <span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />
-                  {locale === 'zh' ? t('summary.local_generating') : t('summary.local_generating_en')}
+                  {locale === 'zh' ? '本地模型正在生成' : 'Local model is generating'}
                 </div>
                 <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-gray-800">{streamedMarkdown}</pre>
               </div>
@@ -400,9 +469,9 @@ export function SummaryPanel({
           </div>
         </div>
       ) : !aiSummary ? (
-        <div className="flex flex-col h-full overflow-y-auto min-h-0">
+        <div className="flex flex-col h-full">
           {/* Centered Summary Generator Button Group when no summary */}
-          <div className="flex items-center justify-center gap-2 pt-8 pb-4 shrink-0">
+          <div className="flex items-center justify-center gap-2 pt-8 pb-4">
             <SummaryGeneratorButtonGroup
               modelConfig={modelConfig}
               setModelConfig={setModelConfig}
@@ -421,7 +490,7 @@ export function SummaryPanel({
               languageSlot={transcripts.length > 0 ? languageSlot : undefined}
              summaryPhase={summaryPhase} />
           </div>
-          {/* Empty state message — scrollable area so button stays visible */}
+          {/* Empty state message */}
           <EmptyStateSummary
             onGenerate={() => onGenerateSummary(customPrompt)}
             hasModel={modelConfig.provider !== null && modelConfig.model !== null}
@@ -444,11 +513,7 @@ export function SummaryPanel({
                 </div>
                 <div className="bg-white p-4 rounded-lg shadow-sm mt-4">
                   <h4 className="font-medium mb-1">{t('summary.action_items')}</h4>
-                  <ul className="list-disc pl-4">
-                    {summaryResponse.summary.action_items.blocks.map((block, i) => (
-                      <li key={i} className="text-sm">{block.content}</li>
-                    ))}
-                  </ul>
+                  <ActionItemsList meetingId={meeting.id} />
                 </div>
                 <div className="bg-white p-4 rounded-lg shadow-sm mt-4">
                   <h4 className="font-medium mb-1">{t('summary.decisions')}</h4>
@@ -505,6 +570,11 @@ export function SummaryPanel({
           )}
         </div>
       )}
+      <SpeakerRosterDrawer
+        open={speakerDrawerOpen}
+        onOpenChange={setSpeakerDrawerOpen}
+        meetingId={meeting.id}
+      />
     </div>
   );
 }

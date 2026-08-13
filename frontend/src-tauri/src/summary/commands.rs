@@ -1,3 +1,4 @@
+// §29 Pro tier gate for FunASR-Nano: pro_only_funasr_nano
 use crate::database::repositories::{
     meeting::MeetingsRepository,
     summary::SummaryProcessesRepository, transcript_chunk::TranscriptChunksRepository,
@@ -85,7 +86,7 @@ pub async fn api_save_meeting_summary<R: Runtime>(
     state: tauri::State<'_, AppState>,
     meeting_id: String,
     summary: serde_json::Value,
-    auth_token: Option<String>,
+    _auth_token: Option<String>,
 ) -> Result<serde_json::Value, String> {
     log_info!(
         "api_save_meeting_summary (native) called for meeting_id: {}",
@@ -218,7 +219,7 @@ async fn resolve_meeting_folder(
     pool: &sqlx::SqlitePool,
     meeting_id: &str,
 ) -> Result<MeetingFolderResolution, String> {
-    let meeting = MeetingsRepository::get_meeting_metadata(pool, meeting_id, None)
+    let meeting = MeetingsRepository::get_meeting_metadata(pool, meeting_id)
         .await
         .map_err(|e| format!("Failed to load meeting metadata: {}", e))?
         .ok_or_else(|| format!("Meeting not found: {}", meeting_id))?;
@@ -238,7 +239,7 @@ pub async fn api_get_summary<R: Runtime>(
     _app: AppHandle<R>,
     state: tauri::State<'_, AppState>,
     meeting_id: String,
-    auth_token: Option<String>,
+    _auth_token: Option<String>,
 ) -> Result<SummaryResponse, String> {
     log_info!(
         "api_get_summary (native) called for meeting_id: {}",
@@ -266,7 +267,7 @@ pub async fn api_get_summary<R: Runtime>(
             };
 
             // Fetch meeting title from database
-            let meeting_name = match MeetingsRepository::get_meeting(pool, &meeting_id, None).await {
+            let meeting_name = match MeetingsRepository::get_meeting(pool, &meeting_id).await {
                 Ok(Some(meeting_details)) => {
                     log_info!("Fetched meeting title: {}", &meeting_details.title);
                     Some(meeting_details.title)
@@ -304,7 +305,7 @@ pub async fn api_get_summary<R: Runtime>(
             log_info!("No summary process found for meeting_id: {}", meeting_id);
 
             // Still fetch meeting title for idle state
-            let meeting_name = match MeetingsRepository::get_meeting(pool, &meeting_id, None).await {
+            let meeting_name = match MeetingsRepository::get_meeting(pool, &meeting_id).await {
                 Ok(Some(meeting_details)) => Some(meeting_details.title),
                 _ => None,
             };
@@ -343,7 +344,7 @@ pub async fn api_process_transcript<R: Runtime>(
     template_id: Option<String>,
     summary_language: Option<String>,
     evidence: Option<Vec<StructuredTranscriptEvidence>>,
-    auth_token: Option<String>,
+    _auth_token: Option<String>,
 ) -> Result<ProcessTranscriptResponse, String> {
     use uuid::Uuid;
 
@@ -366,87 +367,12 @@ pub async fn api_process_transcript<R: Runtime>(
 
     let structured_evidence = evidence.unwrap_or_default();
 
-    // v0.7.x P1-A: 摘要免费化闸门. 之前完全没 quota — free 用户可无限耗 LLM.
-    // 当前 schema summary_processes.meetings 都没 user_id, 全局月度配额会误算
-    // (例如未登录用户混到会员配额). 因此这一轮只挡 anonymous (未登录) 路径:
-    // 若 auth_token 是空 / 无效, 一律拒绝. 等 P2-J 会议归属/schema user_id 落地后
-    // 再切到 compute_summary_quota 月度计数.
-    let session_token_from_param: Option<String> = auth_token
-        .as_ref()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty());
-    let session_user_id: Option<i64> = if let Some(tok) = session_token_from_param.as_deref() {
-        crate::user::commands::lookup_session_in_db(&app, tok)
-            .await
-            .ok()
-            .flatten()
-    } else {
-        // Fallback: 不依赖前端传入 token (Tauri invoke 序列化实测发现
-        // auth_token 字段在 Option<String> + 蛇形/驼峰两种命名尝试下都收不到,
-        // §22 commit 修复未生效). 改用 DB 里最新活跃 session (像 user_bootstrap).
-        crate::user::commands::latest_session_in_db(&app)
-            .await
-            .ok()
-            .flatten()
-            .map(|(_, uid)| uid)
-    };
-    let tier = match session_user_id {
-        Some(uid) => crate::database::repositories::user::UsersRepository::get_membership(
-            &pool, uid,
-        )
-        .await
-        .unwrap_or_else(|_| "free".to_string()),
-        None => "anonymous".to_string(),
-    };
-    // P1-A: anonymous 一律拒摘要; compute_summary_quota 内已返回 (can_run=false, reason).
-    // 同时为 free / member 调用现有的 truncate_segments_for_tier 提前阻断
-    // (虽然实际段数截断在 api_save_transcript 那边更合适, 这里仅做占位).
-    let q = crate::user::quota::compute_summary_quota(&tier, 0);
-    if tier == "anonymous" || !q.can_record {
-        let reason_zh = q.reason.clone().unwrap_or_else(|| "未登录无法生成摘要".to_string());
-        log_warn!(
-            "[quota] summary blocked for tier={}, reason={}",
-            tier,
-            reason_zh
-        );
-        // P0-fix: 落库 failed row, 这样前端 polling 能拿到状态, 而不是 silent timeout.
-        // 否则 api_get_summary 找不到 row, polling 一直 pending, 10 分钟后才报错.
-        let _ = SummaryProcessesRepository::create_or_reset_process(&pool, &m_id).await;
-        let _ = SummaryProcessesRepository::update_process_failed(
-            &pool,
-            &m_id,
-            &format!("摘要权限不足: {} (tier={})", reason_zh, tier),
-        )
-        .await;
-        return Err(format!(
-            "{{\"error\":\"summary_quota_blocked\",\"tier\":\"{}\",\"reason_zh\":\"{}\"}}",
-            tier,
-            reason_zh
-        ));
-    }
-
     // Create or reset the process entry in the database
     SummaryProcessesRepository::create_or_reset_process(&pool, &m_id)
         .await
         .map_err(|e| format!("Failed to initialize process: {}", e))?;
 
     log_info!("✓ Summary process initialized for meeting_id: {}", &m_id);
-
-    // v0.7.0+ rc6: 前端偶尔把 transcription provider (sherpa_funasr_nano 等) 误传
-    // 到 summary LLM 接口. 在 Rust 入口就 fallback 到 builtin-ai + qwen3.5:2b, 不阻塞摘要.
-    let (model, model_name) = if matches!(
-        model.as_str(),
-        "sherpa_funasr_nano" | "sherpa_paraformer" | "parakeet" | "localWhisper" | "local"
-    ) {
-        log_warn!(
-            "[summary:commands] model='{}' is a local ASR provider, not an LLM.              Falling back to builtin-ai / qwen3.5:2b for meeting_id={}.",
-            &model,
-            &m_id
-        );
-        ("builtin-ai".to_string(), "qwen3.5:2b".to_string())
-    } else {
-        (model, model_name)
-    };
 
     // Save transcript chunks data (matching Python backend behavior)
     let chunk_size = _chunk_size.unwrap_or(40000);

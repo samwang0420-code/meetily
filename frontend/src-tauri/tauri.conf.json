@@ -1,15 +1,15 @@
 {
     "$schema": "../node_modules/@tauri-apps/cli/config.schema.json",
-    "productName": "离线会记",
-    "version": "0.1.0",
-    "identifier": "cn.lixianhuiji.app",
+    "productName": "言镜 AI",
+    "version": "0.8.6",
+    "identifier": "tech.yanjingai.app",
     "build": {
         "frontendDist": "../out"
     },
     "app": {
         "windows": [
             {
-                "title": "离线会记 — 本地 AI 会议转录",
+                "title": "言镜 AI — 本地 AI 会议转录",
                 "width": 1180,
                 "height": 760,
                 "resizable": true,
@@ -35,7 +35,7 @@
             "capabilities": [
                 {
                     "identifier": "main",
-                    "description": "离线会记 — 本地 AI 会议转录主窗口",
+                    "description": "言镜 AI — 本地 AI 会议转录主窗口",
                     "windows": [
                         "main"
                     ],
@@ -100,7 +100,8 @@
         "macOS": {
             "entitlements": "entitlements.plist",
             "signingIdentity": "-",
-            "hardenedRuntime": true
+            "hardenedRuntime": true,
+            "bundleName": "言镜 AI"
         },
         "windows": {
             "signCommand": "powershell -ExecutionPolicy Bypass -File scripts/sign-windows.ps1 -FilePath %1"

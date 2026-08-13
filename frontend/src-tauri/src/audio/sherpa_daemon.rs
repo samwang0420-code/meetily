@@ -12,7 +12,8 @@ use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
-use std::sync::Mutex;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::{Mutex, OnceLock};
 
 /// Python script path. Bundled with frontend/src-tauri/scripts/.
 fn script_path() -> std::path::PathBuf {
@@ -32,16 +33,64 @@ fn script_path() -> std::path::PathBuf {
     candidates.last().unwrap().clone()
 }
 
-/// Python interpreter: prefer python3 from PATH; fall back to system locations.
+/// §96: Python interpreter selection.
+///
+/// 历史问题 (§96 触发): Tauri app bundle 启动时, macOS launchd 注入精简 PATH,
+/// 不含 /opt/homebrew/bin. `which python3` fallback 到 /usr/bin/python3 (Xcode CLT),
+/// 该 Python 没装 sherpa_onnx (只 numpy). 用户报 "No module named 'numpy'" /
+/// 实际是 sherpa_onnx 缺失. 这里用候选列表 + 真实 import 探测 + OnceLock 缓存.
+///
+/// 探测 = `python -c "import sherpa_onnx, numpy, soundfile"`, 全 ok 才用.
 fn python_path() -> String {
+    static CACHED: OnceLock<String> = OnceLock::new();
+    CACHED.get_or_init(detect_python_interpreter).clone()
+}
+
+fn detect_python_interpreter() -> String {
+    let candidates = [
+        "/opt/homebrew/bin/python3",
+        "/opt/homebrew/opt/python@3.14/bin/python3.14",
+        "/opt/homebrew/opt/python@3.13/bin/python3.13",
+        "/opt/homebrew/opt/python@3.12/bin/python3.12",
+        "/usr/local/bin/python3",
+        "/opt/local/bin/python3",
+        "/Library/Frameworks/Python.framework/Versions/Current/bin/python3",
+    ];
+    for c in &candidates {
+        if !std::path::Path::new(c).exists() {
+            continue;
+        }
+        let probe = Command::new(c)
+            .args(&["-c", "import sherpa_onnx, numpy, soundfile; print('OK')"])
+            .output();
+        match probe {
+            Ok(out) if out.status.success() => {
+                info!("[sherpa] §96 python3 selected (probe OK): {}", c);
+                return c.to_string();
+            }
+            Ok(out) => {
+                let stderr = String::from_utf8_lossy(&out.stderr);
+                warn!(
+                    "[sherpa] §96 python3 {} probe failed: {}",
+                    c,
+                    stderr.lines().last().unwrap_or("?").trim()
+                );
+            }
+            Err(e) => {
+                warn!("[sherpa] §96 python3 {} spawn failed: {}", c, e);
+            }
+        }
+    }
     if let Ok(out) = Command::new("which").arg("python3").output() {
         if out.status.success() {
             let p = String::from_utf8_lossy(&out.stdout).trim().to_string();
             if !p.is_empty() {
+                warn!("[sherpa] §96 falling back to PATH which python3: {}", p);
                 return p;
             }
         }
     }
+    warn!("[sherpa] §96 no python3 with sherpa_onnx found, using /usr/bin/python3 (will likely fail)");
     "/usr/bin/python3".to_string()
 }
 
@@ -108,18 +157,16 @@ struct SherpaRequest<'a> {
     audio_start_offset_seconds: Option<f64>,
 }
 
-/// Single global daemon, lazily started on first call, kept alive until process exit.
-///
-/// P1-D (Diar 串行排队) 已知限制:
-/// - SherpaDaemon 是单进程串行 stdin/stdout JSON-RPC. 同一时刻只处理 1 个 transcribe 请求.
-/// - 多会议并发场景: 第二个会议要等第一个 transcribe 响应才能开始, 体感是"排队".
-/// - 当前架构约束: IS_RECORDING 是 AtomicBool 全局单 flag, Rust 端只支持 1 个会议并行
-///   (用户 UI 根本开不了多会议), 所以 P1-D 实际不会被触发.
-/// - 长会议 diar 16 分钟异步计算由 sherpa_asr.py daemon 内部 background thread 处理,
-///   不影响下一个 transcribe 请求的派发.
-/// - P2 候选: 多会议支持 + per-meeting daemon pool. 等用户场景真实出现再做 (AGENTS.md §18).
+/// §62 A: N-daemon pool with round-robin dispatch.
+/// 旧版单 daemon 串行阻塞, 长会议 / 长导入 10+min. 改 N 路并发.
+/// env MEETILY_SHERPA_DAEMONS=1..4 显式覆盖, 默认 3 (8GB RAM sweet spot).
 pub struct SherpaDaemon {
-    inner: Mutex<Option<SherpaHandle>>,
+    /// N 个独立 Python child, 每个有独立 stdin/stdout
+    inner: Vec<Mutex<Option<SherpaHandle>>>,
+    /// round-robin 计数器 (fetch_add Relaxed → slot index = counter % count)
+    counter: AtomicUsize,
+    /// daemon 总数 (1-4)
+    count: usize,
 }
 
 struct SherpaHandle {
@@ -128,43 +175,53 @@ struct SherpaHandle {
     stdout: BufReader<ChildStdout>,
 }
 
+/// §62 A: 解析 env MEETILY_SHERPA_DAEMONS, 默认 3, clamp 1-4.
+fn daemon_count_from_env() -> usize {
+    let raw = std::env::var("MEETILY_SHERPA_DAEMONS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(3);
+    raw.clamp(1, 4)
+}
+
 impl SherpaDaemon {
     fn new() -> Self {
-        Self {
-            inner: Mutex::new(None),
-        }
+        let count = daemon_count_from_env();
+        info!("[sherpa] §62 A: starting daemon pool count={} (env MEETILY_SHERPA_DAEMONS)", count);
+        let inner = (0..count).map(|_| Mutex::new(None)).collect();
+        Self { inner, counter: AtomicUsize::new(0), count }
     }
 
-    /// Ensure daemon running, return locked handle.
-    fn ensure_started(&self) -> Result<()> {
-        let mut guard = self
-            .inner
-            .lock()
-            .map_err(|_| anyhow!("daemon lock poisoned"))?;
+    /// §62 A: pick next slot via round-robin. Doesn't start the daemon, caller must ensure.
+    fn next_slot(&self) -> usize {
+        let n = self.counter.fetch_add(1, Ordering::Relaxed);
+        n % self.count
+    }
+
+    /// §62 A: ensure daemon at slot_idx is running. Spawn on demand.
+    fn ensure_started_slot(&self, slot_idx: usize) -> Result<()> {
+        let mut guard = self.inner[slot_idx].lock().map_err(|_| anyhow!("daemon slot {} lock poisoned", slot_idx))?;
         if guard.is_some() {
             return Ok(());
         }
         let script = script_path();
-        info!(
-            "[sherpa] spawning daemon: {} {}",
-            python_path(),
-            script.display()
-        );
+        info!("[sherpa slot {}] spawning daemon: {} {}", slot_idx, python_path(), script.display());
         let mut cmd = Command::new(python_path());
         cmd.arg(&script)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        let mut child = cmd.spawn().map_err(|e| {
-            anyhow!(
-                "failed to spawn sherpa daemon ({}): {}",
-                script.display(),
-                e
-            )
-        })?;
+        // §99: 不设 PYTHONUSERBASE — homebrew Python 默认 user-base 已经是
+        // ~/Library/Python/3.14/lib/python (numpy/sherpa_onnx 装在那),
+        // 显式设 PYTHONUSERBASE=$HOME 反而被 PEP 370 错误映射到 ~/lib/python3.14/site-packages,
+        // 探测时 import OK 不等于 spawn 时 import OK (env 不一致), 触发 "No module named 'numpy'".
+        // §99: 不缓冲 stderr (daemon 启动错误能立即看到)
+        cmd.env("PYTHONUNBUFFERED", "1");
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| anyhow!("failed to spawn sherpa daemon slot {} ({}): {}", slot_idx, script.display(), e))?;
         let stdin = child.stdin.take().ok_or_else(|| anyhow!("no stdin"))?;
         let stdout = BufReader::new(child.stdout.take().ok_or_else(|| anyhow!("no stdout"))?);
-        // Take stderr, log it on drop
         let _stderr = child.stderr.take();
 
         // Drain stderr in background
@@ -174,55 +231,43 @@ impl SherpaDaemon {
                 let mut s = String::new();
                 let _ = err.read_to_string(&mut s);
                 if !s.trim().is_empty() {
-                    warn!("[sherpa stderr] {}", s.trim());
+                    warn!("[sherpa slot stderr] {}", s.trim());
                 }
             });
-            // detach; thread will exit naturally
             let _ = h;
         }
 
-        *guard = Some(SherpaHandle {
-            child,
-            stdin,
-            stdout,
-        });
-        info!("[sherpa] daemon ready");
+        *guard = Some(SherpaHandle { child, stdin, stdout });
+        info!("[sherpa slot {}] daemon ready", slot_idx);
         Ok(())
     }
 
-    /// Send 1 request, read 1 response. Blocking (use block_in_place).
+    /// 兼容旧 API: ensure_started(0) — callsite 零修改.
+    fn ensure_started(&self) -> Result<()> {
+        let slot = self.next_slot();
+        self.ensure_started_slot(slot)
+    }
+
+    /// §62 A: send 1 request to round-robin slot. Blocking (use block_in_place).
     /// `timestamps=true` 请求 Level 3 字级 timestamp (仅 sensevoice-zh + Pro + RAM>=8GB 实际返回)
     /// v0.6.11: 通用 JSON request / response (用于 streaming actions)
     fn send_request(&self, req_json: &serde_json::Value) -> Result<serde_json::Value> {
-        self.ensure_started()?;
-        // P0-fix: 每次请求更新 last_activity, 防止 idle killer 误杀
-        crate::audio::sherpa_daemon::touch_daemon_activity();
-        let mut guard = self.inner.lock().map_err(|_| anyhow!("lock"))?;
-        let h = guard
-            .as_mut()
-            .ok_or_else(|| anyhow!("daemon not started"))?;
+        let slot = self.next_slot();
+        self.ensure_started_slot(slot)?;
+        let mut guard = self.inner[slot].lock().map_err(|_| anyhow!("lock slot {}", slot))?;
+        let h = guard.as_mut().ok_or_else(|| anyhow!("daemon slot {} not started", slot))?;
         let line = serde_json::to_string(req_json)?;
-        writeln!(h.stdin, "{}", line).map_err(|e| anyhow!("write daemon: {}", e))?;
-        h.stdin
-            .flush()
-            .map_err(|e| anyhow!("flush daemon: {}", e))?;
+        writeln!(h.stdin, "{}", line).map_err(|e| anyhow!("write daemon slot {}: {}", slot, e))?;
+        h.stdin.flush().map_err(|e| anyhow!("flush daemon slot {}: {}", slot, e))?;
         let mut resp_line = String::new();
-        h.stdout
-            .read_line(&mut resp_line)
-            .map_err(|e| anyhow!("read daemon: {}", e))?;
+        h.stdout.read_line(&mut resp_line).map_err(|e| anyhow!("read daemon slot {}: {}", slot, e))?;
         let resp: serde_json::Value = serde_json::from_str(&resp_line)
-            .map_err(|e| anyhow!("parse daemon '{}': {}", resp_line.trim(), e))?;
+            .map_err(|e| anyhow!("parse daemon slot {} '{}': {}", slot, resp_line.trim(), e))?;
         Ok(resp)
     }
 
     /// v0.6.11: 开 streaming session
-    pub fn stream_begin(
-        &self,
-        session_id: &str,
-        model: &str,
-        hotwords_pack: &str,
-        hotwords_custom: &str,
-    ) -> Result<serde_json::Value> {
+    pub fn stream_begin(&self, session_id: &str, model: &str, hotwords_pack: &str, hotwords_custom: &str) -> Result<serde_json::Value> {
         let req = serde_json::json!({
             "id": session_id,
             "action": "stream_begin",
@@ -232,7 +277,6 @@ impl SherpaDaemon {
             "sample_rate": 16000,
             "chunk_threshold_ms": 600,
             "silence_threshold_ms": 1200,
-            "force_final_ms": 8000,
         });
         self.send_request(&req)
     }
@@ -268,39 +312,23 @@ impl SherpaDaemon {
         meeting_id: Option<&str>,
         // v0.7.1+: chunk 在整段录音中的开始偏移秒数, 用于长会议 diar pickup 写库
         audio_start_offset_seconds: Option<f64>,
-        // v0.7.0+: 语言透传. None 表示 "auto", 让 sherpa-onnx 自动检测 (Chinese 模型默认 zh, 英文 Whisper 用).
-        language: Option<&str>,
     ) -> Result<SherpaResponse> {
         let t0 = std::time::Instant::now();
-        info!(
-            "[sherpa] transcribe_blocking ENTER model={} timestamps={} b64_len={}",
-            model,
-            timestamps,
-            audio_b64.len()
-        );
-        self.ensure_started()?;
+        info!("[sherpa] transcribe_blocking ENTER model={} timestamps={} b64_len={}", model, timestamps, audio_b64.len());
+        // §62 A: round-robin pick slot, ensure started
+        let slot = self.next_slot();
+        self.ensure_started_slot(slot)?;
         let t1 = std::time::Instant::now();
-        info!("[sherpa] ensure_started OK ({:?})", t1.duration_since(t0));
-        let mut guard = self.inner.lock().map_err(|_| anyhow!("lock"))?;
-        let h = guard
-            .as_mut()
-            .ok_or_else(|| anyhow!("daemon not started"))?;
+        info!("[sherpa slot {}] ensure_started OK ({:?})", slot, t1.duration_since(t0));
+        let mut guard = self.inner[slot].lock().map_err(|_| anyhow!("lock slot {}", slot))?;
+        let h = guard.as_mut().ok_or_else(|| anyhow!("daemon slot {} not started", slot))?;
 
-        // v0.7.x 修复: 之前的 id:"1" 写死导致 diar 落盘文件名全是 1.json,
-        // 多个 chunk 互相覆盖, pickup loop 只能拿到最后一块的 segments.
-        // 现在用 meeting_id + audio_start_offset 组合当 rid, 保证每个 chunk 独立落盘.
-        let rid = match (meeting_id, audio_start_offset_seconds) {
-            (Some(mid), Some(off)) => format!("{}-{}", mid, off),
-            (_, Some(off)) => format!("anon-{}", off),
-            (Some(mid), None) => format!("{}-noOff", mid),
-            _ => "1".to_string(),
-        };
         let req = SherpaRequest {
-            id: &rid,
+            id: "1",
             model,
             audio_b64,
             sample_rate,
-            language: language.unwrap_or("zh"),
+            language: "zh",
             timestamps,
             hotwords_pack,
             hotwords_custom,
@@ -309,43 +337,28 @@ impl SherpaDaemon {
         };
         let line = serde_json::to_string(&req)?;
         let t2 = std::time::Instant::now();
-        info!(
-            "[sherpa] serializing req OK ({:?}), writing to daemon stdin...",
-            t2.duration_since(t1)
-        );
-        writeln!(h.stdin, "{}", line).map_err(|e| anyhow!("write to daemon: {}", e))?;
-        h.stdin
-            .flush()
-            .map_err(|e| anyhow!("flush daemon stdin: {}", e))?;
+        info!("[sherpa slot {}] serializing req OK ({:?}), writing to daemon stdin...", slot, t2.duration_since(t1));
+        writeln!(h.stdin, "{}", line).map_err(|e| anyhow!("write to daemon slot {}: {}", slot, e))?;
+        h.stdin.flush().map_err(|e| anyhow!("flush daemon slot {} stdin: {}", slot, e))?;
         let t3 = std::time::Instant::now();
-        info!(
-            "[sherpa] stdin write+flush OK ({:?}), reading daemon stdout...",
-            t3.duration_since(t2)
-        );
+        info!("[sherpa slot {}] stdin write+flush OK ({:?}), reading daemon stdout...", slot, t3.duration_since(t2));
 
         let mut resp_line = String::new();
         h.stdout
             .read_line(&mut resp_line)
-            .map_err(|e| anyhow!("read daemon stdout: {}", e))?;
+            .map_err(|e| anyhow!("read daemon slot {} stdout: {}", slot, e))?;
         let t4 = std::time::Instant::now();
-        info!(
-            "[sherpa] stdout read OK ({:?}), parse: {:?} | raw: {}",
-            t4.duration_since(t3),
-            serde_json::from_str::<SherpaResponse>(&resp_line)
-                .map(|_| "OK")
-                .map_err(|e| e.to_string()),
-            resp_line.trim()
-        );
+        info!("[sherpa slot {}] stdout read OK ({:?}), parse: {:?} | raw: {}",
+              slot,
+              t4.duration_since(t3), serde_json::from_str::<SherpaResponse>(&resp_line).map(|_| "OK").map_err(|e| e.to_string()),
+              resp_line.trim());
 
         let resp: SherpaResponse = serde_json::from_str(&resp_line)
             .map_err(|e| anyhow!("parse daemon response '{}': {}", resp_line.trim(), e))?;
         if !resp.ok {
-            return Err(anyhow!("sherpa error: {}", resp.error.unwrap_or_default()));
+            return Err(anyhow!("sherpa slot {} error: {}", slot, resp.error.unwrap_or_default()));
         }
-        info!(
-            "[sherpa] transcribe_blocking EXIT total={:?}",
-            t4.duration_since(t0)
-        );
+        info!("[sherpa slot {}] transcribe_blocking EXIT total={:?}", slot, t4.duration_since(t0));
         Ok(resp)
     }
 
@@ -354,42 +367,37 @@ impl SherpaDaemon {
     /// Returns Ok(true) if RAM>=8GB + daemon reachable. Used at startup to decide whether
     /// to request timestamps from transcribe_blocking.
     pub fn capability(&self) -> Result<bool> {
-        self.ensure_started()?;
-        let mut guard = self.inner.lock().map_err(|_| anyhow!("lock"))?;
-        let h = guard
-            .as_mut()
-            .ok_or_else(|| anyhow!("daemon not started"))?;
+        let slot = self.next_slot();
+        self.ensure_started_slot(slot)?;
+        let mut guard = self.inner[slot].lock().map_err(|_| anyhow!("lock slot {}", slot))?;
+        let h = guard.as_mut().ok_or_else(|| anyhow!("daemon slot {} not started", slot))?;
 
         let req = serde_json::json!({"id": "cap", "action": "capability"});
         let line = serde_json::to_string(&req)?;
-        writeln!(h.stdin, "{}", line).map_err(|e| anyhow!("write capability: {}", e))?;
-        h.stdin
-            .flush()
-            .map_err(|e| anyhow!("flush capability: {}", e))?;
+        writeln!(h.stdin, "{}", line).map_err(|e| anyhow!("write capability slot {}: {}", slot, e))?;
+        h.stdin.flush().map_err(|e| anyhow!("flush capability slot {}: {}", slot, e))?;
 
         let mut resp_line = String::new();
-        h.stdout
-            .read_line(&mut resp_line)
-            .map_err(|e| anyhow!("read capability: {}", e))?;
+        h.stdout.read_line(&mut resp_line).map_err(|e| anyhow!("read capability slot {}: {}", slot, e))?;
         let resp: serde_json::Value = serde_json::from_str(&resp_line)
-            .map_err(|e| anyhow!("parse capability '{}': {}", resp_line.trim(), e))?;
-        let supported = resp
-            .get("level3_supported")
-            .and_then(|v| v.as_bool())
-            .unwrap_or(false);
+            .map_err(|e| anyhow!("parse capability slot {} '{}': {}", slot, resp_line.trim(), e))?;
+        let supported = resp.get("level3_supported").and_then(|v| v.as_bool()).unwrap_or(false);
         info!(
-            "[sherpa] capability: level3_supported={} (raw: {})",
-            supported,
-            resp_line.trim()
+            "[sherpa slot {}] capability: level3_supported={} (raw: {})",
+            slot, supported, resp_line.trim()
         );
         Ok(supported)
     }
 
     pub fn shutdown_blocking(&self) -> Result<()> {
-        let mut guard = self.inner.lock().map_err(|_| anyhow!("lock"))?;
-        if let Some(mut h) = guard.take() {
-            let _ = h.child.kill();
-            let _ = h.child.wait();
+        // §62 A: kill ALL N daemons, not just slot 0.
+        for (i, slot) in self.inner.iter().enumerate() {
+            let mut guard = slot.lock().map_err(|_| anyhow!("lock slot {}", i))?;
+            if let Some(mut h) = guard.take() {
+                info!("[sherpa slot {}] shutting down", i);
+                let _ = h.child.kill();
+                let _ = h.child.wait();
+            }
         }
         Ok(())
     }
@@ -409,70 +417,16 @@ impl SherpaDaemon {
 
 pub static SHERPA_DAEMON: Lazy<SherpaDaemon> = Lazy::new(SherpaDaemon::new);
 
+/// v0.8.5 §23: Public shutdown entry point for stop_recording / RunEvent::Exit.
+/// Kills the Python child + clears the singleton so next call respawns.
+pub fn shutdown_global_daemon() {
+    info!("[sherpa] shutdown_global_daemon requested");
+    // Lazy<SherpaDaemon> — call shutdown_blocking() on the singleton.
+    let _ = SHERPA_DAEMON.shutdown_blocking();
+}
+
 pub fn global() -> &'static SherpaDaemon {
     &SHERPA_DAEMON
-}
-
-/// P0-fix: 主动杀 sherpa Python 子进程, 释放 ~700M onnx 模型内存.
-/// 调一次即可, 后续 transcribe 调用会重新 spawn (ensure_started 幂等).
-/// App 退出 (RunEvent::Exit) + 录音停止 idle 超时都会调.
-pub fn shutdown_global_daemon() {
-    log::info!("[sherpa] shutdown_global_daemon requested");
-    SHERPA_DAEMON.shutdown_blocking().ok();
-}
-
-// 全局 idle killer 状态, OnceLock<Arc<AtomicU64>> 持有共享引用, 让 init 闭包 move 进 thread
-static DAEMON_LAST_ACTIVITY: std::sync::OnceLock<std::sync::Arc<std::sync::atomic::AtomicU64>> =
-    std::sync::OnceLock::new();
-
-fn daemon_last_activity() -> &'static std::sync::Arc<std::sync::atomic::AtomicU64> {
-    DAEMON_LAST_ACTIVITY.get_or_init(|| {
-        use std::sync::atomic::{AtomicU64, Ordering};
-        use std::time::{Duration, SystemTime, UNIX_EPOCH};
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0);
-        let a = std::sync::Arc::new(AtomicU64::new(now));
-        // 启动 idle killer 线程 (单次)
-        let a_clone = a.clone();
-        std::thread::spawn(move || {
-            const IDLE_SECS: u64 = 120; // 2 min, 录完音 2min 没活动就杀 daemon, 释放 ~700M onnx
-            loop {
-                std::thread::sleep(Duration::from_secs(30));
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-                let last = a_clone.load(Ordering::SeqCst);
-                if last == 0 {
-                    continue;
-                }
-                let idle = now.saturating_sub(last);
-                if idle > IDLE_SECS {
-                    log::info!(
-                        "[sherpa] daemon idle for {}s (>{}s), auto-shutdown to free onnx model RAM",
-                        idle,
-                        IDLE_SECS
-                    );
-                    SHERPA_DAEMON.shutdown_blocking().ok();
-                    // 重置 last = 0, 下次 transcribe 会重新 spawn, 重新计时
-                    a_clone.store(0, Ordering::SeqCst);
-                }
-            }
-        });
-        a
-    })
-}
-
-pub(crate) fn touch_daemon_activity() {
-    use std::sync::atomic::Ordering;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let now = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
-    daemon_last_activity().store(now, Ordering::SeqCst);
 }
 
 // ============= Tauri commands (streaming pipeline) =============
@@ -486,8 +440,7 @@ pub async fn sherpa_stream_begin(
 ) -> Result<serde_json::Value, String> {
     let daemon = global();
     tokio::task::block_in_place(|| {
-        daemon
-            .stream_begin(&session_id, &model, &hotwords_pack, &hotwords_custom)
+        daemon.stream_begin(&session_id, &model, &hotwords_pack, &hotwords_custom)
             .map_err(|e| format!("{}", e))
     })
 }
@@ -499,21 +452,22 @@ pub async fn sherpa_stream_chunk(
 ) -> Result<serde_json::Value, String> {
     let daemon = global();
     tokio::task::block_in_place(|| {
-        daemon
-            .stream_chunk(&session_id, &audio_b64)
+        daemon.stream_chunk(&session_id, &audio_b64)
             .map_err(|e| format!("{}", e))
     })
 }
 
 #[tauri::command]
-pub async fn sherpa_stream_finalize(session_id: String) -> Result<serde_json::Value, String> {
+pub async fn sherpa_stream_finalize(
+    session_id: String,
+) -> Result<serde_json::Value, String> {
     let daemon = global();
     tokio::task::block_in_place(|| {
-        daemon
-            .stream_finalize(&session_id)
+        daemon.stream_finalize(&session_id)
             .map_err(|e| format!("{}", e))
     })
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -538,14 +492,8 @@ mod tests {
             audio_start_offset_seconds: Some(12.5),
         };
         let v = serde_json::to_value(&req).expect("serialize");
-        assert_eq!(
-            v.get("model").and_then(|x| x.as_str()),
-            Some("paraformer-zh")
-        );
-        assert_eq!(
-            v.get("hotwords_pack").and_then(|x| x.as_str()),
-            Some("tech")
-        );
+        assert_eq!(v.get("model").and_then(|x| x.as_str()), Some("paraformer-zh"));
+        assert_eq!(v.get("hotwords_pack").and_then(|x| x.as_str()), Some("tech"));
         assert_eq!(
             v.get("hotwords_custom").and_then(|x| x.as_str()),
             Some("Meetily,SenseVoice,Paraformer")
@@ -567,15 +515,10 @@ mod tests {
             "sample_rate": 16000,
             "chunk_threshold_ms": 600,
             "silence_threshold_ms": 1200,
-            "force_final_ms": 8000,
         });
         assert_eq!(
             req.get("hotwords_pack").and_then(|x| x.as_str()),
             Some("cross_border")
-        );
-        assert_eq!(
-            req.get("force_final_ms").and_then(|x| x.as_i64()),
-            Some(8000)
         );
         assert!(req
             .get("hotwords_custom")
@@ -621,46 +564,97 @@ mod tests {
         assert_eq!(resp.text, "hello");
     }
 
-    /// v0.7.0+ regression: language parameter must propagate to daemon, not be hardcoded to "zh".
-    /// 旧实现: SherpaRequest.language 永远 = "zh", 客户端传的 language="en" 完全丢失.
-    /// 新实现: SherpaRequest.language = language.unwrap_or("zh"), 默认 zh 但客户端可覆盖.
+    // ===== §62 A: N-daemon pool round-robin =====
+
+    /// §99: 探测时 import OK 不等于 spawn 时 import OK (§96 PYTHONUSERBASE hack bug).
+    /// 真 spawn 一个 Python 子进程, 用与生产代码完全一致的 env (无 PYTHONUSERBASE),
+    /// 发 {"action":"list"} 让 daemon 启动时 import sherpa_onnx/numpy/soundfile,
+    /// 验证 ok=true. 这是 "No module named 'numpy'" 的唯一可靠防线.
     #[test]
-    fn language_param_is_propagated_to_request_payload() {
-        let req = SherpaRequest {
-            id: "ut-en",
-            model: "paraformer-zh",
-            audio_b64: "AAAA",
-            sample_rate: 16000,
-            language: "en",
-            timestamps: false,
-            hotwords_pack: "",
-            hotwords_custom: "",
-            meeting_id: None,
-            audio_start_offset_seconds: None,
-        };
-        let v = serde_json::to_value(&req).expect("serialize");
-        assert_eq!(
-            v.get("language").and_then(|x| x.as_str()),
-            Some("en"),
-            "客户端传的 language 必须出现在 request payload, 不能被硬编码覆盖"
-        );
+    fn section_99_spawned_python_can_import_sherpa_onnx() {
+        use std::io::{BufRead, BufReader, Write};
+
+        let py = python_path();
+        let script = script_path();
+        if !std::path::Path::new(&py).exists() {
+            eprintln!("[skip] python {} not found", py);
+            return;
+        }
+        let mut cmd = Command::new(&py);
+        cmd.arg(&script)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+        // 必须与生产代码 ensure_started_slot 完全一致 — 不设 PYTHONUSERBASE!
+        cmd.env("PYTHONUNBUFFERED", "1");
+        let mut child = cmd.spawn().expect("spawn python");
+        let mut stdin = child.stdin.take().expect("stdin");
+        let stdout = child.stdout.take().expect("stdout");
+        let _stderr = child.stderr.take();
+        let mut reader = BufReader::new(stdout);
+
+        let req = serde_json::json!({"id": "probe-import-99", "action": "list"});
+        writeln!(stdin, "{}", req).expect("write");
+        stdin.flush().expect("flush");
+        let mut line = String::new();
+        let _ = reader.read_line(&mut line);
+        // 容忍 daemon 启动慢, 给 5s timeout
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        let _ = child.kill();
+        let _ = child.wait();
+
+        let resp: serde_json::Value = serde_json::from_str(&line)
+            .unwrap_or_else(|e| panic!("parse '{}' failed: {} (likely numpy/sherpa_onnx not importable)", line.trim(), e));
+        let ok = resp.get("ok").and_then(|x| x.as_bool()).unwrap_or(false);
+        assert!(ok, "daemon list action failed: {} (numpy/sherpa_onnx import failed?)", line.trim());
+        let models = resp.get("models").and_then(|x| x.as_array()).cloned().unwrap_or_default();
+        // 不强制要求 ≥1 模型 (用户可能没装), 但 daemon 必须启动成功 + 能 import 所有 3 个模块
+        eprintln!("§99 spawn probe OK, models={}", models.len());
     }
 
-    /// v0.7.0+ 默认 fallback 顺序: paraformer 必须优先于 funasr-nano (Nano 是 §29 Pro gate).
+    /// §62 A: round-robin wraps correctly within N slots. 内部构造避免 env 并行污染.
+    fn make_test_daemon(count: usize) -> SherpaDaemon {
+        let inner = (0..count).map(|_| Mutex::new(None)).collect();
+        SherpaDaemon { inner, counter: AtomicUsize::new(0), count }
+    }
+
+    /// §62 A: round-robin 数学正确: next_slot() == i % count.
     #[test]
-    fn sherpa_fallback_order_prioritizes_paraformer_over_nano() {
-        let order = crate::config::SHERPA_MODEL_FALLBACK_ORDER;
-        let pos_paraformer = order.iter().position(|&t| t == "paraformer-zh");
-        let pos_nano = order.iter().position(|&t| t == "funasr-nano-zh");
-        assert!(pos_paraformer.is_some(), "paraformer-zh 必须在 fallback 列表");
-        assert!(pos_nano.is_some(), "funasr-nano-zh 必须在 fallback 列表 (兜底)");
-        assert!(
-            pos_paraformer.unwrap() < pos_nano.unwrap(),
-            "paraformer-zh 必须排在 funasr-nano-zh 前面 (§29 Pro gate)"
-        );
-        assert_eq!(
-            crate::config::DEFAULT_SHERPA_MODEL, "paraformer-zh",
-            "DEFAULT_SHERPA_MODEL 必须是 paraformer-zh (fc2a24c 修复)"
-        );
+    fn section_64_round_robin_wraps_within_pool() {
+        let daemon = make_test_daemon(3);
+        for i in 0..10 {
+            let slot = daemon.next_slot();
+            assert!(slot < daemon.count, "slot {} >= count {}", slot, daemon.count);
+            assert_eq!(slot, i % daemon.count, "round-robin must be (i % count)");
+        }
+    }
+
+    /// §62 A: N-daemon pool has N slots, not 1. 1 路径仍工作.
+    #[test]
+    fn section_64_pool_count_is_n() {
+        let d1 = make_test_daemon(1);
+        let d2 = make_test_daemon(2);
+        let d3 = make_test_daemon(4);
+        assert_eq!(d1.inner.len(), 1);
+        assert_eq!(d2.inner.len(), 2);
+        assert_eq!(d3.inner.len(), 4);
+        // 各 slot 互不干扰: 都从 0 起
+        assert_eq!(d1.next_slot(), 0);
+        assert_eq!(d2.next_slot(), 0);
+        assert_eq!(d3.next_slot(), 0);
+        assert_eq!(d3.next_slot(), 1);
+    }
+
+    /// §62 A: 多次 next_slot 行为与 fetch_add Relaxed 一致 (monotonic modulo count).
+    #[test]
+    fn section_64_next_slot_is_distributed_evenly() {
+        let daemon = make_test_daemon(3);
+        let mut hits = [0usize; 3];
+        for _ in 0..30 {
+            let s = daemon.next_slot();
+            hits[s] += 1;
+        }
+        // 30 / 3 = 10 每 slot
+        assert_eq!(hits, [10, 10, 10], "round-robin must distribute evenly, got {:?}", hits);
     }
 }

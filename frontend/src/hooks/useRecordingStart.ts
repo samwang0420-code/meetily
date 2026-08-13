@@ -4,8 +4,6 @@ import { useTranscripts } from '@/contexts/TranscriptContext';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useRecordingState, RecordingStatus } from '@/contexts/RecordingStateContext';
-import { useAuth } from '@/contexts/AuthContext';
-import { useQuota } from '@/hooks/useQuota';
 import { recordingService } from '@/services/recordingService';
 import Analytics from '@/lib/analytics';
 import { showRecordingNotification } from '@/lib/recordingNotification';
@@ -39,9 +37,6 @@ export function useRecordingStart(
   const { setIsMeetingActive } = useSidebar();
   const { selectedDevices, transcriptModelConfig } = useConfig();
   const { setStatus } = useRecordingState();
-  // v0.7.0+ rc5: 商业化 quota 闸门 (sidebar 直接触发录音路径)
-  const { session } = useAuth();
-  const { quota } = useQuota(session ?? null);
 
   // Generate meeting title with timestamp
   const generateMeetingTitle = useCallback(() => {
@@ -56,7 +51,7 @@ export function useRecordingStart(
   }, []);
 
   // 离线会记 W2.5: recording 实时转录改用 sherpa-onnx daemon
-  // 检查 ~/Library/Application Support/cn.lixianhuiji.app/models/sherpa/ 下是否有可用模型
+  // §97 (2026-08-09): 检查 ~/Library/Application Support/tech.yanjingai.app/models/sherpa/ 下是否有可用模型
   const checkParakeetReady = useCallback(async (): Promise<boolean> => {
     try {
       const provider = transcriptModelConfig?.provider ?? 'sherpa_funasr_nano';
@@ -132,7 +127,7 @@ export function useRecordingStart(
       setMeetingTitle(randomTitle);
 
       // Set STARTING status before initiating backend recording
-      setStatus(RecordingStatus.STARTING, '正在初始化录音...');
+      setStatus(RecordingStatus.STARTING, 'Initializing recording...');
 
       // Start the actual backend recording
       console.log('Starting backend recording with meeting:', randomTitle);
@@ -176,18 +171,6 @@ export function useRecordingStart(
           setIsAutoStarting(true);
           sessionStorage.removeItem('autoStartRecording'); // Clear the flag
 
-          // v0.7.0+ rc5: 商业化 quota 闸门 (5 次/月, anonymous 1 次) — 在 parakeet 之前检查
-          if (!quota.can_record) {
-            const isAnon = quota.tier === 'anonymous';
-            safeToast.error(
-              isAnon ? '试用已达上限, 请注册账号继续使用' : '本月会议次数已用完, 升级 Pro 享无限会议',
-              { description: isAnon ? '未登录用户限 1 次试用' : `已用 ${quota.month_meetings_used}/${quota.month_meetings_limit} 次`, duration: 6000 }
-            );
-            Analytics.trackButtonClick('start_recording_blocked_quota', 'sidebar_auto');
-            setIsAutoStarting(false);
-            return;
-          }
-
           // Check if Parakeet transcription model is ready before starting
           const parakeetReady = await checkParakeetReady();
           if (!parakeetReady) {
@@ -217,7 +200,7 @@ export function useRecordingStart(
             const generatedMeetingTitle = generateMeetingTitle();
 
             // Set STARTING status before initiating backend recording
-            setStatus(RecordingStatus.STARTING, '正在初始化录音...');
+            setStatus(RecordingStatus.STARTING, 'Initializing recording...');
 
             console.log('Auto-starting backend recording with meeting:', generatedMeetingTitle);
             const result = await recordingService.startRecordingWithDevices(
@@ -239,7 +222,7 @@ export function useRecordingStart(
             await showRecordingNotification();
           } catch (error) {
             console.error('Failed to auto-start recording:', error);
-            setStatus(RecordingStatus.ERROR, error instanceof Error ? error.message : '自动启动录音失败');
+            setStatus(RecordingStatus.ERROR, error instanceof Error ? error.message : 'Failed to auto-start recording');
             alert('Failed to start recording. Check console for details.');
             Analytics.trackButtonClick('start_recording_error', 'sidebar_auto');
           } finally {
@@ -274,20 +257,8 @@ export function useRecordingStart(
         return;
       }
 
-      console.log('Direct start from sidebar - checking quota + Parakeet model status');
+      console.log('Direct start from sidebar - checking Parakeet model status');
       setIsAutoStarting(true);
-
-      // v0.7.0+ rc5: 商业化 quota 闸门 (5 次/月, anonymous 1 次)
-      if (!quota.can_record) {
-        const isAnon = quota.tier === 'anonymous';
-        safeToast.error(
-          isAnon ? '试用已达上限, 请注册账号继续使用' : '本月会议次数已用完, 升级 Pro 享无限会议',
-          { description: isAnon ? '未登录用户限 1 次试用' : `已用 ${quota.month_meetings_used}/${quota.month_meetings_limit} 次`, duration: 6000 }
-        );
-        Analytics.trackButtonClick('start_recording_blocked_quota', 'sidebar_direct');
-        setIsAutoStarting(false);
-        return;
-      }
 
       // Check if Parakeet transcription model is ready before starting
       const parakeetReady = await checkParakeetReady();
@@ -317,7 +288,7 @@ export function useRecordingStart(
         const generatedMeetingTitle = generateMeetingTitle();
 
         // Set STARTING status before initiating backend recording
-        setStatus(RecordingStatus.STARTING, '正在初始化录音...');
+        setStatus(RecordingStatus.STARTING, 'Initializing recording...');
 
         console.log('Starting backend recording with meeting:', generatedMeetingTitle);
         const result = await recordingService.startRecordingWithDevices(

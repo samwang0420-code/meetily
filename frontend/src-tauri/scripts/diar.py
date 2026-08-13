@@ -40,8 +40,10 @@ def _diar_threads():
         return 2
 
 # 模型路径 (按优先级查找)
+# §97 (2026-08-09): Bundle ID 切换 tech.yanjingai.app (sherpa-diarize 模型下载目标)
 _MODELS_CANDIDATES = [
-    os.path.expanduser("~/Library/Application Support/cn.lixianhuiji.app/models/sherpa-diarize"),
+    os.path.expanduser("~/Library/Application Support/tech.yanjingai.app/models/sherpa-diarize"),
+    os.path.expanduser("~/Library/Application Support/cn.lixianhuiji.app/models/sherpa-diarize"),  # 兼容旧路径
     "/tmp/diar_models/sherpa-diarize",
     "/tmp",
 ]

@@ -138,7 +138,7 @@ export function TranscriptRecovery({
         <DialogHeader className="px-6 pt-6">
           <DialogTitle className="text-2xl">{t('recovery.title')}</DialogTitle>
           <DialogDescription>
-            发现 {recoverableMeetings.length} 个被中断的会议,选一个预览并恢复。
+            We found {recoverableMeetings.length} meeting{recoverableMeetings.length !== 1 ? 's' : ''} that {recoverableMeetings.length !== 1 ? 'were' : 'was'} interrupted. Select a meeting to preview and recover it.
           </DialogDescription>
         </DialogHeader>
 
@@ -212,7 +212,7 @@ export function TranscriptRecovery({
                       ) : (
                         <span className="flex items-center gap-1 text-yellow-600">
                           <AlertCircle className="w-4 h-4" />
-                          无录音
+                          No audio
                         </span>
                       )}
                     </div>
@@ -268,7 +268,7 @@ export function TranscriptRecovery({
                       </div>
                     ) : (
                       <div className="flex items-center justify-center h-full text-muted-foreground">
-                        没有可预览的转录
+                        No transcripts to preview
                       </div>
                     )}
                   </ScrollArea>

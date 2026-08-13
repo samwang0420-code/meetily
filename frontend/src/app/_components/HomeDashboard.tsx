@@ -1,22 +1,20 @@
 'use client';
 
-import { useEffect, useState, useCallback, useRef } from 'react';
-import { listen } from '@tauri-apps/api/event';
-import { toast } from 'sonner';
+import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import {
   Mic, Headphones, FileText, Clock, ChevronRight, Sparkles,
-  Settings as SettingsIcon, Languages, Plus, BookOpen
+  Settings as SettingsIcon, Languages, Plus, BookOpen, Upload
 } from 'lucide-react';
 import { RecordingControls } from '@/components/RecordingControls';
 import { useConfig } from '@/contexts/ConfigContext';
 import { useRecordingState, RecordingStatus } from '@/contexts/RecordingStateContext';
 import { useSidebar } from '@/components/Sidebar/SidebarProvider';
+import { useImportDialog } from '@/contexts/ImportDialogContext';
 import { indexedDBService, type MeetingMetadata } from '@/services/indexedDBService';
 import { CardBoundary } from './CardBoundary';
 import { useTranslation } from '@/i18n';
-import { useAuth } from '@/contexts/AuthContext';
 
 interface HomeDashboardProps {
   onRecordingStart: () => void;
@@ -46,10 +44,7 @@ function formatRelative(ts: number, t: (path: string, vars?: Record<string, stri
 function modelLabel(t: (path: string) => string, provider?: string, model?: string) {
   if (provider === 'localWhisper') return t('dashboard.model_local_whisper');
   if (model === 'funasr-nano-zh') return t('dashboard.model_funasr_nano');
-  if (provider === 'sherpa_funasr_nano' || provider === 'senseVoice') {
-    if (model === 'funasr-nano-zh') return t('dashboard.model_funasr_nano');
-    return t('dashboard.model_paraformer');  // v0.7.0+rc9: 默认 fallback 是 paraformer-zh
-  }
+  if (provider === 'sherpa_funasr_nano' || provider === 'senseVoice') return t('dashboard.model_sensevoice');
   if (provider === 'cloud') return t('dashboard.model_cloud');
   return t('dashboard.model_none');
 }
@@ -70,51 +65,11 @@ export function HomeDashboard({
   const { transcriptModelConfig } = useConfig();
   const recordingState = useRecordingState();
   const { meetings: sidebarMeetings } = useSidebar();
+  const { openImportDialog } = useImportDialog();
   const { status } = recordingState;
 
   const [recentMeetings, setRecentMeetings] = useState<MeetingMetadata[]>([]);
   const [loading, setLoading] = useState(true);
-
-  // v0.7.0+ §31 P0: 监听 memory-pressure 事件 (worker.rs 每 30 chunks 检测一次)
-  // 等级 = critical 时弹 toast 警告 + 记录到 console (前端后续可根据 should_* 自动切模型)
-  // 限制: useRef 防止重复监听
-  const memUnlistenRef = useRef<(() => void) | null>(null);
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const unlisten = await listen<{
-          level: 'normal' | 'warning' | 'critical';
-          rss_mb: number;
-          threshold_mb: number;
-          recommended_action: string;
-          should_drop_cam_plus_plus: boolean;
-          should_switch_to_sensevoice: boolean;
-          should_disable_long_summary: boolean;
-        }>('memory-pressure', (event) => {
-          const p = event.payload;
-          if (p.level === 'critical') {
-            toast.error(t('memory_pressure.critical_title'), {
-              description: t('memory_pressure.critical_desc', { rss: p.rss_mb, threshold: p.threshold_mb }),
-              duration: 10000,
-            });
-          } else if (p.level === 'warning') {
-            toast.warning(t('memory_pressure.warning_title'), {
-              description: t('memory_pressure.warning_desc', { rss: p.rss_mb }),
-              duration: 6000,
-            });
-          }
-        });
-        if (cancelled) { unlisten(); } else { memUnlistenRef.current = unlisten; }
-      } catch (e) {
-        console.warn('[memory-pressure] listen failed', e);
-      }
-    })();
-    return () => {
-      cancelled = true;
-      if (memUnlistenRef.current) memUnlistenRef.current();
-    };
-  }, [t]);
 
   // 用侧栏同源 meetings 做 union 兜底 (indexedDB unsaved + sidebar saved)
   const loadRecent = useCallback(async () => {
@@ -127,7 +82,7 @@ export function HomeDashboard({
       const indexedIds = new Set(all.map(m => m.meetingId));
       const sidebarOnly = sidebarMeetings
         .filter(m => !!m && !!m.id && !indexedIds.has(m.id))
-        .slice(0, Math.max(0, 6 - all.length))
+        .slice(0, 6 - all.length)
         .map((m, i) => ({
           meetingId: String(m.id),
           title: String(m.title ?? t('meeting.untitled')),
@@ -165,8 +120,8 @@ export function HomeDashboard({
   const totalRecent = recentMeetings.length;
 
   return (
-    <div className="flex-1 overflow-y-auto bg-gradient-to-b from-neutral-50 to-white">
-      <div className="mx-auto max-w-5xl px-8 py-12">
+    <div className="flex-1 overflow-y-auto bg-gradient-to-b from-teal-50/40 via-white to-white">
+      <div className="mx-auto max-w-3xl px-6 py-16">
 
         {/* ── Hero ────────────────────────────── */}
         <motion.section
@@ -208,13 +163,13 @@ export function HomeDashboard({
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, delay: 0.05 }}
-          className="flex flex-wrap items-center justify-center gap-2 pb-5"
+          className="flex flex-wrap items-center justify-center gap-2 pb-8"
         >
           <StatusChip
             icon={<Languages className="h-3.5 w-3.5" />}
             label={t('dashboard.transcript_model')}
             value={modelLabel(t, transcriptModelConfig?.provider, transcriptModelConfig?.model)}
-            tone="blue"
+            tone="teal"
           />
           <StatusChip
             icon={<Mic className="h-3.5 w-3.5" />}
@@ -241,52 +196,46 @@ export function HomeDashboard({
           </button>
         </motion.section>
 
-        {/* v0.7.0+: Pro 升级 CTA — 只对非 Pro 用户显示 */}
-        <ProUpgradeCTA />
-
-        {/* ── Recent meetings ────────────────────────────────── */}
+        {/* ── Quick actions ─────────────────────────────────── */}
         <motion.section
           initial={{ opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.35, delay: 0.1 }}
+          className="mt-2"
         >
-          <div className="flex items-end justify-between border-b border-neutral-200 pb-3">
-            <div>
-              <h2 className="text-[15px] font-semibold tracking-tight text-neutral-900">
-                {t('dashboard.recent')}
-              </h2>
-              <p className="mt-0.5 text-xs text-neutral-500">
-                {totalRecent > 0
-                  ? t('dashboard.recent_count', { total: totalMeetings, recent: totalRecent })
-                  : t('dashboard.first_meeting')}
-              </p>
-            </div>
+          <div className="mx-auto grid max-w-md grid-cols-3 gap-2 pt-2">
+            <QuickAction
+              icon={<Upload className="h-5 w-5" />}
+              label={t('dashboard.qa_import')}
+              onClick={() => openImportDialog()}
+              accent="teal"
+            />
+            <QuickAction
+              icon={<BookOpen className="h-5 w-5" />}
+              label={t('dashboard.qa_hotwords')}
+              onClick={() => router.push('/settings/hotwords')}
+              accent="amber"
+            />
+            <QuickAction
+              icon={<SettingsIcon className="h-5 w-5" />}
+              label={t('dashboard.qa_settings')}
+              onClick={() => router.push('/settings')}
+              accent="slate"
+            />
           </div>
+        </motion.section>
 
-          {loading ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-4">
-              {Array.from({ length: 3 }).map((_, i) => (
-                <div key={i} className="h-28 rounded-lg border border-neutral-200 bg-white animate-pulse" />
-              ))}
-            </div>
-          ) : recentMeetings.length === 0 ? (
-            <EmptyState onStart={onRecordingStart} />
-          ) : (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 pt-4">
-              {recentMeetings.map((m) => (
-                <CardBoundary key={typeof m?.meetingId === 'string' ? m.meetingId : `idx-${(recentMeetings.indexOf(m))}`} title={m?.title ?? t('dashboard.unknown_meeting')}>
-                  <MeetingCard
-                    meeting={m}
-                    onClick={() => {
-                      if (typeof m?.meetingId === 'string') {
-                        router.push(`/meeting-details?id=${encodeURIComponent(m.meetingId)}`)
-                      }
-                    }}
-                  />
-                </CardBoundary>
-              ))}
-            </div>
-          )}
+        {/* ── Tip footer ─────────────────────────────────── */}
+        <motion.section
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.4, delay: 0.2 }}
+          className="mt-12 flex items-center justify-center gap-2 text-[11px] text-neutral-400"
+        >
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+          <span>{t('dashboard.local_first')}</span>
+          <span className="text-neutral-300">·</span>
+          <span className="font-mono">v0.8.6</span>
         </motion.section>
       </div>
     </div>
@@ -301,13 +250,14 @@ function StatusChip({
   icon: React.ReactNode
   label: string
   value: string
-  tone: 'blue' | 'emerald' | 'violet'
+  tone: 'blue' | 'emerald' | 'violet' | 'teal'
   maxChars?: number
 }) {
   const toneMap = {
     blue: 'bg-blue-50/80 text-blue-700 border-blue-100',
     emerald: 'bg-emerald-50/80 text-emerald-700 border-emerald-100',
     violet: 'bg-violet-50/80 text-violet-700 border-violet-100',
+    teal: 'bg-teal-50/80 text-teal-700 border-teal-100',
   }
   const display = maxChars && value.length > maxChars ? value.slice(0, maxChars - 1) + '…' : value
   return (
@@ -356,6 +306,31 @@ function MeetingCard({
   )
 }
 
+
+function QuickAction({ icon, label, onClick, accent }: {
+  icon: React.ReactNode
+  label: string
+  onClick: () => void
+  accent: 'teal' | 'amber' | 'slate'
+}) {
+  const accentMap = {
+    teal: 'text-teal-700 group-hover:bg-teal-50 group-hover:border-teal-200',
+    amber: 'text-amber-600 group-hover:bg-amber-50 group-hover:border-amber-200',
+    slate: 'text-neutral-500 group-hover:bg-neutral-50 group-hover:border-neutral-300',
+  }
+  return (
+    <button
+      onClick={onClick}
+      className="group flex flex-col items-center gap-2.5 rounded-xl border border-neutral-200/70 bg-white px-4 py-5 transition-all hover:-translate-y-0.5 hover:shadow-md"
+    >
+      <span className={`flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 bg-neutral-50 transition-colors ${accentMap[accent]}`}>
+        {icon}
+      </span>
+      <span className="text-[12px] font-medium tracking-tight text-neutral-700">{label}</span>
+    </button>
+  )
+}
+
 function EmptyState({ onStart }: { onStart: () => void }) {
   const { t } = useTranslation();
   return (
@@ -376,35 +351,4 @@ function EmptyState({ onStart }: { onStart: () => void }) {
       </button>
     </div>
   )
-}
-
-function ProUpgradeCTA() {
-  const { t } = useTranslation();
-  const { user } = useAuth();
-  const router = useRouter();
-  if (!user) return null;
-  if (user.membership === 'member') return null;
-  return (
-    <motion.section
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, delay: 0.04 }}
-      className="mx-auto mb-8 max-w-3xl rounded-xl border border-blue-100 bg-gradient-to-r from-blue-50 to-indigo-50 p-4"
-    >
-      <div className="flex items-center justify-between gap-4">
-        <div className="flex-1">
-          <h3 className="text-sm font-semibold text-blue-900">升级到 Pro · ¥88 永久买断</h3>
-          <p className="mt-0.5 text-xs text-blue-700">
-            解锁 FunASR-Nano 高精度、多发言人分离 (后台异步)、无限会议、完整导出
-          </p>
-        </div>
-        <button
-          onClick={() => router.push('/pricing')}
-          className="shrink-0 rounded-md bg-blue-600 px-4 py-1.5 text-sm font-medium text-white hover:bg-blue-700"
-        >
-          查看定价
-        </button>
-      </div>
-    </motion.section>
-  );
 }

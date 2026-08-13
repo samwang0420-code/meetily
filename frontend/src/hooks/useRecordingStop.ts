@@ -69,10 +69,6 @@ export function useRecordingStop(
 
   const router = useRouter();
 
-  // v0.7.0+: useConfig 必须在所有 hooks 顶层调, 避免 try/condition 内 conditional hook
-  // 导致 React hooks 顺序错位触发 #321 (保存会议失败 UI 误报 toast, 数据其实已存)
-  const { isAutoRetranscribe } = useConfig();
-
   // Guard to prevent duplicate/concurrent stop calls (e.g., from UI and tray simultaneously)
   const stopInProgressRef = useRef(false);
 
@@ -150,7 +146,7 @@ export function useRecordingStop(
       console.log('Recording already stopped by RecordingControls, processing transcription...');
 
       // Wait for transcription to complete
-      setStatus(RecordingStatus.PROCESSING_TRANSCRIPTS, '等待转录...');
+      setStatus(RecordingStatus.PROCESSING_TRANSCRIPTS, 'Waiting for transcription...');
       console.log('Waiting for transcription to complete...');
 
       const MAX_WAIT_TIME = 60000; // 60 seconds maximum wait (increased for longer processing)
@@ -219,7 +215,7 @@ export function useRecordingStop(
         time_since_stop: flushStartTime - stopStartTime,
         current_transcript_count: transcriptsRef.current.length
       });
-      setStatus(RecordingStatus.PROCESSING_TRANSCRIPTS, '正在刷新转录缓冲区...');
+      setStatus(RecordingStatus.PROCESSING_TRANSCRIPTS, 'Flushing transcript buffer...');
       flushBuffer();
       const flushEndTime = Date.now();
       console.log('✅ Final buffer flush completed', {
@@ -239,7 +235,7 @@ export function useRecordingStop(
       // This ensures user sees all transcripts streaming in before database save
       if (isCallApi && transcriptionComplete == true) {
 
-        setStatus(RecordingStatus.SAVING, '正在保存会议到数据库...');
+        setStatus(RecordingStatus.SAVING, 'Saving meeting to database...');
 
         // Get fresh transcript state (ALL transcripts including late ones)
         const freshTranscripts = [...transcriptsRef.current];
@@ -275,8 +271,8 @@ export function useRecordingStop(
             shouldDetectSummaryLanguage = !(await applyPinnedSummaryLanguageToMeeting(meetingId));
           } catch (error) {
             console.warn('Failed to apply pinned summary language preference for new meeting:', error);
-            safeToast.warning('默认摘要语言应用失败', {
-              description: '会议已保存,但默认摘要语言未能应用。',
+            safeToast.warning('Could not apply default summary language', {
+              description: 'The meeting was saved, but the default summary language was not applied.',
             });
           }
 
@@ -383,6 +379,7 @@ export function useRecordingStop(
           // 仅当 folderPath 存在 (音频文件已落地) 才触发
           // v0.6.11 bug fix: 不再依赖 freshTranscripts > 0 (streaming pipeline 可能没切句就关闭,
           //   这种情况 transcripts=[] 但 audio.mp4 已有内容, 必须整段重跑)
+          const { isAutoRetranscribe } = useConfig();
           if (folderPath && isAutoRetranscribe) {
             // 告诉用户正在做什么. 否则 transcript 突然变了, 不知道为啥.
             safeToast.info('正在后台重新转录以优化结果...', {

@@ -64,9 +64,12 @@ WESPEAKER_METADATA_VALUE = struct.pack(
     0, 0,
 )
 
+# §97 (2026-08-09): Bundle ID 切换 tech.yanjingai.app, 旧路径保留兼容
 _MODELS_ROOT_CANDIDATES = [
-    os.path.expanduser("~/Library/Application Support/cn.lixianhuiji.app/models"),
-    os.path.expanduser("~/.local/share/cn.lixianhuiji.app/models"),
+    os.path.expanduser("~/Library/Application Support/tech.yanjingai.app/models"),
+    os.path.expanduser("~/.local/share/tech.yanjingai.app/models"),
+    os.path.expanduser("~/Library/Application Support/cn.lixianhuiji.app/models"),  # 兼容旧路径
+    os.path.expanduser("~/.local/share/cn.lixianhuiji.app/models"),                # 兼容旧路径
     "/tmp/diar_models",
 ]
 

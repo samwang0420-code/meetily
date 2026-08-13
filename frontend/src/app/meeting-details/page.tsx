@@ -10,6 +10,7 @@ import { listen } from "@tauri-apps/api/event";
 import { LoaderIcon } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import { usePaginatedTranscripts } from "@/hooks/usePaginatedTranscripts";
+import { LiveQAOverlay } from "@/components/LiveQA/LiveQAOverlay";
 
 interface MeetingDetailsResponse {
   id: string;
@@ -49,15 +50,15 @@ function MeetingDetailsContent() {
     error: transcriptError,
   } = usePaginatedTranscripts({ meetingId: meetingId || '' });
 
-  // v0.7.0+: Built-in AI uses qwen3.5 models; default to qwen3.5:2b if DB is empty
-  const checkForDefaultModel = useCallback(async (): Promise<boolean> => {
+  // Check if gemma3:1b model is available in Ollama
+  const checkForGemmaModel = useCallback(async (): Promise<boolean> => {
     try {
-      const models = await invoke('builtin_ai_list_models') as any[];
-      const hasDefault = models.some((m: any) => m.name === 'qwen3.5:2b');
-      console.log('🔍 Checked for qwen3.5:2b:', hasDefault);
-      return hasDefault;
+      const models = await invoke('get_ollama_models', { endpoint: null }) as any[];
+      const hasGemma = models.some((m: any) => m.name === 'gemma3:1b');
+      console.log('🔍 Checked for gemma3:1b:', hasGemma);
+      return hasGemma;
     } catch (error) {
-      console.error('❌ Failed to check built-in models:', error);
+      console.error('❌ Failed to check Ollama models:', error);
       return false;
     }
   }, []);
@@ -93,10 +94,10 @@ function MeetingDetailsContent() {
       }
 
       // DB is empty - check if gemma3:1b exists as fallback
-      const hasDefault = await checkForDefaultModel();
+      const hasGemma = await checkForGemmaModel();
 
-      if (hasDefault) {
-        console.log('💾 DB empty, using qwen3.5:2b as initial default');
+      if (hasGemma) {
+        console.log('💾 DB empty, using gemma3:1b as initial default');
 
         await invoke('api_save_model_config', {
           provider: 'ollama',
@@ -108,14 +109,14 @@ function MeetingDetailsContent() {
 
         setShouldAutoGenerate(true);
       } else {
-        console.log('⚠️ No model configured and qwen3.5:2b not found');
+        console.log('⚠️ No model configured and gemma3:1b not found');
       }
     } catch (error) {
       console.error('❌ Failed to setup auto-generation:', error);
     }
 
     setHasCheckedAutoGen(true);
-  }, [hasCheckedAutoGen, checkForDefaultModel, source, isAutoSummary]);
+  }, [hasCheckedAutoGen, checkForGemmaModel, source, isAutoSummary]);
 
   // Sync meeting metadata from pagination hook to meeting details state
   useEffect(() => {
@@ -382,8 +383,11 @@ function MeetingDetailsContent() {
     </div>;
   }
 
-  return <PageContent
-    meeting={meetingDetails}
+  return (
+    <>
+      <LiveQAOverlay meetingId={meetingId} />
+      <PageContent
+        meeting={meetingDetails}
     summaryData={meetingSummary}
     shouldAutoGenerate={shouldAutoGenerate}
     onAutoGenerateComplete={() => setShouldAutoGenerate(false)}
@@ -401,7 +405,9 @@ function MeetingDetailsContent() {
     totalCount={totalCount}
     loadedCount={loadedCount}
     onLoadMore={loadMore}
-  />;
+      />
+    </>
+  );
 }
 
 export default function MeetingDetails() {

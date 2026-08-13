@@ -174,7 +174,7 @@ export function ParakeetModelManager({
           // Clean up throttle data
           progressThrottleRef.current.delete(modelName);
 
-          safeToast.error(`下载 ${displayName} 失败`, {
+          safeToast.error(`Failed to download ${displayName}`, {
             description: error,
             duration: 6000,
             action: {
@@ -198,12 +198,10 @@ export function ParakeetModelManager({
 
   const saveModelSelection = async (modelName: string) => {
     try {
-      const session = typeof window !== 'undefined' ? window.localStorage.getItem('lixianhuiji.session') : null;
       await invoke('api_save_transcript_config', {
         provider: 'parakeet',
         model: modelName,
-        apiKey: null,
-        session,
+        apiKey: null
       });
     } catch (error) {
       console.error('Failed to save model selection:', error);
@@ -324,8 +322,8 @@ export function ParakeetModelManager({
       }
     } catch (err) {
       console.error('Failed to delete model:', err);
-      safeToast.error(`删除 ${displayName} 失败`, {
-        description: err instanceof Error ? err.message : '删除失败',
+      safeToast.error(`Failed to delete ${displayName}`, {
+        description: err instanceof Error ? err.message : 'Delete failed',
         duration: 4000
       });
     }

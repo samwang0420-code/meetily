@@ -1,26 +1,72 @@
 "use client"
 
-import { CheckCircle2 } from "lucide-react"
+import { Switch } from "./ui/switch"
+import { FlaskConical, AlertCircle } from "lucide-react"
+import { useConfig } from "@/contexts/ConfigContext"
 import { useTranslation } from "@/i18n"
-
+import {
+  BetaFeatureKey,
+  BETA_FEATURE_NAMES,
+  BETA_FEATURE_DESCRIPTIONS
+} from "@/types/betaFeatures"
 
 export function BetaSettings() {
   const { t } = useTranslation();
+  const { betaFeatures, toggleBetaFeature } = useConfig();
 
-  // v0.7.x: importAndRetranscribe 已毕业到正式功能, Beta 开关全部下架.
-  // 保留页面以便后续添加新 beta feature 时复用布局.
+  // Define feature order for display (allows custom ordering)
+  const featureOrder: BetaFeatureKey[] = ['importAndRetranscribe'];
+
   return (
     <div className="space-y-6">
-      <div className="p-6 bg-white rounded-lg border border-gray-200 shadow-sm">
-        <div className="flex items-start gap-3">
-          <CheckCircle2 className="h-5 w-5 text-green-600 flex-shrink-0 mt-0.5" />
-          <div>
-            <h3 className="text-lg font-semibold text-gray-900">所有 Beta 功能已转为正式功能</h3>
-            <p className="mt-2 text-sm text-gray-600">
-              「导入音频 & 重新转录」功能已毕业, 无需再手动开启. 直接使用 Sidebar 的上传按钮或拖拽音频文件即可.
-            </p>
+      {/* Yellow Warning Banner */}
+      <div className="flex items-start gap-3 p-4 bg-yellow-50 border border-yellow-200 rounded-lg">
+        <AlertCircle className="h-5 w-5 text-yellow-600 flex-shrink-0 mt-0.5" />
+        <div className="text-sm text-yellow-800">
+          <p className="font-medium">Beta 功能</p>
+          <p className="mt-1">
+            {t('settings.beta_testing_hint')}
+          </p>
+        </div>
+      </div>
+
+      {/* Dynamic Feature Toggles - Automatically renders all features */}
+      {featureOrder.map((featureKey) => (
+        <div
+          key={featureKey}
+          className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm"
+        >
+          <div className="flex items-center justify-between">
+            <div className="flex-1">
+              <div className="flex items-center gap-2 mb-2">
+                <FlaskConical className="h-5 w-5 text-gray-600" />
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {BETA_FEATURE_NAMES[featureKey]}
+                </h3>
+                <span className="px-2 py-0.5 text-xs font-medium bg-yellow-100 text-yellow-800 rounded-full">
+                  BETA
+                </span>
+              </div>
+              <p className="text-sm text-gray-600">
+                {BETA_FEATURE_DESCRIPTIONS[featureKey]}
+              </p>
+            </div>
+
+            <div className="ml-6">
+              <Switch
+                checked={betaFeatures[featureKey]}
+                onCheckedChange={(checked) => toggleBetaFeature(featureKey, checked)}
+              />
+            </div>
           </div>
         </div>
+      ))}
+
+      {/* Info Box */}
+      <div className="p-4 bg-blue-50 border border-blue-200 rounded-lg">
+        <p className="text-sm text-blue-800">
+          <strong>{t('common.note')}:</strong> {t('settings.beta_disabled_hint')}
+        </p>
       </div>
     </div>
   );
