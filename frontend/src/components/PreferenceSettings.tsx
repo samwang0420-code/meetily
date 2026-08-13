@@ -222,10 +222,12 @@ export function PreferenceSettings() {
         </div>
       </div>
 
-      {/* Analytics Section */}
-      <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
-        <AnalyticsConsentSwitch />
-      </div>
+      {/* Analytics Section — §117: 隐藏 (不删除) 卡组, 保留组件 + import */}
+      {false && (
+        <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm">
+          <AnalyticsConsentSwitch />
+        </div>
+      )}
     </div>
   )
 }
