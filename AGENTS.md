@@ -962,3 +962,54 @@ killall meetily 2>/dev/null; open '/Users/wangwei/Documents/离线会记/target/
 - §113 (merge main v0.8.6 策略, 8/13)
 - CardBoundary v0.6.10+ (已隔离机制)
 - [[114-React渲染错误不再弹红色toast]] (Obsidian) / `outputs/§114-...` (Codex)
+
+## §115 Git workflow 主分支发版 + 24h 自动清理 (2026-08-13 立)
+
+**触发**: 用户原话 "perf/summary-map-concurrency 和 backup/main-v0.8.2-pre-v0.8.6 一样, 保留 24 小时, 后续自动删除. 以后的新版本都需要从 Main 开新分支开发, 合并分支后自动删除."
+
+**核心铁律**:
+1. **新版本从 main 开新分支** — 不再从旧 feature 分支累积
+2. **合并后自动删除源分支** — `git push origin --delete <branch>`
+3. **旧分支保留 24h 观察期** — 打 `cleanup-recommended-<date>` tag 提醒
+4. **main 永远是 release-ready** — 不允许"长期 feature"堆积在 main 之外
+
+**v0.8.7 起步 SOP**:
+```bash
+git checkout main && git pull origin main
+git checkout -b feature/v0.8.7-xxx
+# 开发 (§37 6 步闸门)
+git push origin feature/v0.8.7-xxx
+gh pr create --base main --head feature/v0.8.7-xxx
+# GitHub Web squash merge
+git push origin --delete feature/v0.8.7-xxx
+git tag -f cleanup-recommended-$(date +%Y-%m-%d) <branch-sha>
+git branch -d feature/v0.8.7-xxx
+# 24h 后
+bash scripts/cleanup_old_branches.sh --force
+```
+
+**当前清理时间表**:
+- 2026-08-13 10:24: §115 立, perf + backup 24h 倒计时开始
+- 2026-08-14 10:24: 24h 到期, 自动清理 perf/summary-map-concurrency + backup/main-v0.8.2-pre-v0.8.6
+
+**§37 闸门扩展 (7 步)**:
+- 0. git status (干净)
+- 1. cargo check --lib
+- 2. cargo test --lib
+- 3. check_historical_fixes.py
+- 4. (check_v08_migration_completeness.py 待补)
+- 5. cargo build --release
+- 6. GUI 端到端
+- 7. **git push origin --delete <merged-branch>**
+
+**禁止**:
+- ❌ 在 perf/summary-map-concurrency 上继续 dev（已合并 main, 重复工作）
+- ❌ 从旧 feature 分支开新分支（必须从 main 起）
+- ❌ squash merge 保留源分支（必须 `git push origin --delete`）
+- ❌ 24h 内不清理 cleanup-recommended 标记的分支
+- ❌ 把 backup/main-v0.8.2-pre-v0.8.6 永久保留
+
+**关联**:
+- §37 (release SOP) / §113 (merge main v0.8.6) / §114 (React 渲染错误)
+- §18 (不主动改无关 bug)
+- [[115-Git-workflow主分支发版+24h自动清理]] (Obsidian) / `outputs/§115-...` (Codex)
