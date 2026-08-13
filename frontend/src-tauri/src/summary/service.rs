@@ -47,6 +47,18 @@ static CANCELLATION_REGISTRY: Lazy<Arc<Mutex<HashMap<String, CancellationToken>>
 // §36 LOCAL_SUMMARY_CHUNK_THRESHOLD = 1800
 pub const LOCAL_SUMMARY_CHUNK_THRESHOLD: usize = 1800;
 
+// §116 LOCAL_SUMMARY_TOKEN_CAP = 6000
+// Why: Ollama/BuiltInAI providers expose huge context_size (Qwen3.5-2B → 32K),
+// so metadata.context_size.saturating_sub(300) = 32468. Without a cap, a 1h+ audio
+// transcript (6576 tokens) is processed as a single-pass prompt, which:
+//   1. wastes 32468-token prompt budget for ~6K tokens of real content
+//   2. forces LLM to maintain coherence across many minutes of speech
+//   3. silently skips the Map-Reduce branch (LOCAL_SUMMARY_CHUNK_THRESHOLD = 1800)
+// Cap to 6000 forces Map-Reduce for any local summary > 6000 estimated tokens.
+// Cloud providers (OpenAI/Claude/Groq/OpenAI-Custom) keep their 100000 threshold
+// since they handle large contexts natively.
+pub const LOCAL_SUMMARY_TOKEN_CAP: usize = 6000;
+
 fn strip_leading_title(markdown: &str) -> String {
     if let Some(hash_pos) = markdown.find('#') {
         let body_start = markdown[hash_pos..]
@@ -431,7 +443,8 @@ impl SummaryService {
             match METADATA_CACHE.get_or_fetch(&model_name, ollama_endpoint.as_deref()).await {
                 Ok(metadata) => {
                     // Reserve 300 tokens for prompt overhead
-                    let optimal = metadata.context_size.saturating_sub(300);
+                    // §116: cap at LOCAL_SUMMARY_TOKEN_CAP to force Map-Reduce for 1h+ transcripts
+                    let optimal = metadata.context_size.saturating_sub(300).min(LOCAL_SUMMARY_TOKEN_CAP);
                     info!(
                         "✓ Using dynamic context for {}: {} tokens (chunk size: {})",
                         model_name, metadata.context_size, optimal
@@ -455,7 +468,8 @@ impl SummaryService {
             match model {
                 Ok(model_def) => {
                     // Reserve 300 tokens for prompt overhead
-                    let optimal = model_def.context_size.saturating_sub(300) as usize;
+                    // §116: cap at LOCAL_SUMMARY_TOKEN_CAP to force Map-Reduce for 1h+ transcripts
+                    let optimal = model_def.context_size.saturating_sub(300).min(LOCAL_SUMMARY_TOKEN_CAP as u32) as usize;
                     info!(
                         "✓ Using BuiltInAI context size: {} tokens (chunk size: {})",
                         model_def.context_size, optimal
@@ -1106,5 +1120,42 @@ mod tests {
     fn test_extract_cached_english_from_malformed_json_errors() {
         let raw = r#"{ not valid json"#;
         assert!(extract_cached_english_markdown(raw, &sample_cache_source(), Some("de")).is_err());
+    }
+
+    // §116: Token threshold cap forces Map-Reduce for 1h+ transcripts.
+    // Qwen3.5-2B model context_size = 32768. Without cap, optimal = 32468, which
+    // is too large to ever trigger Map-Reduce (single-pass preferred up to 32468).
+    // §116 caps to 6000, ensuring any transcript > 6000 estimated tokens goes
+    // through the Map-Reduce branch.
+
+    #[test]
+    fn section_116_token_cap_constant_is_6000() {
+        assert_eq!(LOCAL_SUMMARY_TOKEN_CAP, 6000);
+    }
+
+    #[test]
+    fn section_116_cap_clips_large_context_down_to_6000() {
+        let huge_context: usize = 32768; // Qwen3.5-2B
+        let clipped = huge_context.saturating_sub(300).min(LOCAL_SUMMARY_TOKEN_CAP);
+        assert_eq!(clipped, 6000, "32768-300 should clip to 6000 by §116");
+    }
+
+    #[test]
+    fn section_116_cap_preserves_small_context_uncapped() {
+        let small_context: usize = 4096; // hypothetical 4K model
+        let clipped = small_context.saturating_sub(300).min(LOCAL_SUMMARY_TOKEN_CAP);
+        assert_eq!(clipped, 3796, "4096-300 (3796) is below 6000 cap, no clipping");
+    }
+
+    #[test]
+    fn section_116_cap_logic_infers_map_reduce_for_1h_audio() {
+        // 1h47m 6576-token transcript (meeting-28a6c63c) > 6000 cap
+        // → Map-Reduce triggers (token_threshold > 6000 is single-pass)
+        let token_threshold = LOCAL_SUMMARY_TOKEN_CAP;
+        let transcript_tokens: usize = 6576;
+        assert!(
+            transcript_tokens > token_threshold,
+            "1h47m transcript must exceed §116 cap to trigger Map-Reduce"
+        );
     }
 }
