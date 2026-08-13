@@ -634,6 +634,19 @@ ANCHORS = [
     ("114_actual_error_toast_kept",
      "frontend/src/hooks/useRecordingStop.ts",
      r"实际错误\D*弹 toast"),
+    # §115: Git workflow 主分支发版 + 24h 自动清理
+    ("115_main_branch_only",
+     "AGENTS.md",
+     r"## §115 Git workflow 主分支发版"),
+    ("115_cleanup_script_exists",
+     "scripts/cleanup_old_branches.sh",
+     r"§115 cleanup scan"),
+    ("115_tags_pushed",
+     "outputs/§115-Git-workflow主分支发版+24h自动清理-2026-08-13.md",
+     r"cleanup-recommended-2026-08-14-backup"),
+    ("115_24h_observe_period",
+     "outputs/§115-Git-workflow主分支发版+24h自动清理-2026-08-13.md",
+     r"24h 观察期"),
 ]
 
 
