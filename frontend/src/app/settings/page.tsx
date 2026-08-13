@@ -134,7 +134,9 @@ export default function SettingsPage() {
 
             <TabsContent value="general">
               <PreferenceSettings />
-              <ObsidianSettings />
+              {/* §117: Hide ObsidianSettings card (not delete) — UI 上 i18n key 暴露 + 用户不要看.
+                  保留代码 + import, 未来 toggle 改 `false` → `true` 即可恢复. */}
+              {false && <ObsidianSettings />}
             </TabsContent>
             <TabsContent value="recording">
               <RecordingSettings />

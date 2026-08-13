@@ -663,6 +663,19 @@ ANCHORS = [
     ("116_outputs_doc",
      "outputs/§116-1h长音频摘要强制Map-Reduce-cap-6000-2026-08-13.md",
      r"LOCAL_SUMMARY_TOKEN_CAP"),
+
+    # §117: 隐藏 settings 页"使用分析"卡 + "Obsidian" 卡 (不删除,保留代码 + import)
+    # 触发: 用户 13e 截图 — 1) 使用分析卡仍英文 + i18n 漏 2) Obsidian 卡显示 settings.obsidian.title
+    # 后续要恢复 (telemetry 重新打开 / Obsidian 写回功能重新上架) 时, 把 {false && ...} 改 true 即可.
+    ("117_obisidian_settings_hidden",
+     "frontend/src/app/settings/page.tsx",
+     r"\u00a7117.*Hide ObsidianSettings card"),
+    ("117_analytics_section_hidden",
+     "frontend/src/components/PreferenceSettings.tsx",
+     r"§117.*隐藏"),
+    ("117_outputs_doc",
+     "outputs/§117-隐藏使用分析+Obsidian卡-2026-08-13.md",
+     r"§117.*隐藏"),
 ]
 
 
