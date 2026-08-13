@@ -920,3 +920,45 @@ git push origin release/v0.8.6 --force-with-lease
 **关联**:
 - §37 (release SOP) / §56 (AGENTS.md 双校) / §92 (决策迁移铁律)
 - [[113-merge-main-v0.8.6-策略]] (Obsidian) / `outputs/§113-...` (Codex)
+
+## §114 React 渲染错误不再弹红色 toast (2026-08-13 立)
+
+**触发**: 用户截图绿色 "Recording saved successfully!" + 红色 "保存会议失败 (UI 渲染时出错, 已隔离该会议卡; 控制台查看堆栈)" 双 toast。
+
+**根因**: CardBoundary 已隔离渲染错误 + 渲染 fallback 占位卡, useRecordingStop catch 块再 toast 一次 = 双重告警。
+
+**修复 (1 文件)**: `frontend/src/hooks/useRecordingStop.ts`
+
+```typescript
+if (isReactInternal) {
+  console.warn('[§114] React 渲染错误已被 CardBoundary 隔离, 不弹红色 toast');
+  console.warn('[§114] 错误详情:', msg);
+} else {
+  // 实际错误才弹 toast
+  setStatus(RecordingStatus.ERROR, sanitizeDescription(msg, 'error'));
+  safeToast.error('保存会议失败', { description: msg, duration: 8000 });
+}
+```
+
+**行为对比**:
+- 修复前: 录音成功 + 某会议卡渲染失败 → 绿 + 红双 toast
+- 修复后: 绿 toast + console.warn（用户不被打扰）
+
+**§37 闸门 (2026-08-13 10:21)**:
+- tsc / next build / cargo check / cargo test 331/0 / cargo build --release 1m37s / guard 152/152 (4 §114) / sync 3 binary hash 一致
+
+**§15 GUI 验收**:
+```bash
+killall meetily 2>/dev/null; open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# 录 30s → 停 → 期待绿色 toast, 红色 toast 不再弹
+```
+
+**禁止**:
+- 让 React 内部错误弹 toast（CardBoundary 已隔离 + 渲染 fallback）
+- 改 CardBoundary fallback 渲染（应保留红色 "渲染失败" 占位卡，给用户上下文）
+
+**关联**:
+- §105 (录音 stop user_id 写入 + 旧标题本地化, 8/12)
+- §113 (merge main v0.8.6 策略, 8/13)
+- CardBoundary v0.6.10+ (已隔离机制)
+- [[114-React渲染错误不再弹红色toast]] (Obsidian) / `outputs/§114-...` (Codex)

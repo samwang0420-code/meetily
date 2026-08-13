@@ -464,20 +464,26 @@ export function useRecordingStop(
           }
 
         } catch (saveError: any) {
-          // v0.6.10+: 把 'Minified React error #321' 这种噪音过滤掉, 给用户友好的提示
+          // §114 (2026-08-13): React 内部错误已被 CardBoundary 隔离, 不再弹红色 toast (重复打扰)
+          // 实际后端错误 (非 React 内部) 才弹 toast
           console.error('[useRecordingStop] save meeting failed', saveError);
           const msg = saveError instanceof Error ? saveError.message : String(saveError || 'Unknown error');
           const isReactInternal = /Minified React error #\d+/.test(msg);
-          const friendly = isReactInternal
-            ? '保存会议失败 (UI 渲染时出错, 已隔离该会议卡; 控制台查看堆栈)'
-            : msg;
-          setStatus(RecordingStatus.ERROR, sanitizeDescription(msg, 'error'));
-          try {
-            safeToast.error('保存会议失败', {
-              description: friendly,
-              duration: 8000,
-            });
-          } catch {}
+          if (isReactInternal) {
+            // React 内部错误: CardBoundary 已隔离 + 渲染 fallback 占位卡 (红色 "渲染失败" 标记)
+            // 这里只 log, 不弹 toast (避免双告警). 用户看到的"录音保存成功"绿色 toast 是真实状态.
+            console.warn('[§114] React 渲染错误已被 CardBoundary 隔离, 不弹红色 toast');
+            console.warn('[§114] 错误详情:', msg);
+          } else {
+            // 实际错误 (后端失败 / 网络断 / db 写失败等), 弹 toast 提示用户
+            setStatus(RecordingStatus.ERROR, sanitizeDescription(msg, 'error'));
+            try {
+              safeToast.error('保存会议失败', {
+                description: msg,
+                duration: 8000,
+              });
+            } catch {}
+          }
           // 不再 throw saveError (避免 React error 在上层 uncaught 渲染栈炸开)
         }
       } else {

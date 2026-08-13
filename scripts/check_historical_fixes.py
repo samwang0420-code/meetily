@@ -621,6 +621,19 @@ ANCHORS = [
     ("112_agents_md_section",
      "AGENTS.md",
      r"## §112 上架物料 v0.8.6"),
+    # §114: React 渲染错误不再弹红色 toast (CardBoundary 已隔离)
+    ("114_if_isReactInternal_check",
+     "frontend/src/hooks/useRecordingStop.ts",
+     r"if \(isReactInternal\)"),
+    ("114_no_red_toast_comment",
+     "frontend/src/hooks/useRecordingStop.ts",
+     r"不弹红色 toast"),
+    ("114_log_only_when_react_internal",
+     "frontend/src/hooks/useRecordingStop.ts",
+     r"console\.warn\('\[§114\]"),
+    ("114_actual_error_toast_kept",
+     "frontend/src/hooks/useRecordingStop.ts",
+     r"实际错误\D*弹 toast"),
 ]
 
 
