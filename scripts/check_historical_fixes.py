@@ -693,6 +693,18 @@ ANCHORS = [
     ("118_outputs_doc",
      "outputs/§118-摘要Tab-6处英文i18n+隐藏Beta-tab-2026-08-13.md",
      r"§118.*摘要.*6.*处"),
+
+    # §119: default 1 daemon (8GB 适配). NUM_WORKERS=1 串行下 3 daemon 浪费 1.4 GB
+    # 28a6c63c 30 min OK vs 57029d29 86 min 预估 (cancel 50% @ 43 min) — SWAP 8.5M pages
+    ("119_default_daemon_count_is_1",
+     "frontend/src-tauri/src/audio/sherpa_daemon.rs",
+     r"unwrap_or\(1\);  // §119"),
+    ("119_doc_updated_8gb_safe",
+     "frontend/src-tauri/src/audio/sherpa_daemon.rs",
+     r"§119.*8GB"),
+    ("119_outputs_doc",
+     "outputs/§119-default-1-daemon-8GB-适配-2026-08-13.md",
+     r"§119.*default 1 daemon"),
 ]
 
 

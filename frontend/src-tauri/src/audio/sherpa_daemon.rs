@@ -159,7 +159,10 @@ struct SherpaRequest<'a> {
 
 /// §62 A: N-daemon pool with round-robin dispatch.
 /// 旧版单 daemon 串行阻塞, 长会议 / 长导入 10+min. 改 N 路并发.
-/// env MEETILY_SHERPA_DAEMONS=1..4 显式覆盖, 默认 3 (8GB RAM sweet spot).
+/// env MEETILY_SHERPA_DAEMONS=1..4 显式覆盖, 默认 1 (8GB RAM safe, 1 worker 串行时多 daemon 浪费 RAM).
+/// §119: 8GB 实测 3 daemon + decode cache + 系统 = 7.5 GB used (134 MB unused), SWAP 8.5M pages.
+/// NUM_WORKERS=1 串行 (worker.rs:156) 下 3 daemon round-robin 仍串行, 多 daemon 浪费 1.4 GB.
+/// 16 GB 用户可 env MEETILY_SHERPA_DAEMONS=3 显式启用.
 pub struct SherpaDaemon {
     /// N 个独立 Python child, 每个有独立 stdin/stdout
     inner: Vec<Mutex<Option<SherpaHandle>>>,
@@ -180,14 +183,14 @@ fn daemon_count_from_env() -> usize {
     let raw = std::env::var("MEETILY_SHERPA_DAEMONS")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or(3);
+        .unwrap_or(1);  // §119: default 1 (8 GB 适配, NUM_WORKERS=1 串行下多 daemon 冗余)
     raw.clamp(1, 4)
 }
 
 impl SherpaDaemon {
     fn new() -> Self {
         let count = daemon_count_from_env();
-        info!("[sherpa] §62 A: starting daemon pool count={} (env MEETILY_SHERPA_DAEMONS)", count);
+        info!("[sherpa] §62 A: starting daemon pool count={} (env MEETILY_SHERPA_DAEMONS, default 1 per §119)", count);
         let inner = (0..count).map(|_| Mutex::new(None)).collect();
         Self { inner, counter: AtomicUsize::new(0), count }
     }
