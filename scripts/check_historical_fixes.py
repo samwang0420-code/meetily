@@ -647,6 +647,22 @@ ANCHORS = [
     ("115_24h_observe_period",
      "outputs/§115-Git-workflow主分支发版+24h自动清理-2026-08-13.md",
      r"24h 观察期"),
+
+    # §116: LOCAL_SUMMARY_TOKEN_CAP = 6000 — 强制 1h+ 录音走 Map-Reduce
+    # 之前 Ollama/BuiltInAI 路径返回 32468 (qwen3.5:2b 32K context - 300),
+    # 6576-token 1h47m transcript 永远走 single-pass, Map-Reduce 失效.
+    ("116_local_summary_token_cap_constant",
+     "frontend/src-tauri/src/summary/service.rs",
+     r"pub const LOCAL_SUMMARY_TOKEN_CAP: usize = 6000;"),
+    ("116_ollama_path_capped_at_6000",
+     "frontend/src-tauri/src/summary/service.rs",
+     r"metadata\.context_size\.saturating_sub\(300\)\.min\(LOCAL_SUMMARY_TOKEN_CAP\)"),
+    ("116_builtin_ai_path_capped_at_6000",
+     "frontend/src-tauri/src/summary/service.rs",
+     r"model_def\.context_size\.saturating_sub\(300\)\.min\(LOCAL_SUMMARY_TOKEN_CAP as u32\)\s*as\s*usize"),
+    ("116_outputs_doc",
+     "outputs/§116-1h长音频摘要强制Map-Reduce-cap-6000-2026-08-13.md",
+     r"LOCAL_SUMMARY_TOKEN_CAP"),
 ]
 
 
