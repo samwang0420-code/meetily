@@ -423,6 +423,14 @@ export const zh: Record<string, unknown> = {
     close: '关闭',
     try_again: '再试一次',
   },
+  summaryModelSettings: {
+    auto_summary_title: '自动生成摘要',
+    auto_summary_desc: '会议结束后自动生成摘要 (停止中)',
+    model_config_title: 'AI 摘要模型',
+    model_config_desc: '配置用于生成会议摘要的 AI 模型。',
+    add_language: '＋ 添加语言',
+    language_picker_help: '点击任意语言设为默认。最多 5 个快速切换选项。',
+  },
   summary: {
     no_model: '请先在设置里选择一个模型',
     title: '会议纪要',

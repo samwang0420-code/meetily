@@ -21,8 +21,9 @@ const TABS = [
   { value: 'general', label: '通用', icon: Settings2 },
   { value: 'recording', label: '录音', icon: Mic },
   { value: 'Transcriptionmodels', label: '转录', icon: DatabaseIcon },
-  { value: 'summaryModels', label: '摘要', icon: SparkleIcon },
-  { value: 'beta', label: '试用', icon: FlaskConical }
+  { value: 'summaryModels', label: '摘要', icon: SparkleIcon }
+  // §118: Beta tab 隐藏 (不删除, 保留 BetaSettings 组件 + import)
+  // 未来 toggle: 注释回 `{ value: 'beta', label: '试用', icon: FlaskConical }` 即可
 ] as const;
 
 export default function SettingsPage() {
@@ -150,9 +151,13 @@ export default function SettingsPage() {
             <TabsContent value="summaryModels">
               <SummaryModelSettings />
             </TabsContent>
-            <TabsContent value="beta" className="mt-6">
-              <BetaSettings />
-            </TabsContent>
+            {/* §118: Beta tab 隐藏 (不删除, 保留 BetaSettings 组件 + import)
+                未来 toggle: 注释下面这段回来即可 */}
+            {false && (
+              <TabsContent value="beta" className="mt-6">
+                <BetaSettings />
+              </TabsContent>
+            )}
           </Tabs>
         </div>
       </div>

@@ -76,7 +76,7 @@ export function SummaryLanguageSettings() {
               disabled={recents.length >= 5}
               className="inline-flex items-center gap-1 rounded-full border border-dashed border-gray-300 px-3 py-1 text-sm text-gray-600 hover:border-gray-400 hover:text-gray-800 disabled:cursor-not-allowed disabled:opacity-50"
             >
-              ＋ Add language
+              {t('summaryModelSettings.add_language')}
             </button>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-auto p-0 border-0 shadow-none bg-transparent">
@@ -96,7 +96,7 @@ export function SummaryLanguageSettings() {
       <p className="text-xs text-gray-400 mt-3">
         {pinned
           ? `Default: ${labelForCode(pinned)} - click it again to unset. Max 5 quick-switch options.`
-          : 'Click any language to set it as your default. Max 5 quick-switch options.'}
+          : t('summaryModelSettings.language_picker_help')}
       </p>
     </div>
   );

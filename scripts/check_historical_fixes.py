@@ -676,6 +676,23 @@ ANCHORS = [
     ("117_outputs_doc",
      "outputs/§117-隐藏使用分析+Obsidian卡-2026-08-13.md",
      r"§117.*隐藏"),
+
+    # §118: 摘要 Tab 6 处英文 i18n + Beta Tab 隐藏
+    ("118_summary_i18n_keys_added",
+     "frontend/src/i18n/locales/zh.ts",
+     r"summaryModelSettings: \{"),
+    ("118_summary_model_settings_uses_t",
+     "frontend/src/components/SummaryModelSettings.tsx",
+     r"summaryModelSettings\."),
+    ("118_summary_language_uses_t",
+     "frontend/src/components/SummaryLanguageSettings.tsx",
+     r"summaryModelSettings\."),
+    ("118_beta_tab_hidden",
+     "frontend/src/app/settings/page.tsx",
+     r"§118.*Beta tab 隐藏"),
+    ("118_outputs_doc",
+     "outputs/§118-摘要Tab-6处英文i18n+隐藏Beta-tab-2026-08-13.md",
+     r"§118.*摘要.*6.*处"),
 ]
 
 
