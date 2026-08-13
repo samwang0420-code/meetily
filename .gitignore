@@ -98,3 +98,6 @@ audio_v2/
 # §111: 搜狗 .scel 源文件不 ship (版权 + 体积), 只 ship 转换后精选 JSON
 *.scel
 热词/
+
+# workbuddy 本地 memory (工具本地笔记, 不入项目)
+.workbuddy/memory/
