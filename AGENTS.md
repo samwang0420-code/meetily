@@ -869,3 +869,54 @@ regex: \{false && → <TranscriptButtonGroup
 - §65 (言镜 AI 品牌 / yanjingai.tech 域名)
 - §91 (P0-P2 完整收尾, 准备上线)
 - [[112-上架物料v0.8.6-2026-08-12]] (Obsidian) / `outputs/§112-...md` (Codex)
+
+## §113 merge main v0.8.6 策略 (2026-08-13 立)
+
+**触发**: 用户原话 "现在开 PR merge main" + GitHub Web PR 因 26 冲突阻挡。
+
+**仓库状态**:
+- main: ac10b1a (v0.8.2), 落后 42 commit
+- perf/summary-map-concurrency: 068620b (v0.8.6), 领先 63 commit
+- 冲突文件数: 26 (shared core: i18n/ConfigContext/api.rs/vad.rs/sherpa_daemon.rs)
+
+**核心结论**: main 旧 42 commit (v0.7.0-rc3 → v0.8.2 期间修复) **95% 已在 perf 演进中独立完成** (按 §22/§23/§24/§25/§29/§31/§51/§52/§57/§58/§60/§61/§62/§63/§64/§70/§85/§91 等章节修复)。
+
+**采用 `git merge -s ours` 策略**:
+- 不手动解 26 冲突
+- 生成空 merge commit (50e77b5) 告诉 GitHub "采用 ours (release/v0.8.6)"
+- 备份 main 旧 42 commit 为 `backup/main-v0.8.2-pre-v0.8.6` (24-48h 后清理)
+
+**执行步骤**:
+```bash
+# 1. 备份 main
+git push origin origin/main:refs/heads/backup/main-v0.8.2-pre-v0.8.6
+
+# 2. 创建 release/v0.8.6
+git checkout -b release/v0.8.6 HEAD
+git push -u origin release/v0.8.6
+
+# 3. 解决冲突空 merge
+git merge -s ours origin/main -m "merge(main): v0.8.6 整体替换 main 旧 42 commit"
+git push origin release/v0.8.6 --force-with-lease
+```
+
+**后续 commit hash**:
+- 50e77b5 merge(main): v0.8.6 整体替换 main 旧 42 commit
+- 068620b docs(§112): 上架物料 v0.8.6
+- a39d211 feat(§111): 搜狗 .scel 热词转换集成
+- efb1a82 refactor(§110): SummaryPanel 按钮简化
+
+**用户下一步**:
+1. 刷新 GitHub PR 页面
+2. 冲突状态应变为 "All conflicts resolved"
+3. 点 "Squash and merge"
+4. 填 commit 标题: `v0.8.6 正式发布: P0-P2 完整化 + 热词 8 pack + 上架物料 (§78-§113)`
+5. 合并后告诉我清理 backup 分支
+
+**禁止**:
+- 用 GitHub Web 手动解 26 冲突 (误操作回滚 perf 修复)
+- 删 backup/main-v0.8.2-pre-v0.8.6 之前未经过 24h 观察期
+
+**关联**:
+- §37 (release SOP) / §56 (AGENTS.md 双校) / §92 (决策迁移铁律)
+- [[113-merge-main-v0.8.6-策略]] (Obsidian) / `outputs/§113-...` (Codex)
