@@ -39,6 +39,7 @@ interface SummaryGeneratorButtonGroupProps {
   summaryPhase?: 'idle'|'single'|'map'|'reduce'|'final';
   availableTemplates: Array<{ id: string; name: string; description: string; required_tier?: 'free' | 'member' }>;
   selectedTemplate: string;
+  selectedTemplateName?: string; // §123: 当前选中模板的显示名 (按钮里展示)
   onTemplateSelect: (templateId: string, templateName: string) => void;
   hasTranscripts?: boolean;
   hasSummary?: boolean;
@@ -57,6 +58,7 @@ export function SummaryGeneratorButtonGroup({
   summaryPhase = 'idle',
   availableTemplates,
   selectedTemplate,
+  selectedTemplateName,
   onTemplateSelect,
   hasTranscripts = true,
   hasSummary = false,
@@ -348,7 +350,10 @@ export function SummaryGeneratorButtonGroup({
               title={t('summary.template_title')}
             >
               <FileText />
-              <span className="hidden lg:inline">{t('summary.template')}</span>
+              {/* §123: 按钮显示当前已选模板名 (而不是 "模板" 两个字). 找不到 fallback 翻译. */}
+              <span className="hidden lg:inline max-w-[120px] truncate">
+                {selectedTemplateName || t('summary.template')}
+              </span>
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end">

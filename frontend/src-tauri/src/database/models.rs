@@ -9,6 +9,10 @@ pub struct MeetingModel {
     pub created_at: DateTimeUtc,
     pub updated_at: DateTimeUtc,
     pub folder_path: Option<String>,
+    /// §123: 用户上次为此会议选过的模板 ID.
+    /// NULL = 还没摘要过 / 老数据 → 前端 useTemplates fallback standard_meeting.
+    #[serde(default)]
+    pub template_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::Type)]

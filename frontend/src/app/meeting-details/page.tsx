@@ -20,6 +20,8 @@ interface MeetingDetailsResponse {
   updated_at: string;
   transcripts: Transcript[];
   folder_path?: string;
+  /// §123: 上次选过的模板 ID
+  template_id?: string | null;
 }
 
 function MeetingDetailsContent() {
@@ -137,6 +139,7 @@ function MeetingDetailsContent() {
         updated_at: metadata.updated_at,
         transcripts: transcripts, // Paginated transcripts from hook
         folder_path: metadata.folder_path, // For retranscription feature
+        template_id: metadata.template_id, // §123
       });
 
       // Sync with sidebar context

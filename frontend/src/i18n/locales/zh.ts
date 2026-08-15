@@ -486,6 +486,9 @@ export const zh: Record<string, unknown> = {
     template_selected: '已选择模板',
     template_pro_required: '「{template}」是 Pro 专属模板, 请升级到 Pro 后使用',
     using_template: '将使用“{template}”模板生成会议纪要',
+    // §123: 法律/医学模板 → 热词未配提醒
+    template_hotwords_missing: '已选「{template}」模板',
+    template_hotwords_missing_desc: '当前热词未启用 {pack} 专业词库, 法律/医学术语识别可能不准确。请在「设置 → 热词」中启用对应词库',
     settings_saved: '纪要模型设置已保存',
     settings_save_failed: '保存纪要模型设置失败',
     save: '保存',

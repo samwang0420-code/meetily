@@ -483,6 +483,9 @@ export const en: Record<string, unknown> = {
     template_selected: 'Template selected',
     template_pro_required: '“{template}” is Pro-only, please upgrade to use it',
     using_template: 'Using “{template}” template for summary generation',
+    // §123: Legal/medical template → hotwords not configured reminder
+    template_hotwords_missing: 'Selected "{template}" template',
+    template_hotwords_missing_desc: 'Current hotwords do not include the {pack} pack. Legal/medical terms may not be recognized accurately. Enable the corresponding pack in Settings → Hotwords.',
     settings_saved: 'Summary model settings saved',
     settings_save_failed: 'Failed to save summary model settings',
     save: 'Save',

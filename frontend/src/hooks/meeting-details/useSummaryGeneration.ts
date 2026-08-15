@@ -57,6 +57,8 @@ interface UseSummaryGenerationProps {
   modelConfig: ModelConfig;
   isModelConfigLoading: boolean;
   selectedTemplate: string;
+  /// §123: 当前选中模板的显示名 (按钮里展示)
+  selectedTemplateName?: string;
   onMeetingUpdated?: () => Promise<void>;
   updateMeetingTitle: (title: string) => void;
   setAiSummary: (summary: Summary | null) => void;
@@ -69,6 +71,7 @@ export function useSummaryGeneration({
   modelConfig,
   isModelConfigLoading,
   selectedTemplate,
+  selectedTemplateName, // §123: 转发到 SummaryGeneratorButtonGroup
   onMeetingUpdated,
   updateMeetingTitle,
   setAiSummary,

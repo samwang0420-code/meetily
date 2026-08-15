@@ -357,6 +357,8 @@ pub async fn api_process_transcript<R: Runtime>(
 
     let pool = state.db_manager.pool().clone();
     let final_prompt = custom_prompt.unwrap_or_else(|| "".to_string());
+    // 取出 template_id 引用 / 备份 original, 避免被 unwrap_or_else move 后无法 §123 持久化
+    let template_id_for_persist = template_id.clone();
     let final_template_id = template_id.unwrap_or_else(|| "daily_standup".to_string());
 
     // Normalise empty / whitespace-only to None so "" and null behave identically
@@ -373,6 +375,21 @@ pub async fn api_process_transcript<R: Runtime>(
         .map_err(|e| format!("Failed to initialize process: {}", e))?;
 
     log_info!("✓ Summary process initialized for meeting_id: {}", &m_id);
+
+    // §123: 持久化用户选过的模板 ID. 下次进入会议详情默认显示同一模板.
+    if let Some(tid) = template_id_for_persist.as_deref() {
+        if !tid.trim().is_empty() {
+            if let Err(e) = sqlx::query("UPDATE meetings SET template_id = ?1, updated_at = ?2 WHERE id = ?3")
+                .bind(tid)
+                .bind(chrono::Utc::now().to_rfc3339())
+                .bind(&m_id)
+                .execute(&pool)
+                .await
+            {
+                log_warn!("§123 failed to persist meeting.template_id={tid} for {m_id}: {e}");
+            }
+        }
+    }
 
     // Save transcript chunks data (matching Python backend behavior)
     let chunk_size = _chunk_size.unwrap_or(40000);

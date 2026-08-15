@@ -60,9 +60,9 @@ impl MeetingsRepository {
         let mut conn = pool.acquire().await?;
         let mut transaction = conn.begin().await?;
 
-        // Get meeting details
+        // Get meeting details. §123: 同步拉 template_id (前端 useTemplates 初始化用)
         let meeting: Option<MeetingModel> =
-            sqlx::query_as("SELECT id, title, created_at, updated_at, folder_path FROM meetings WHERE id = ?")
+            sqlx::query_as("SELECT id, title, created_at, updated_at, folder_path, template_id FROM meetings WHERE id = ?")
                 .bind(meeting_id)
                 .fetch_optional(&mut *transaction)
                 .await?;
@@ -104,6 +104,7 @@ impl MeetingsRepository {
                 created_at: meeting.created_at.0.to_rfc3339(),
                 updated_at: meeting.updated_at.0.to_rfc3339(),
                 transcripts: meeting_transcripts,
+                template_id: meeting.template_id,
             }))
         } else {
             transaction.rollback().await?;
@@ -122,8 +123,9 @@ impl MeetingsRepository {
             ));
         }
 
+        // §123: 同步拉 template_id (前端 useTemplates 初始化用)
         let meeting: Option<MeetingModel> =
-            sqlx::query_as("SELECT id, title, created_at, updated_at, folder_path FROM meetings WHERE id = ?")
+            sqlx::query_as("SELECT id, title, created_at, updated_at, folder_path, template_id FROM meetings WHERE id = ?")
                 .bind(meeting_id)
                 .fetch_optional(pool)
                 .await?;

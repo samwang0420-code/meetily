@@ -12,11 +12,14 @@ export interface AvailableTemplate {
   required_tier: 'free' | 'member';
 }
 
-export function useTemplates() {
+export function useTemplates(initialTemplateId?: string | null) {
   const { t } = useTranslation();
   const { user } = useAuth();
   const [availableTemplates, setAvailableTemplates] = useState<AvailableTemplate[]>([]);
-  const [selectedTemplate, setSelectedTemplate] = useState<string>('standard_meeting');
+  // §123: 优先用 initialTemplateId (从 meeting.template_id 传), 否则 fallback standard_meeting
+  const [selectedTemplate, setSelectedTemplate] = useState<string>(
+    initialTemplateId && initialTemplateId.trim() !== '' ? initialTemplateId : 'standard_meeting'
+  );
 
   const userTier: 'free' | 'member' = user?.membership ?? 'free';
 
@@ -52,6 +55,32 @@ export function useTemplates() {
       description: t('summary.using_template', { template: tmpl?.name ?? templateName ?? templateId }),
     });
     Analytics.trackFeatureUsed('template_selected');
+
+    // §123: 选了法律/医学模板 → 检查热词是否已配. 没配的话 toast 提醒 (不阻塞选模板)
+    if (templateId === 'legal_consultation' || templateId === 'medical_consultation') {
+      const requiredPack = templateId === 'legal_consultation' ? 'legal' : 'medical';
+      const session = (typeof window !== 'undefined') ? window.localStorage.getItem('lixianhuiji.session') : null;
+      if (session) {
+        invokeTauri<{ builtin: string; custom: string; enabled: boolean }>('hotwords_get', { session })
+          .then((cfg) => {
+            const okPacks = templateId === 'legal_consultation'
+              ? ['legal', 'sogou_legal', 'legacy_legal']
+              : ['medical', 'sogou_medical', 'legacy_medical'];
+            if (cfg.builtin === 'none' || !okPacks.includes(cfg.builtin)) {
+              safeToast.warning(
+                t('summary.template_hotwords_missing', { template: tmpl?.name ?? templateName ?? templateId }),
+                {
+                  description: t('summary.template_hotwords_missing_desc', { pack: requiredPack }),
+                  duration: 8000,
+                }
+              );
+            }
+          })
+          .catch((e) => {
+            console.warn('[useTemplates] hotwords_get failed, skip reminder:', e);
+          });
+      }
+    }
   }, [t, userTier, availableTemplates]);
 
   return {

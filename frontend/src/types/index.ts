@@ -106,6 +106,8 @@ export interface MeetingMetadata {
   created_at: string;
   updated_at: string;
   folder_path?: string;
+  /// §123: 上次选过的模板 ID
+  template_id?: string | null;
 }
 
 export interface PaginatedTranscriptsResponse {

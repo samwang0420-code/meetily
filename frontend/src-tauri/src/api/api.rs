@@ -124,6 +124,8 @@ pub struct MeetingDetails {
     pub created_at: String,
     pub updated_at: String,
     pub transcripts: Vec<MeetingTranscript>,
+    /// §123: 上次选过的模板 ID. 前端 useTemplates 初始化时优先用这个.
+    pub template_id: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -154,6 +156,9 @@ pub struct MeetingMetadata {
     pub updated_at: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub folder_path: Option<String>,
+    /// §123: 上次选过的模板 ID. 前端 useTemplates 初始化时优先用这个.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template_id: Option<String>,
 }
 
 /// Paginated transcripts response with total count
@@ -834,6 +839,7 @@ pub async fn api_get_meeting_metadata<R: Runtime>(
                 created_at: meeting.created_at.0.to_rfc3339(),
                 updated_at: meeting.updated_at.0.to_rfc3339(),
                 folder_path: meeting.folder_path,
+                template_id: meeting.template_id,
             })
         }
         Ok(None) => {

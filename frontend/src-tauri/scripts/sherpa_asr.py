@@ -305,8 +305,8 @@ def _load_sensevoice(path, tokens):
 # v0.7.0+: FunASR-Nano (官方称 Paraformer-分角色 但底层是 LLM 解码, 支持原生 hotwords)
 # 模型组成: encoder_adaptor.int8.onnx + embedding.int8.onnx + llm.int8.onnx + Qwen3-0.6B tokenizer
 # 必须有完整 4 件套, 缺一不可 (sherpa-onnx 1.13.4 from_funasr_nano 强制)
-def _load_funasr_nano(model_dir):
-    """model_dir: 包含 4 件套的目录"""
+def _load_funasr_nano(model_dir, hotwords=""):
+    """model_dir: 包含 4 件套的目录. hotwords: 逗号分隔字符串 (pass to from_funasr_nano)."""
     import sherpa_onnx
     encoder_adaptor = os.path.join(model_dir, "encoder_adaptor.int8.onnx")
     llm = os.path.join(model_dir, "llm.int8.onnx")
@@ -331,7 +331,7 @@ def _load_funasr_nano(model_dir):
         provider="cpu",
         language="zh",
         itn=True,
-        hotwords="",  # 由 transcribe() 时通过 recognizer 重新设置
+        hotwords=hotwords,  # §123: 之前写死 "" → hotwords 永远不生效. 现在传真值, 重建 recognizer 时生效
     )
 
 
@@ -342,11 +342,26 @@ _KIND_LOADERS = {
 }
 
 
-def _ensure_model(tag):
-    """Load sherpa-onnx recognizer (lazy + cache). tag may be 'paraformer-zh', etc."""
-    global _recognizer, _recognizer_backend
+# §123: functools-style cache _recognizer_hotwords 追踪 recognizer 当前 hotwords.
+# funasr_nano 必须在 hotwords 变化时重建 recognizer (offline_recognizer hotwords 是构造参数, 无 setter).
+_RECOGNIZER_HOTWORDS = ""
+
+
+def _ensure_model(tag, hotwords_str=""):
+    """Load sherpa-onnx recognizer (lazy + cache). tag may be 'paraformer-zh', etc.
+
+    §123: funasr_nano 接收 hotwords_str. 若 hotwords 变化则强制重建 recognizer.
+    Paraformer / SenseVoice 不需要 (它们走 postprocess _apply_hotword_bias 路径).
+    """
+    global _recognizer, _recognizer_backend, _RECOGNIZER_HOTWORDS
     if _recognizer is not None and _recognizer_backend == tag:
-        return _recognizer, tag
+        # funasr_nano 是唯一需要 hotwords-baked-in 的模型. 其他模型 hotwords 走 postprocess, 不需 reload.
+        if tag != "funasr-nano-zh" or _RECOGNIZER_HOTWORDS == hotwords_str:
+            return _recognizer, tag
+        # hotwords 变了, 强制重建
+        sys.stderr.write(
+            f"[sherpa_asr] §123 funasr_nano hotwords changed, reloading recognizer (prev={len(_RECOGNIZER_HOTWORDS)}c new={len(hotwords_str)}c)\n"
+        )
 
     models = _scan_models()
     info = models.get(tag)
@@ -365,16 +380,16 @@ def _ensure_model(tag):
         raise ValueError(f"unsupported model kind '{info['kind']}' for tag '{tag}'")
 
     t0 = time.time()
-    # funasr_nano loader 签名是 (model_dir) 单参; 其他是 (path, tokens)
+    # funasr_nano loader 签名是 (model_dir, hotwords); 其他是 (path, tokens)
     if info["kind"] == "funasr_nano":
-        # path 在 _scan_models 中已被设为 model_dir (整个目录)
-        _recognizer = loader(info["path"])
+        _recognizer = loader(info["path"], hotwords_str)
     else:
         _recognizer = loader(info["path"], info["tokens"])
     _recognizer_backend = tag
+    _RECOGNIZER_HOTWORDS = hotwords_str
     load_ms = int((time.time() - t0) * 1000)
     sys.stderr.write(
-        f"[sherpa_asr] loaded {tag} ({info['kind']}) from {info['label']}/ in {load_ms}ms\n"
+        f"[sherpa_asr] loaded {tag} ({info['kind']}) from {info['label']}/ in {load_ms}ms (hotwords={len(hotwords_str)}c)\n"
     )
     sys.stderr.flush()
     return _recognizer, tag
@@ -1013,7 +1028,14 @@ def transcribe(req):
             arr, _segs = _trim_silence(arr, sr)
     except Exception:
         _segs = []
-    rec, loaded_tag = _ensure_model(tag)
+    # §123: 计算 hotwords 串 (pack + custom, 逗号分隔) → 传给 _ensure_model
+    # funasr_nano 会在 hotwords 变化时自动重建 recognizer.
+    _hw_pack = req.get("hotwords_pack", "none")
+    _hw_custom = req.get("hotwords_custom", "")
+    _hotwords_list = get_hotwords(_hw_pack, _hw_custom) if (_hw_pack and _hw_pack != "none" or _hw_custom) else []
+    _hotwords_str = ",".join(_hotwords_list)
+
+    rec, loaded_tag = _ensure_model(tag, _hotwords_str)
     load_ms = 0  # already counted inside _ensure_model but track total load
     decode_t = time.time()
     streams = []

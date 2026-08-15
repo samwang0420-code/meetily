@@ -1081,3 +1081,71 @@ bash scripts/cleanup_old_branches.sh --force
 - [[122-action_items-parser-兼容多模板-2026-08-15]] (Obsidian) / `outputs/§122-action_items-parser-兼容多模板-2026-08-15.md` (Codex)
 - §91 (P2-A 完整化收尾, §122 是其 parser 漏兼容补丁) / §121 (同 session 修复 topic_graph silent fail)
 - §85 / §18 / §37 / §15
+
+## §123 模板选择持久化 + 法律/医学热词提醒 + FunASR-Nano 热词透传 (2026-08-15 立)
+
+**触发**: 用户 8/15 4 件事:
+1. **P1**: 模板按钮能不能默认显示用户已经选择的模板
+2. **P2**: 法律/医学模板选时检查热词是否勾选, 没勾就提示
+3. **P1**: 自定义模板先不做, 但要保证模板足够 (审计 9 个模板足够)
+4. **P1**: 转录/总结过程中热词是否真的起作用 (FunASR-Nano 修复)
+
+### 模板覆盖度审计 (用户判定已足够, 不做自定义 UI)
+| 模板 | 场景 |
+|---|---|
+| `standard_meeting` | 通用 (fallback) |
+| `daily_standup` | 每日站会 |
+| `project_sync` | 项目同步 |
+| `retrospective` | 敏捷回顾 |
+| `sales_marketing_client_call` | 销售客户 |
+| `legal_consultation` | 法律咨询 (Pro) |
+| `medical_consultation` | 医疗会诊 (Pro) |
+| `psychiatric_session` | 心理 SOAP (Pro) |
+| `cross_border_ecommerce` | 跨境电商 (§86) |
+
+### 改动 (15 文件 + 1 migration)
+
+**P1 模板持久化**:
+- 新 migration `20260815000000_meetings_template_id.sql` (加列 + 索引, 老数据 NULL fallback)
+- `MeetingModel.template_id: Option<String>` + `MeetingMetadata.template_id` + `MeetingDetails.template_id`
+- `api_process_transcript` 加 `UPDATE meetings SET template_id = ?1` (选过模板就持久化)
+- 前端 `useTemplates(initialTemplateId?: string | null)` 优先用 `meeting.template_id`
+- `SummaryGeneratorButtonGroup` 显示 `selectedTemplateName || t('summary.template')` + `max-w-[120px] truncate`
+
+**P2 legal/medical 热词提醒**:
+- `useTemplates::handleTemplateSelection` 选 legal/medical → 调 `hotwords_get` 读 pack
+- 不在 whitelist → `safeToast.warning(t('summary.template_hotwords_missing'))` (不阻塞, 只提醒)
+- whitelist: legal = `['legal', 'sogou_legal', 'legacy_legal']`; medical = `['medical', 'sogou_medical', 'legacy_medical']`
+- i18n zh + en 各新增 2 个 key (`template_hotwords_missing` / `_desc`)
+
+**P1 FunASR-Nano hotwords 透传**:
+- **根因**: `sherpa_asr.py::_load_funasr_nano` 创建 recognizer 时 `hotwords=""` 写死, sherpa-onnx 1.13.4 `OfflineRecognizer.from_funasr_nano` 接受 `hotwords: str` 但**没有 setter**, 必须重建. 之前写死 → 用户设置的法律热词永远不生效 (Paraformer/SenseVoice 走 postprocess 不受影响).
+- **修复**: `_load_funasr_nano(model_dir, hotwords="")` 接参数 + `_ensure_model(tag, hotwords_str="")` + 模块级 `_RECOGNIZER_HOTWORDS`
+- funasr_nano tag hotwords 变化时强制重建 recognizer, stderr log `[sherpa_asr] §123 funasr_nano hotwords changed, reloading recognizer`
+- Paraformer/SenseVoice 不影响 (走 postprocess)
+- `transcribe()` 入口计算 `_hotwords_str = ",".join(get_hotwords(...))` 传 `_ensure_model(tag, _hotwords_str)`
+
+### 铁律
+
+1. **summary 按钮必须显示当前模板名** — UI 必须回显, 不允许 fallback 翻译硬编码
+2. **legal/medical 选模板不阻塞, 只提醒** — 用户决策, §18 不主动加硬阻塞
+3. **funasr_nano hotwords 变化必须重建 recognizer** — sherpa-onnx 1.13.4 不支持 setter, 别试 setter
+4. **后端 log 必须验证热词生效** — stderr 留 `[sherpa_asr] §123 funasr_nano hotwords changed, reloading recognizer`
+5. **§92 三处同步**: outputs + Obsidian + AGENTS.md 同日落
+6. **i18n 路径严格一致** — 这次从一开始就走 `summary.template_hotwords_missing.*`, 不放孤儿路径 (按 §107 教训)
+
+### §37 6 步硬闸门
+- tsc --noEmit: 1 个 §18 bun:test (不动)
+- next build: OK (`/meeting-details` 1.43MB)
+- cargo check --lib: 0 errors / 28 §18 warnings (不动)
+- cargo test --lib: **337 passed / 0 failed / 3 ignored**
+- check_historical_fixes.py: **192/192 PASS** (12 个 §123 锚点)
+- cargo build --release + sync_app_bundle.sh (见下方)
+
+### 关联
+- [[123-模板选择持久化+法律医学热词提醒+FunASR-Nano热词透传]] (Obsidian)
+- `outputs/§123-...md` (Codex)
+- §92 (决策迁移铁律) / §37 (硬闸门) / §15 (GUI 验收) / §18 (不主动改无关)
+- §29 (FunASR-Nano Pro tier gate) / §104 (华而不实隐藏) / §106 (固定本地模式)
+- §107 (i18n 路径教训 — 这次严格走 `summary.*` 顶级) / §108 (sync_app_bundle sidecar)
+- §122 (action_items parser 兼容多模板, 上次 commit, 同日)

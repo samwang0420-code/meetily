@@ -72,6 +72,8 @@ interface SummaryPanelProps {
   getSummaryStatusMessage: (status: 'idle' | 'processing' | 'summarizing' | 'regenerating' | 'completed' | 'error') => string;
   availableTemplates: Array<{ id: string, name: string, description: string }>;
   selectedTemplate: string;
+  /// §123: 当前选中模板的显示名 (按钮里展示)
+  selectedTemplateName?: string;
   onTemplateSelect: (templateId: string, templateName: string) => void;
   isModelConfigLoading?: boolean;
   onOpenModelSettings?: (openFn: () => void) => void;
@@ -110,6 +112,7 @@ export function SummaryPanel({
   getSummaryStatusMessage,
   availableTemplates,
   selectedTemplate,
+  selectedTemplateName,
   onTemplateSelect,
   isModelConfigLoading = false,
   onOpenModelSettings
@@ -443,6 +446,7 @@ export function SummaryPanel({
               summaryStatus={summaryStatus}
               availableTemplates={availableTemplates}
               selectedTemplate={selectedTemplate}
+              selectedTemplateName={selectedTemplateName}
               onTemplateSelect={onTemplateSelect}
               hasTranscripts={transcripts.length > 0}
               isModelConfigLoading={isModelConfigLoading}
@@ -482,6 +486,7 @@ export function SummaryPanel({
               summaryStatus={summaryStatus}
               availableTemplates={availableTemplates}
               selectedTemplate={selectedTemplate}
+              selectedTemplateName={selectedTemplateName}
               onTemplateSelect={onTemplateSelect}
               hasTranscripts={transcripts.length > 0}
               hasSummary={false}

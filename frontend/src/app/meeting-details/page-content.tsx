@@ -91,7 +91,8 @@ export default function PageContent({
 
   // Custom hooks
   const meetingData = useMeetingData({ meeting, summaryData, onMeetingUpdated });
-  const templates = useTemplates();
+  // §123: 传 meeting.template_id → useTemplates 初始化时优先用这个
+  const templates = useTemplates(meeting?.template_id);
 
   // Callback to register the modal open function
   const handleRegisterModalOpen = (openFn: () => void) => {
@@ -138,6 +139,9 @@ export default function PageContent({
     modelConfig: modelConfig,
     isModelConfigLoading: false, // ConfigContext loads on mount
     selectedTemplate: templates.selectedTemplate,
+    // §123: 当前选中模板的显示名 (按钮里展示), 没有时 fallback 到 standard_meeting
+    selectedTemplateName: templates.availableTemplates.find(t => t.id === templates.selectedTemplate)?.name
+      || (templates.selectedTemplate ? templates.selectedTemplate : 'Standard Meeting'),
     onMeetingUpdated,
     updateMeetingTitle: meetingData.updateMeetingTitle,
     setAiSummary: meetingData.setAiSummary,
@@ -365,6 +369,8 @@ export default function PageContent({
           getSummaryStatusMessage={summaryGeneration.getSummaryStatusMessage}
           availableTemplates={templates.availableTemplates}
           selectedTemplate={templates.selectedTemplate}
+          selectedTemplateName={templates.availableTemplates.find(t => t.id === templates.selectedTemplate)?.name
+            || (templates.selectedTemplate ? templates.selectedTemplate : 'Standard Meeting')}
           onTemplateSelect={templates.handleTemplateSelection}
           isModelConfigLoading={false}
           onOpenModelSettings={handleRegisterModalOpen}
