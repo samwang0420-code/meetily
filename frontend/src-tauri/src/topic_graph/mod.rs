@@ -394,17 +394,19 @@ pub async fn trigger_after_summary<R: Runtime>(
         .unwrap_or_else(|_| reqwest::Client::new());
     let response = match generate_summary(
         &client,
-        &LLMProvider::BuiltInAI,
+        &LLMProvider::Ollama,        // §121: 改用 Ollama (localhost:11434,qwen3.5:2b)
+                                    //      BuiltInAI 强制要 app_data_dir (sidecar binary),
+                                    //      trigger 链路传 None -> llm 永远 fail -> swallow log
         "qwen3.5:2b",
-        "",          // api_key unused for BuiltInAI
+        "",          // api_key unused for Ollama
         "",          // system_prompt (instructions already in user prompt)
         &prompt,
-        None,        // ollama_endpoint
+        None,        // ollama_endpoint (用默认 localhost:11434)
         None,        // custom_openai_endpoint
         Some(800),   // max_tokens (per AGENTS.md §52)
         None,        // temperature
         None,        // top_p
-        None,        // app_data_dir (BuiltInAI uses platform default)
+        None,        // app_data_dir (unused for Ollama)
         None,        // cancellation_token
     )
     .await
@@ -533,12 +535,12 @@ pub async fn rebuild_topic_dossier<R: Runtime>(
 
     let response = match generate_summary(
         &client,
-        &LLMProvider::BuiltInAI,
+        &LLMProvider::Ollama,        // §121: 改用 Ollama,见 trigger_after_summary 注释
         "qwen3.5:2b",
         "",
         "",
         &prompt,
-        None, None,
+        None, None,                  // ollama_endpoint (default localhost:11434) + custom_openai_endpoint
         Some(400),
         None, None, None, None,
     )

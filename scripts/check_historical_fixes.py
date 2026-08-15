@@ -705,6 +705,26 @@ ANCHORS = [
     ("119_outputs_doc",
      "outputs/§119-default-1-daemon-8GB-适配-2026-08-13.md",
      r"§119.*default 1 daemon"),
+
+    # §121: P0-A / P2-C LLM trigger 必须用 Ollama 不 BuiltInAI
+    # BuiltInAI 强制要 app_data_dir (sidecar binary 路径),trigger 链传 None
+    # -> llm_client generate_summary 永远 fail -> swallow log
+    # 3 处 marker 注释: §121: 改用 Ollama
+    ("121_trigger_after_summary_uses_ollama",
+     "frontend/src-tauri/src/topic_graph/mod.rs",
+     r"§121.*改用 Ollama"),
+    ("121_dossier_rebuild_uses_ollama",
+     "frontend/src-tauri/src/topic_graph/mod.rs",
+     r"§121.*见 trigger_after_summary"),
+    ("121_live_qa_uses_ollama",
+     "frontend/src-tauri/src/live_qa/mod.rs",
+     r"LiveQA trigger"),
+    ("121_no_builtin_ai_in_topic_graph",
+     "frontend/src-tauri/src/topic_graph/mod.rs",
+     r"LLMProvider::Ollama"),
+    ("121_outputs_doc",
+     "outputs/§121-topic_graph-LLM-trigger-改Ollama-2026-08-15.md",
+     r"§121.*Ollama"),
 ]
 
 

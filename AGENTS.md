@@ -1013,3 +1013,34 @@ bash scripts/cleanup_old_branches.sh --force
 - §37 (release SOP) / §113 (merge main v0.8.6) / §114 (React 渲染错误)
 - §18 (不主动改无关 bug)
 - [[115-Git-workflow主分支发版+24h自动清理]] (Obsidian) / `outputs/§115-...` (Codex)
+
+## §121 P0-A / P2-C LLM trigger 必须用 Ollama 不 BuiltInAI (2026-08-15 立)
+
+**触发**: 用户 8/14 导入 566fe7a9 (1h49m 音频) → 转录 OK → topic_node / topic_dossier 全部 0 行, 知识图谱从未触发.
+
+**根因 (5 跳)**:
+1. `topic_graph/mod.rs:397` (`trigger_after_summary`) → `LLMProvider::BuiltInAI`
+2. `topic_graph/mod.rs:538` (`rebuild_topic_dossier`) → `LLMProvider::BuiltInAI`
+3. `live_qa/mod.rs:131` (`run_live_qa`) → `LLMProvider::BuiltInAI`
+4. `summary/llm_client.rs::generate_summary` 对 BuiltInAI 强制要 `app_data_dir: Option<&Path>` (sidecar binary `llama-helper` 路径)
+5. 3 处 trigger 链都传 `None` → `generate_summary` 内部 `.ok_or_else(|| "app_data_dir is required for BuiltInAI")` → Err → 上层 swallow 写 warn log
+
+**修复 (commit pending)**:
+3 处全部改用 `LLMProvider::Ollama`, 走 `localhost:11434`, 用户机器已跑 `qwen3.5:2b` (2.74GB).
+
+**§121 铁律**:
+1. 任何 spawn hook / 异步 trigger 调 BuiltInAI 必须传 `app_data_dir: Some(&app.path().app_data_dir()?)` —— 否则永远 fail.
+2. 或者改用 Ollama (`localhost:11434`) —— 本地 Ollama 在 P0-A / LiveQA 这种 trigger 链路更稳, 不依赖 sidecar binary 启动.
+3. 禁止 BuiltInAI swallow log: trigger 链路任何 LLM call 失败必须升级 error 等级 + 写 DB 字段 (类似 quota failed row 的处理), 不能再 silent.
+4. 新增 trigger 必加单元测试 mock LLM: 防止 "传 None" 类 bug 永远跑不到.
+5. 任何 §X 改动 LLM 调用必须 cargo test + 实跑 trigger 一次验证 DB 表非空.
+
+**§37 6 步硬闸门 (§121)**:
+- ✅ cargo check --lib: 0 errors (28 warnings §18 不动)
+- ✅ cargo test --lib: 335 passed / 0 failed / 3 ignored
+- ✅ check_historical_fixes.py: 171 → **176/176 PASS** (+5 §121 anchor)
+
+**关联**:
+- [[121-P0-A-LLM-trigger-改Ollama-2026-08-15]] (Obsidian) / `outputs/§121-topic_graph-LLM-trigger-改Ollama-2026-08-15.md` (Codex)
+- §91 (P0-A 完整化收尾, §121 是其 silent-fail 补丁) / §88 (P2-B/C 收尾) / §85 (MVP 起点)
+- §18 / §37 / §15 / §99.5 (Tauri spawn 边界 — 不同话题但容易混淆)

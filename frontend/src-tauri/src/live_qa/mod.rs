@@ -128,7 +128,9 @@ pub async fn ask_live_qa(
     let client = get_http_client().await;
     let response = generate_summary(
         client,
-        &LLMProvider::BuiltInAI,
+        &LLMProvider::Ollama,        // §121: 改用 Ollama (localhost:11434,qwen3.5:2b)
+                                    //      BuiltInAI 强制要 app_data_dir,LiveQA trigger 链
+                                    //      传 None -> llm 永远 fail -> 用户按 ⌥+Space 无反应
         MODEL_NAME,
         "",
         "",
