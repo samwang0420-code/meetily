@@ -7,6 +7,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import Analytics from "@/lib/analytics";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
+import { toast } from "sonner";
 import { LoaderIcon } from "lucide-react";
 import { useConfig } from "@/contexts/ConfigContext";
 import { usePaginatedTranscripts } from "@/hooks/usePaginatedTranscripts";
@@ -200,9 +201,32 @@ function MeetingDetailsContent() {
       else fn();
     });
 
+    // §121 铁律 #3: 主题提取 / 档案重建失败 → toast 提示用户 (不再 silent fail)
+    let unlistenExtract: (() => void) | undefined;
+    listen<{ meeting_id: string; error: string }>('topic-extract-failed', async (event) => {
+      if (active && event.payload.meeting_id === meetingId) {
+        toast.error('主题提取失败: ' + event.payload.error);
+      }
+    }).then(fn => {
+      if (active) unlistenExtract = fn;
+      else fn();
+    });
+
+    let unlistenDossier: (() => void) | undefined;
+    listen<{ topic_id: number; error: string }>('topic-dossier-failed', async (event) => {
+      if (active) {
+        toast.error('主题档案重建失败: ' + event.payload.error);
+      }
+    }).then(fn => {
+      if (active) unlistenDossier = fn;
+      else fn();
+    });
+
     return () => {
       active = false;
       unlisten?.();
+      unlistenExtract?.();
+      unlistenDossier?.();
     };
   }, [meetingId, refetch]);
 

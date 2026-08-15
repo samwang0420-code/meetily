@@ -413,7 +413,16 @@ pub async fn trigger_after_summary<R: Runtime>(
     {
         Ok(s) => s,
         Err(e) => {
-            log::warn!("[topic_graph] {meeting_id} llm extract failed: {e} (skip)");
+            // §121 铁律 #3: 失败升级 error + emit Tauri 事件, 不再 swallow
+            log::error!("[topic_graph] {meeting_id} llm extract failed: {e}");
+            let _ = app.emit(
+                "topic-extract-failed",
+                serde_json::json!({
+                    "meeting_id": meeting_id,
+                    "error": e.to_string(),
+                    "at": chrono::Utc::now().to_rfc3339(),
+                }),
+            );
             return;
         }
     };
@@ -548,8 +557,17 @@ pub async fn rebuild_topic_dossier<R: Runtime>(
     {
         Ok(s) => s,
         Err(e) => {
-            log::warn!("[topic_graph] dossier LLM failed for {topic_id}: {e}");
-            return Ok(()); // swallow
+            // §121 铁律 #3: 失败升级 error + emit Tauri 事件, 不再 swallow
+            log::error!("[topic_graph] dossier LLM failed for {topic_id}: {e}");
+            let _ = app.emit(
+                "topic-dossier-failed",
+                serde_json::json!({
+                    "topic_id": topic_id,
+                    "error": e.to_string(),
+                    "at": chrono::Utc::now().to_rfc3339(),
+                }),
+            );
+            return Ok(()); // 不阻塞 summary 完成, 但用户能在 UI 看到失败
         }
     };
 

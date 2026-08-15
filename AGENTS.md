@@ -1031,9 +1031,14 @@ bash scripts/cleanup_old_branches.sh --force
 **§121 铁律**:
 1. 任何 spawn hook / 异步 trigger 调 BuiltInAI 必须传 `app_data_dir: Some(&app.path().app_data_dir()?)` —— 否则永远 fail.
 2. 或者改用 Ollama (`localhost:11434`) —— 本地 Ollama 在 P0-A / LiveQA 这种 trigger 链路更稳, 不依赖 sidecar binary 启动.
-3. 禁止 BuiltInAI swallow log: trigger 链路任何 LLM call 失败必须升级 error 等级 + 写 DB 字段 (类似 quota failed row 的处理), 不能再 silent.
+3. **禁止 BuiltInAI swallow log**: trigger 链路任何 LLM call 失败必须升级 `log::error!` + emit Tauri 事件 (`topic-extract-failed` / `topic-dossier-failed`), 前端 `meeting-details/page.tsx` 监听 + toast.error. 不再 silent.
 4. 新增 trigger 必加单元测试 mock LLM: 防止 "传 None" 类 bug 永远跑不到.
 5. 任何 §X 改动 LLM 调用必须 cargo test + 实跑 trigger 一次验证 DB 表非空.
+
+**§121 实施位置**:
+- `topic_graph/mod.rs:415-426` (`trigger_after_summary` 失败 emit `topic-extract-failed`)
+- `topic_graph/mod.rs:559-572` (`rebuild_topic_dossier` 失败 emit `topic-dossier-failed`)
+- `meeting-details/page.tsx:206-220` (前端 listener + toast.error)
 
 **§37 6 步硬闸门 (§121)**:
 - ✅ cargo check --lib: 0 errors (28 warnings §18 不动)
