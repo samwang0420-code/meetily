@@ -39,8 +39,19 @@ const ACTION_ITEMS_PLACEHOLDERS: &[&str] = &[
 ];
 
 fn parse_markdown_action_items(md: &str) -> Vec<String> {
+    // §122: 兼容多种模板的行动事项标记
+    // - standard_meeting: **行动事项** / ## 行动事项
+    // - legal_consultation: **待办事项** / ## 待办事项
+    // - cross_border_ecommerce: **下周重点事项** / ## 下周重点事项
     let mut start = None;
-    for marker in &["**行动事项**", "## 行动事项"] {
+    for marker in &[
+        "**行动事项**",
+        "## 行动事项",
+        "**待办事项**",
+        "## 待办事项",
+        "**下周重点事项**",
+        "## 下周重点事项",
+    ] {
         if let Some(pos) = md.find(marker) {
             start = Some(pos + marker.len());
             break;
@@ -329,5 +340,24 @@ mod tests {
         assert_eq!(items[0].done, true, "user toggled done must persist");  // ← expect keep
         assert_eq!(items[0].content, "item 0", "duplicate insert must NOT rewrite content");
         assert_eq!(items[1].done, false);
+    }
+
+    // §122: 兼容法律/电商模板的非"行动事项"标记
+    #[test]
+    fn test_parse_legal_template_todo_marker() {
+        let md = "**基本事实**\n...\n\n**待办事项**\n\n| 事项 | 责任人 | 截止时间 |\n| --- | --- | --- |\n| 准备起诉状 | 张律师 | 6 月 15 日 |\n| 调查取证 | 王律师 | 未明确 |\n\n**遗留问题**\n无";
+        let items = parse_markdown_action_items(md);
+        assert_eq!(items.len(), 2, "legal template 待办事项 should be parsed");
+        assert!(items[0].contains("准备起诉状"));
+        assert!(items[0].contains("张律师"));
+        assert!(items[1].contains("调查取证"));
+    }
+
+    #[test]
+    fn test_parse_ecommerce_template_marker() {
+        let md = "**风险与卡点**\n...\n\n**下周重点事项**\n\n| 事项 | 负责人 | 截止时间 |\n| --- | --- | --- |\n| 投放 TikTok | 王伟 | 6 月 20 日 |\n";
+        let items = parse_markdown_action_items(md);
+        assert_eq!(items.len(), 1, "ecommerce 下周重点事项 should be parsed");
+        assert!(items[0].contains("投放 TikTok"));
     }
 }

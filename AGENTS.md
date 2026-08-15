@@ -1044,3 +1044,35 @@ bash scripts/cleanup_old_branches.sh --force
 - [[121-P0-A-LLM-trigger-改Ollama-2026-08-15]] (Obsidian) / `outputs/§121-topic_graph-LLM-trigger-改Ollama-2026-08-15.md` (Codex)
 - §91 (P0-A 完整化收尾, §121 是其 silent-fail 补丁) / §88 (P2-B/C 收尾) / §85 (MVP 起点)
 - §18 / §37 / §15 / §99.5 (Tauri spawn 边界 — 不同话题但容易混淆)
+
+## §122 action_items parser 兼容多模板 (2026-08-15 立)
+
+**触发**: §121 修完后审计发现 `action_items` 表 0 行. parser 只认 `**行动事项**` / `## 行动事项`, 漏抓法律/电商模板的 marker.
+
+**根因**: `action_items/mod.rs::parse_markdown_action_items` 早期只识别 2 个 marker. §91 P2-A 完整化收尾时加了 8 个模板 (含 `legal_consultation` / `cross_border_ecommerce`), 但 parser 没同步.
+
+| 模板 | 行动事项 marker |
+|---|---|
+| `standard_meeting` | `**行动事项**` / `## 行动事项` |
+| `legal_consultation` | `**待办事项**` / `## 待办事项` |
+| `cross_border_ecommerce` | `**下周重点事项**` / `## 下周重点事项` |
+| `medical_consultation` | (无对应, 用 `**待确认信息**` 而非行动项) |
+
+**修复**: parser marker 列表扩展为 6 个 (3 个 `**...**` + 3 个 `## ...`).
+
+**新增测试**: `test_parse_legal_template_todo_marker` + `test_parse_ecommerce_template_marker` (2/2 PASS).
+
+**§122 铁律**:
+1. 新增任何模板必须在 §X commit 同步更新 action_items parser marker — 不允许"模板加了一节但 parser 没接"
+2. 占位 marker 必须随模板加: 新模板若 marker 段落允许空 (`本次无...`), 必须同步加占位字符串到 `ACTION_ITEMS_PLACEHOLDERS`
+3. parser 测试矩阵: 新 marker 必须有一个独立 `#[test]` 覆盖, 防止回归
+
+**§37 6 步硬闸门 (§122)**:
+- ✅ cargo check --lib: 0 errors (28 warnings §18 不动)
+- ✅ cargo test --lib action_items: **7/7 PASS** (含 2 个 §122 新测试)
+- ✅ check_historical_fixes.py: 176 → **180/180 PASS** (+4 §122 anchor)
+
+**关联**:
+- [[122-action_items-parser-兼容多模板-2026-08-15]] (Obsidian) / `outputs/§122-action_items-parser-兼容多模板-2026-08-15.md` (Codex)
+- §91 (P2-A 完整化收尾, §122 是其 parser 漏兼容补丁) / §121 (同 session 修复 topic_graph silent fail)
+- §85 / §18 / §37 / §15

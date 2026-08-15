@@ -725,6 +725,22 @@ ANCHORS = [
     ("121_outputs_doc",
      "outputs/§121-topic_graph-LLM-trigger-改Ollama-2026-08-15.md",
      r"§121.*Ollama"),
+
+    # §122: action_items parser 兼容多模板标记
+    # legal_consultation 用 **待办事项**, cross_border_ecommerce 用 **下周重点事项**
+    # standard_meeting 用 **行动事项**, 全部必须被 parser 抓取
+    ("122_action_items_multi_template",
+     "frontend/src-tauri/src/action_items/mod.rs",
+     r"§122.*兼容.*模板"),
+    ("122_action_items_legal_test",
+     "frontend/src-tauri/src/action_items/mod.rs",
+     r"test_parse_legal_template_todo_marker"),
+    ("122_action_items_ecommerce_test",
+     "frontend/src-tauri/src/action_items/mod.rs",
+     r"test_parse_ecommerce_template_marker"),
+    ("122_outputs_doc",
+     "outputs/§122-action-items-parser-兼容多模板-2026-08-15.md",
+     r"§122.*多模板"),
 ]
 
 
