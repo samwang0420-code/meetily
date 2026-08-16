@@ -463,6 +463,80 @@ pub async fn trigger_after_summary<R: Runtime>(
 }
 
 
+/// §126: 手动批量补提 — 找所有 status='completed' 但无 meeting_episode_node 的会议,
+/// 逐个调 trigger_after_summary 补 topic extract. 用于 history recovery (LLM 第一次失败 /
+/// Ollama 未启动 / 模型未下载 / 其他 silent fail 后 retry). 串行执行避免 Ollama 连接抖动.
+///
+/// Returns (processed_count, linked_count) — 调用方可用 processed>0 判断是否还有继续补的.
+pub async fn extract_missing_topics<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    pool: &SqlitePool,
+    max_meetings: i64,
+) -> Result<(usize, usize), String> {
+    // 1) 找所有 completed summary 但还没 episode 的 meeting
+    let rows: Vec<(String, String)> = sqlx::query_as(
+        "SELECT sp.meeting_id, sp.result
+         FROM summary_processes sp
+         LEFT JOIN meeting_episode_node ep ON ep.meeting_id = sp.meeting_id
+         WHERE sp.status = 'completed' AND sp.result IS NOT NULL AND ep.id IS NULL
+         ORDER BY sp.updated_at DESC
+         LIMIT ?1",
+    )
+    .bind(max_meetings)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("extract_missing_topics query: {e}"))?;
+
+    log::info!("[topic_graph] §126 manual recover: found {} meetings to reprocess", rows.len());
+    let mut processed = 0usize;
+    for (meeting_id, result_json) in rows {
+        // 2) parse result.english_cache.markdown (or fallback .markdown)
+        let markdown = match serde_json::from_str::<serde_json::Value>(&result_json) {
+            Ok(v) => v
+                .get("english_cache")
+                .and_then(|c| c.get("markdown"))
+                .and_then(|m| m.as_str())
+                .or_else(|| v.get("markdown").and_then(|m| m.as_str()))
+                .or_else(|| v.get("raw_summary").and_then(|m| m.as_str()))
+                .map(|s| s.to_string())
+                .unwrap_or_default(),
+            Err(_) => String::new(),
+        };
+        if markdown.trim().len() < 50 {
+            log::info!("[topic_graph] §126 skip {} (markdown < 50 chars)", meeting_id);
+            continue;
+        }
+        log::info!("[topic_graph] §126 reprocessing {} ({} chars markdown)", meeting_id, markdown.len());
+        let app_clone = app.clone();
+        let mid = meeting_id.clone();
+        let md = markdown.clone();
+        // 串行: 直接 await trigger_after_summary (内部就 await Ollama). 不再 clone pool.
+        trigger_after_summary(app_clone, pool.clone(), mid, md).await;
+        processed += 1;
+    }
+    // 3) linked count = upsert_topic 实际写了多少 — 简易: query topic_node count delta
+    let total_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM topic_node")
+        .fetch_one(pool)
+        .await
+        .unwrap_or(0);
+    log::info!("[topic_graph] §126 done: processed={} total_topics={}", processed, total_after);
+    Ok((processed, total_after as usize))
+}
+
+
+#[tauri::command]
+pub async fn api_topic_extract_missing<R: Runtime>(
+    app: tauri::AppHandle<R>,
+    max_meetings: Option<i64>,
+) -> Result<(usize, usize), String> {
+    // §126: 把 app clone 到 let 绑定, 让临时值在 state/Pool 借用结束后再 drop, 避免 E0716.
+    let app_for_state = app.clone();
+    let state: State<'_, AppState> = app_for_state.state();
+    let pool = state.db_manager.pool();
+    extract_missing_topics(app, pool, max_meetings.unwrap_or(10)).await
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;

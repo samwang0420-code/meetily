@@ -88,7 +88,19 @@ export default function KnowledgePage() {
 
   const loadTopics = useCallback(async () => {
     try {
-      const list = (await invoke('api_topic_recent', { limit: 30 })) as TopicSearchHit[];
+      let list = (await invoke('api_topic_recent', { limit: 30 })) as TopicSearchHit[];
+      // §126: 首次进入如果 topics 为空, 自动从已完成摘要补提 topic (历史修复 silent fail)
+      if (list.length === 0) {
+        try {
+          const recover = (await invoke('api_topic_extract_missing', { maxMeetings: 20 })) as [number, number];
+          if (recover[0] > 0) {
+            console.info(`[§126] topic recover: processed=${recover[0]} total_topics=${recover[1]}`);
+            list = (await invoke('api_topic_recent', { limit: 30 })) as TopicSearchHit[];
+          }
+        } catch (e) {
+          console.warn('[§126] topic recover failed (Ollama may be offline)', e);
+        }
+      }
       setTopics(list);
     } catch (e) {
       console.warn('load topics failed', e);

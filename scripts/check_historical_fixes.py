@@ -858,6 +858,22 @@ ANCHORS = [
     ("122_outputs_doc",
      "outputs/§122-action-items-parser-兼容多模板-2026-08-15.md",
      r"§122.*多模板"),
+    # §126: 会议脉络空数据修复 — history recovery via api_topic_extract_missing (2026-08-16)
+    ("126_extract_missing_func",
+     "frontend/src-tauri/src/topic_graph/mod.rs",
+     r"pub async fn extract_missing_topics"),
+    ("126_extract_missing_command",
+     "frontend/src-tauri/src/topic_graph/mod.rs",
+     r"pub async fn api_topic_extract_missing"),
+    ("126_extract_missing_registered",
+     "frontend/src-tauri/src/lib.rs",
+     r"topic_graph::api_topic_extract_missing"),
+    ("126_frontend_auto_recover",
+     "frontend/src/app/knowledge/page.tsx",
+     r"api_topic_extract_missing"),
+    ("126_outputs_doc",
+     "outputs/§126-会议脉络空数据修复-history-recovery-2026-08-16.md",
+     r"§126"),
 ]
 
 

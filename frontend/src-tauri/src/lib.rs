@@ -773,6 +773,7 @@ pub fn run() {
             // §P0-A 跨会议知识图谱 (Phase 1 §78 + Phase 2 §79)
             topic_graph::api_topic_search,
             topic_graph::api_topic_recent,
+            topic_graph::api_topic_extract_missing,
             topic_graph::api_topic_get_dossier,
             topic_graph::api_topic_rebuild_dossier,
             live_qa::api_meeting_live_qa,

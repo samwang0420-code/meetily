@@ -1234,3 +1234,69 @@ zh.ts / en.ts 把 `models_showing_available` 等 keys 用下划线写在 `accoun
 - §38 续 / §107 (i18n 路径教训) / §90 (UI 漏代码 4 项)
 - §124 (SummaryPanel 顶部工具栏统一, 上次 commit)
 - §37 (硬闸门) / §92 (决策迁移铁律) / §15 (GUI 验收)
+
+## §126 会议脉络空数据修复 — History Recovery (2026-08-16 立)
+
+**触发**: 用户 8/16 反馈 `/knowledge` 页面"近期主题"一直空。截图显示 0 个 topic_node, 但 DB `summary_processes.status='completed'` 有 11 条, `result.english_cache.markdown` 全部有内容.
+
+**根因 (3 跳)**:
+1. 历史 `trigger_after_summary` (`topic_graph/mod.rs:359`) 调用全部 silent fail — 早期 Ollama 未启动 / 模型未下载 / spawn task panic / 第一次 silent fail 后 retry 路径缺失
+2. dedup "已 link → skip" 没记录失败, 也无 retry 路径
+3. `loadTopics` (`knowledge/page.tsx`) 只 SELECT 不补提, 用户看不到原因
+
+Ollama 当前健康 (`curl http://localhost:11434/api/tags` 返 qwen3.5:2b 2.7GB).
+
+### 修复 (3 文件 +91/-1)
+
+1. **`topic_graph/mod.rs::extract_missing_topics`** (新 +60):
+   - SQL: `SELECT sp.meeting_id, sp.result FROM summary_processes sp LEFT JOIN meeting_episode_node ep ON ep.meeting_id = sp.meeting_id WHERE sp.status = 'completed' AND sp.result IS NOT NULL AND ep.id IS NULL ORDER BY sp.updated_at DESC LIMIT ?1`
+   - 逐条 parse `result.english_cache.markdown` → 调现有 `trigger_after_summary`
+   - Returns `(processed_count, total_topics_after)`
+2. **`api_topic_extract_missing`** Tauri command (新 +10): 前端显式调, 默认 `max_meetings = 10`
+3. **`knowledge/page.tsx::loadTopics`** (+14): api_topic_recent 返空数组时**自动**调 api_topic_extract_missing, 然后 re-fetch. 失败 console.warn 不阻塞.
+
+### borrow checker 修复 (技术细节)
+
+`api_topic_extract_missing` 里同时 `app.state()` 借用 + `extract_missing_topics(app, ...)` move, 编译器报 E0505 + E0716 (临时值 drop):
+```rust
+// ❌ E0505: move out of `app` occurs here, borrow later used here
+let state: State<'_, AppState> = app.state();
+let pool = state.db_manager.pool();
+extract_missing_topics(app, pool, ...).await
+
+// ❌ E0716: temporary value dropped while borrowed
+let state: State<'_, AppState> = app.clone().state();
+
+// ✅: 先把 cloned app 绑到 let, 让临时值活过 state borrow
+let app_for_state = app.clone();
+let state: State<'_, AppState> = app_for_state.state();
+let pool = state.db_manager.pool();
+extract_missing_topics(app, pool, ...).await
+```
+
+### §37 硬闸门 (commit pending)
+- ✅ cargo check --lib: 0 errors (28 §18 warnings 不动)
+- ✅ cargo test --lib: 337 passed / 0 failed / 3 ignored
+- ✅ next build: OK
+- ✅ cargo build --release: 1m33s
+- ✅ check_historical_fixes.py: 223/223 PASS (+5 §126 anchors)
+- ✅ sync_app_bundle.sh: tauri bundle binary SHA synced
+
+### §15 GUI 验收 (用户必做, 不能 CLI 测)
+1. `killall meetily 2>/dev/null`
+2. `open '/Users/wangwei/Applications/言镜 AI.app'` (symlink)
+3. 打开 `/knowledge` 页 → 期望首次进入自动 trigger auto-recover + 看到 ≥ 1 topic
+4. 0-30s 后 DB 验证:
+   ```bash
+   sqlite3 "$HOME/Library/Application Support/tech.yanjingai.app/meeting_minutes.sqlite" \
+     "SELECT COUNT(*) FROM topic_node; SELECT COUNT(*) FROM meeting_episode_node;"
+   # 期望: topic_node ≥ 30, meeting_episode_node ≥ 11 (1:1 for 11 completed summaries)
+   ```
+
+### 关联
+- §85 §91 P0-A topic_graph (schema + Phase 1/2 + 整合)
+- §121 (trigger_after_summary 改 Ollama + emit Tauri 事件)
+- §125 (上一 commit, i18n 中英文适配)
+- §37 (硬闸门) / §15 (GUI 验收) / §92 (三处同步)
+
+**关联**: [[126-会议脉络空数据修复-history-recovery]] (Obsidian) / `outputs/§126-...md` (Codex)
