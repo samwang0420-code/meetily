@@ -890,6 +890,25 @@ ANCHORS = [
     ("127_knowledge_outputs",
      "outputs/§127-会议脉络UI大气化-2026-08-16.md",
      r"§127"),
+    # §128: 摘要设置下拉不能切换模板/模型 — 真修复 (2026-08-16)
+    ("128_template_submenu",
+     "frontend/src/components/MeetingDetails/SummaryPanel.tsx",
+     r"DropdownMenuSubTrigger"),
+    ("128_template_radio_group",
+     "frontend/src/components/MeetingDetails/SummaryPanel.tsx",
+     r"DropdownMenuRadioGroup"),
+    ("128_model_dialog_state",
+     "frontend/src/components/MeetingDetails/SummaryPanel.tsx",
+     r"modelSettingsDialogOpen"),
+    ("128_model_dialog_render",
+     "frontend/src/components/MeetingDetails/SummaryPanel.tsx",
+     r"ModelSettingsModal"),
+    ("128_loading_templates_zh",
+     "frontend/src/i18n/locales/zh.ts",
+     r"loading_templates"),
+    ("128_outputs_doc",
+     "outputs/§128-摘要设置下拉修复-2026-08-16.md",
+     r"§128"),
 ]
 
 

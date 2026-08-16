@@ -1349,3 +1349,58 @@ killall meetily && open '/Users/wangwei/Applications/言镜 AI.app'
 
 **关联**: §126 (auto-recover 喂数据) / §104 (sidebar 改名 + 隐藏 stat) / §124 (SummaryPanel 工具栏统一) / §37 / §15 / §92
 [[127-会议脉络UI大气化]] (Obsidian) / `outputs/§127-...md` (Codex)
+
+## §128 摘要设置下拉模板/模型切换修复 (2026-08-16 立)
+
+**触发**: 用户 8/16 截图反馈 "重新生成这里摘要设置还是不能切换模板和模型"。
+
+**根因**: `SummaryPanel.tsx` 在 §124 dead-code-elimination 时整合 2 个 ButtonGroup, 但"摘要设置"下拉中:
+- **AI 模型** → `onOpenModelSettings?.(() => {})` 空回调, 啥也不做
+- **模板** → `onTemplateSelect(availableTemplates[0].id, ...)` hardcode 第一个, 永远切到第一个
+
+完整功能在 SummaryGeneratorButtonGroup.tsx (有完整 template dropdown + ModelSettingsModal Dialog), §124 dead-code 删除。
+
+### 修复 (3 文件)
+1. **`SummaryPanel.tsx`** 重写"摘要设置"下拉:
+   - **AI 模型** DropdownMenuItem 触发本地 Dialog, 内容装 ModelSettingsModal (layout="dialog") + 可视化
+   - **模板** 改 DropdownMenuSub + SubTrigger + SubContent + RadioGroup, 列出全部 availableTemplates 供选择
+   - **PRO 徽章** 标记 required_tier='member' 的模板
+   - **loading 状态** 显示 "正在加载模板…" 当 availableTemplates 为空
+   - 加 modelSettingsDialogOpen state + Dialog + VisuallyHidden DialogTitle
+   - Props 加 `required_tier?: 'free' | 'member'` 对齐 useTemplates
+
+2. **`i18n/locales/{zh,en}.ts`**: 加 `summary.loading_templates`
+
+3. **Import 升级**: 加 Dialog/DialogContent/VisuallyHidden/DropdownMenuSub/SubTrigger/SubContent/RadioGroup/RadioItem/ModelSettingsModal/Loader2/Check
+
+### §37 6 步硬闸门
+- ✅ tsc --noEmit: 0 errors (1 §18 bun:test 不动)
+- ✅ next build: OK
+- ✅ cargo check --lib: 0 errors / 28 §18 warnings 不动
+- ✅ cargo build --release: 1m26s
+- ✅ check_historical_fixes.py: **234/234 PASS** (+6 §128 anchors)
+- ✅ sync_app_bundle.sh: tauri bundle SHA synced
+
+### §15 GUI 验收 (用户必做)
+```bash
+killall meetily && open '/Users/wangwei/Applications/言镜 AI.app'
+# 任意会议详情:
+# 1. 摘要设置 → hover "模板" → 弹出 submenu 列出全部模板 + 当前选中打钩
+# 2. 点其他模板 → 按钮名 + useState 更新
+# 3. AI 模型 → 弹 ModelSettingsModal 对话框, 选 Ollama 端点 / Built-in AI 模型
+# 4. save → 按钮右侧显示新模型名
+# 5. "重新生成" 实际用新模板 + 新模型
+```
+
+### 教训 (§56 强化)
+- §124 dead-code-elimination 时**只删了 unused import 标注**, 但没用 §15 GUI 验收验证"摘要设置" 是否仍能用
+- 整合两个组件到 SummaryPanel 时, 漏了"摘要设置" 下拉的完整 dropdown 内容
+- 这次真修复证明: 任何组件整合 / dead-code 标记 → §15 GUI 必跑, 不能只看 cargo check + tsc pass
+
+### 关联
+- §124 (整合 ButtonGroup, dead-code-elimination 漏 dropdown 内容)
+- §123 (模板选择持久化)
+- §106 (ModelSettingsModal 砍云端 provider)
+- §37 / §15 / §56 / §92
+
+[[128-摘要设置下拉修复]] (Obsidian) / `outputs/§128-...md` (Codex)

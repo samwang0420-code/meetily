@@ -514,6 +514,7 @@ export const zh: Record<string, unknown> = {
     },
     save_failed: '保存失败',
     template_selected: '已选择模板',
+    loading_templates: '正在加载模板…',
     template_pro_required: '「{template}」是 Pro 专属模板, 请升级到 Pro 后使用',
     using_template: '将使用“{template}”模板生成会议纪要',
     // §123: 法律/医学模板 → 热词未配提醒

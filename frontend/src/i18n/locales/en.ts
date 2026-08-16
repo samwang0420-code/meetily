@@ -511,6 +511,7 @@ export const en: Record<string, unknown> = {
     },
     save_failed: 'Save failed',
     template_selected: 'Template selected',
+    loading_templates: 'Loading templates…',
     template_pro_required: '“{template}” is Pro-only, please upgrade to use it',
     using_template: 'Using “{template}” template for summary generation',
     // §123: Legal/medical template → hotwords not configured reminder

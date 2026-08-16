@@ -24,8 +24,16 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
 } from '@/components/ui/dropdown-menu';
-import { Settings, Download, Sparkles, Save, Copy, FileCode, FileText, FolderOpen, FileType, Square } from 'lucide-react';
+import { Dialog, DialogContent, DialogTrigger, DialogTitle } from '@/components/ui/dialog';
+import { Settings, Download, Sparkles, Save, Copy, FileCode, FileText, FolderOpen, FileType, Square, Check, Loader2 } from 'lucide-react';
+import { ModelSettingsModal } from '@/components/ModelSettingsModal';
+import { VisuallyHidden } from '@radix-ui/react-visually-hidden';
 import { LanguagePickerPopover } from '@/components/LanguagePickerPopover';
 import { useRecentLanguages } from '@/hooks/useRecentLanguages';
 import { labelForCode } from '@/lib/summary-languages';
@@ -70,7 +78,7 @@ interface SummaryPanelProps {
   summaryError: string | null;
   onRegenerateSummary: () => Promise<void>;
   getSummaryStatusMessage: (status: 'idle' | 'processing' | 'summarizing' | 'regenerating' | 'completed' | 'error') => string;
-  availableTemplates: Array<{ id: string, name: string, description: string }>;
+  availableTemplates: Array<{ id: string; name: string; description: string; required_tier?: 'free' | 'member' }>;
   selectedTemplate: string;
   /// §123: 当前选中模板的显示名 (按钮里展示)
   selectedTemplateName?: string;
@@ -125,6 +133,8 @@ export function SummaryPanel({
   const [streamedMarkdown, setStreamedMarkdown] = useState('');
   // v0.7.0+ P0-1: Map-Reduce 阶段显示
   const [summaryPhase, setSummaryPhase] = useState<'idle'|'single'|'map'|'reduce'|'final'>('idle');
+  // §128: 让"摘要设置 → AI 模型" 真正打开 ModelSettingsModal 对话框 (而不是空回调)
+  const [modelSettingsDialogOpen, setModelSettingsDialogOpen] = useState(false);
   const languageLoadVersionRef = useRef(0);
   const activeMeetingIdRef = useRef(meeting.id);
   const languageSaveVersionRef = useRef(0);
@@ -405,7 +415,7 @@ export function SummaryPanel({
                   <ChevronDown className="w-3 h-3 ml-1 opacity-50" />
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuContent align="end" className="w-56">
                 <DropdownMenuItem onSelect={(e) => e.preventDefault()} className="cursor-default p-0">
                   <div className="flex items-center w-full">
                     <Languages className="w-4 h-4 mr-2" />
@@ -413,23 +423,77 @@ export function SummaryPanel({
                   </div>
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => onOpenModelSettings?.(() => {})}>
+                {/* §128: AI 模型 → 真正弹出 ModelSettingsModal Dialog */}
+                <DropdownMenuItem onSelect={(e) => { e.preventDefault(); setModelSettingsDialogOpen(true); }}>
                   <Sparkles className="w-4 h-4 mr-2" />
                   {t('summary.ai_model')}
-                </DropdownMenuItem>
-                {/* §123 + §124: 显示当前已选模板名, 点击直接选第一个 (保留历史行为) */}
-                <DropdownMenuItem onClick={() => {
-                  if (availableTemplates.length > 0) {
-                    onTemplateSelect(availableTemplates[0].id, availableTemplates[0].name);
-                  }
-                }}>
-                  <FileType className="w-4 h-4 mr-2" />
-                  <span className="max-w-[120px] truncate">
-                    {selectedTemplateName || t('summary.template')}
+                  <span className="ml-auto text-[10px] text-neutral-400 truncate max-w-[100px]">
+                    {modelConfig?.model || '—'}
                   </span>
                 </DropdownMenuItem>
+                {/* §128: 模板 → SubMenu 列出全部 availableTemplates 让用户逐一选择 (之前硬编 templates[0]) */}
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <FileType className="w-4 h-4 mr-2" />
+                    <span className="truncate max-w-[140px]">
+                      {selectedTemplateName || t('summary.template')}
+                    </span>
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-64">
+                    <DropdownMenuRadioGroup
+                      value={selectedTemplate}
+                      onValueChange={(v) => {
+                        const tmpl = availableTemplates.find(t => t.id === v);
+                        if (tmpl) onTemplateSelect(tmpl.id, tmpl.name);
+                      }}
+                    >
+                      {availableTemplates.length === 0 && (
+                        <DropdownMenuItem disabled>
+                          <Loader2 className="w-3.5 h-3.5 mr-2 animate-spin" />
+                          {t('summary.loading_templates')}
+                        </DropdownMenuItem>
+                      )}
+                      {availableTemplates.map((template) => (
+                        <DropdownMenuRadioItem
+                          key={template.id}
+                          value={template.id}
+                          title={template.description}
+                          className="text-[12.5px]"
+                        >
+                          <span className="flex items-center gap-1.5 truncate">
+                            {template.name}
+                            {template.required_tier === 'member' && (
+                              <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-100 text-amber-700 border border-amber-200">
+                                PRO
+                              </span>
+                            )}
+                          </span>
+                        </DropdownMenuRadioItem>
+                      ))}
+                    </DropdownMenuRadioGroup>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
               </DropdownMenuContent>
             </DropdownMenu>
+
+            {/* §128: model settings dialog — 直接挂 Modal 在按钮组下方, 避免空回调 */}
+            <Dialog open={modelSettingsDialogOpen} onOpenChange={setModelSettingsDialogOpen}>
+              <DialogContent aria-describedby={undefined} className="max-w-3xl max-h-[88vh] overflow-y-auto">
+                <VisuallyHidden>
+                  <DialogTitle>{t('summary.model_settings')}</DialogTitle>
+                </VisuallyHidden>
+                <ModelSettingsModal
+                  modelConfig={modelConfig}
+                  setModelConfig={setModelConfig}
+                  onSave={async (config) => {
+                    await onSaveModelConfig(config);
+                    setModelSettingsDialogOpen(false);
+                  }}
+                  skipInitialFetch={true}
+                  layout="dialog"
+                />
+              </DialogContent>
+            </Dialog>
 
             {/* 4. 📤 导出下拉 — 保存 / 复制 / MD / TXT / 打开文件夹 (§124: 没摘要时 disabled 各项) */}
             <DropdownMenu>
