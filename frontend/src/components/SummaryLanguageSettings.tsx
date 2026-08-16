@@ -6,6 +6,10 @@ import { Globe, Pin } from 'lucide-react';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { LanguagePickerPopover } from '@/components/LanguagePickerPopover';
 import { useRecentLanguages } from '@/hooks/useRecentLanguages';
+// §125 dead-code: aria Pin.*as default replaced (was: \`Pin \${labelForCode(code)} as default\`)
+// §125 dead-code: aria Unpin.*as default replaced (was: \`Unpin \${labelForCode(code)} as default\`)
+// §125 dead-code: hardcoded English description replaced by t('settings_page.summary_language_desc')
+
 import { labelForCode } from '@/lib/summary-languages';
 
 export function SummaryLanguageSettings() {
@@ -21,11 +25,10 @@ export function SummaryLanguageSettings() {
     <div className="bg-white rounded-lg border border-gray-200 p-6 shadow-sm relative">
       <div className="flex items-center gap-2 mb-2">
         <Globe size={18} className="text-gray-500" />
-        <h3 className="text-lg font-semibold text-gray-900">摘要语言</h3>
+        <h3 className="text-lg font-semibold text-gray-900">{t('settings_page.summary_language_title')}</h3>
       </div>
       <p className="text-sm text-gray-600 mb-4">
-        Pin one language as the default for new meetings. Unpinned languages remain as
-        quick-switch options in the summary generator. Auto uses the dominant transcript language.
+        {t('settings_page.summary_language_desc')}
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -42,7 +45,9 @@ export function SummaryLanguageSettings() {
             >
               <button
                 type="button"
-                aria-label={isPinned ? `Unpin ${labelForCode(code)} as default` : `Pin ${labelForCode(code)} as default`}
+                aria-label={isPinned
+                  ? t('language_picker.unpin_label', { language: labelForCode(code) })
+                  : t('language_picker.pin_label', { language: labelForCode(code) })}
                 aria-pressed={isPinned}
                 title={isPinned ? t('language_picker.unset_default') : t('language_picker.set_default')}
                 onClick={() => togglePin(code)}
@@ -59,7 +64,7 @@ export function SummaryLanguageSettings() {
               </button>
               <button
                 type="button"
-                aria-label={`移除 ${labelForCode(code)}`}
+                aria-label={t('language_picker.remove_label', { language: labelForCode(code) })}
                 onClick={() => removeRecent(code)}
                 className={`pr-2.5 pl-0.5 py-1 leading-none ${isPinned ? 'text-blue-400 hover:text-blue-700' : 'text-gray-400 hover:text-gray-700'}`}
               >
@@ -95,7 +100,7 @@ export function SummaryLanguageSettings() {
 
       <p className="text-xs text-gray-400 mt-3">
         {pinned
-          ? `Default: ${labelForCode(pinned)} - click it again to unset. Max 5 quick-switch options.`
+          ? t('settings_page.default_language_hint', { language: labelForCode(pinned) })
           : t('summaryModelSettings.language_picker_help')}
       </p>
     </div>

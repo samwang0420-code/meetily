@@ -420,6 +420,11 @@ export const en: Record<string, unknown> = {
     close: 'Close',
     try_again: 'Try again',
   },
+  settings_page: {
+    summary_language_title: 'Summary Language',
+    summary_language_desc: 'Pin one language as the default for new meetings. Unpinned languages remain as quick-switch options in the summary generator. Auto uses the dominant transcript language.',
+    default_language_hint: 'Default: {language} - click it again to unset. Max 5 quick-switch options.',
+  },
   summaryModelSettings: {
     auto_summary_title: 'Auto Summary',
     auto_summary_desc: 'Auto-generate summary after meeting ends (stopping)',
@@ -427,6 +432,31 @@ export const en: Record<string, unknown> = {
     model_config_desc: 'Configure the AI model used for generating meeting summaries.',
     add_language: '＋ Add language',
     language_picker_help: 'Click any language to set it as your default. Max 5 quick-switch options.',
+  },
+  models: {
+    title: 'Built-in AI Models',
+    showing_all: 'Showing all models (including undownloaded)',
+    showing_available: 'Showing only downloaded models',
+    hide_undownloaded: 'Hide undownloaded',
+    show_undownloaded: 'Show undownloaded (download more)',
+    status: {
+      ready: 'Ready',
+      selected: 'Selected',
+      corrupted: 'Corrupted',
+      error: 'Error',
+      downloading: 'Downloading…',
+    },
+    action: {
+      download: 'Download',
+      cancel: 'Cancel',
+      retry: 'Retry',
+      delete: 'Delete',
+      delete_model: 'Delete model',
+    },
+    size: {
+      tokens: 'tokens',
+      unit_separator: ' · ',
+    },
   },
   summary: {
     no_model: 'Please select a model in Settings first',
@@ -686,6 +716,9 @@ export const en: Record<string, unknown> = {
     auto_saved_local: 'Saved on this device only',
     auto_dominant_transcript: 'Uses the dominant transcript language',
     summary_language_title: 'Summary language: {language}',
+    remove_label: 'Remove {language}',
+    pin_label: 'Pin {language} as default',
+    unpin_label: 'Unpin {language} as default',
   },
   pricing: {
     page_title: 'Choose your plan',

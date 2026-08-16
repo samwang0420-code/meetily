@@ -1189,3 +1189,48 @@ bash scripts/cleanup_old_branches.sh --force
 - `outputs/§124-...md` (Codex)
 - §110 (4 元素工具栏首次) / §123 (selectedTemplateName) / §18 (hidden ≠ deleted)
 - §37 (硬闸门) / §92 (决策迁移铁律) / §15 (GUI 验收)
+
+## §125 中英文适配 — BuiltInModelManager + SummaryLanguageSettings (2026-08-16 立)
+
+**触发**: 用户 8/16 截图反馈 "中英文适配" — /settings 页面同时有中文 raw key 字面 (`models.showing_available`) + 英文硬编码 ("Pin one language..." / "Ready" / "Selected").
+
+### 改动 (4 文件 +73/-17)
+
+**zh.ts / en.ts 加 `models:` 顶级块** (之前 keys 写错 namespace 在 `account:` 下):
+```ts
+models: {
+  title: '内置 AI 模型' / 'Built-in AI Models',
+  showing_all/available/...,  // 5 个
+  status: { ready, selected, corrupted, error, downloading }, // 5 个
+  action: { download, cancel, retry, delete, delete_model }, // 5 个
+  size: { tokens, unit_separator }, // 2 个
+}
+```
+
+**zh.ts / en.ts 加 `settings_page.summary_language_*` (3 个) + `language_picker.{pin_label, unpin_label, remove_label}` (3 个)**
+
+**BuiltInModelManager.tsx** 改 13 处: Ready/Selected/Corrupted/Error/Download/Cancel/Retry/Delete/下载中/title/size separator/size tokens/title attribute
+
+**SummaryLanguageSettings.tsx** 改 6 处: h3/description/aria-label (Pin/Unpin)/remove aria-label/default hint
+
+### 根因 (1 跳)
+
+zh.ts / en.ts 把 `models_showing_available` 等 keys 用下划线写在 `account:` 子块里, **没在顶级创建 `models:` 对象**。代码用 `t('models.showing_available')`, i18n lookup 通过 `dict.models?.showing_available` 返回 undefined → fallback 返回 path 字符串自身 → 用户看到 raw key 字面.
+
+修复 1: 加 `models: { ... }` 顶级对象 (含已下划线形式的 keys, 转换到嵌套形式)
+修复 2: 所有硬编码英文 (aria-label / description / button text) 改 `t()`
+
+### 验证 (§37 硬闸门)
+- tsc --noEmit: 1 个 §18 bun:test (不动)
+- cargo check --lib: 0 errors / 28 warnings (§18)
+- cargo build --release: 1m30s, binary 72M
+- next build: OK
+- check_historical_fixes.py: **218/218 PASS** (+19 §125 anchors)
+- sync_app_bundle.sh: 全 sync + §98 codesign
+
+### 关联
+- [[125-中英文适配-模型管理+摘要语言设置]] (Obsidian)
+- `outputs/§125-...md` (Codex)
+- §38 续 / §107 (i18n 路径教训) / §90 (UI 漏代码 4 项)
+- §124 (SummaryPanel 顶部工具栏统一, 上次 commit)
+- §37 (硬闸门) / §92 (决策迁移铁律) / §15 (GUI 验收)

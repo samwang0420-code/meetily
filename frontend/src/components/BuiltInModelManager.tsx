@@ -283,7 +283,7 @@ export function BuiltInModelManager({
   return (
     <div>
       <div className="flex items-center justify-between mb-4">
-        <h4 className="text-sm font-bold">内置 AI 模型</h4>
+        <h4 className="text-sm font-bold">{t('models.title')}</h4>
       </div>
 
       <div className="mb-3 flex items-center justify-between text-xs text-neutral-500">
@@ -352,11 +352,11 @@ export function BuiltInModelManager({
                       <>
                         <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-green-600">
                           <span className="h-2 w-2 rounded-full bg-green-600"></span>
-                          Ready
+                          {t('models.status.ready')}
                         </span>
                         {selectedModel === model.name && (
                           <span className="shrink-0 rounded bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-700">
-                            Selected
+                            {t('models.status.selected')}
                           </span>
                         )}
                       </>
@@ -364,12 +364,12 @@ export function BuiltInModelManager({
                     {isCorrupted && (
                       <span className="flex shrink-0 items-center gap-1 rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
                         <BadgeAlert className="h-3 w-3" />
-                        Corrupted
+                        {t('models.status.corrupted')}
                       </span>
                     )}
                     {isError && (
                       <span className="shrink-0 rounded bg-red-100 px-2 py-0.5 text-xs font-medium text-red-700">
-                        Error
+                        {t('models.status.error')}
                       </span>
                     )}
                   </div>
@@ -387,7 +387,7 @@ export function BuiltInModelManager({
                       }}
                     >
                       <Download className="mr-2 h-4 w-4" />
-                      Download
+                      {t('models.action.download')}
                     </Button>
                   )}
                   {/* Downloading - Show Cancel button */}
@@ -401,7 +401,7 @@ export function BuiltInModelManager({
                         cancelDownload(model.name);
                       }}
                     >
-                      Cancel
+                      {t('models.action.cancel')}
                     </Button>
                   )}
                   {/* Error - Show Retry button */}
@@ -431,7 +431,7 @@ export function BuiltInModelManager({
                         }}
                       >
                         <RefreshCw className="mr-2 h-4 w-4" />
-                        Retry
+                        {t('models.action.retry')}
                       </Button>
                       <Button
                         variant="outline"
@@ -442,7 +442,7 @@ export function BuiltInModelManager({
                         }}
                       >
                         <Trash2 className="mr-2 h-4 w-4" />
-                        Delete
+                        {t('models.action.delete')}
                       </Button>
                     </>
                   )}
@@ -454,7 +454,7 @@ export function BuiltInModelManager({
                         e.stopPropagation();
                         deleteModel(model.name);
                       }}
-                      title="删除 model"
+                      title={t('models.action.delete_model')}
                     >
                       <Trash2 className="h-4 w-4" />
                     </button>
@@ -475,7 +475,7 @@ export function BuiltInModelManager({
                   </p>
                 )}
                 <div className="text-xs text-gray-500">
-                  <span>{formatSummaryModelSizeLabelFromMb(model.size_mb)} • {model.context_size} tokens</span>
+                  <span>{formatSummaryModelSizeLabelFromMb(model.size_mb)}{t('models.size.unit_separator')}{model.context_size} {t('models.size.tokens')}</span>
                 </div>
                 </div>
               </div>
@@ -484,7 +484,7 @@ export function BuiltInModelManager({
               {modelIsDownloading && progress !== undefined && (
                 <div className="mt-3 pt-3 border-t border-gray-200">
                   <div className="flex items-center justify-between mb-1">
-                    <span className="text-sm font-medium text-gray-900">下载中...</span>
+                    <span className="text-sm font-medium text-gray-900">{t('models.status.downloading')}</span>
                     <span className="text-sm font-semibold text-gray-900">
                       {Math.round(progress)}%
                     </span>

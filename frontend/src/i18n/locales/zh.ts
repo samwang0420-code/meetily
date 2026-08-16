@@ -423,6 +423,11 @@ export const zh: Record<string, unknown> = {
     close: '关闭',
     try_again: '再试一次',
   },
+  settings_page: {
+    summary_language_title: '摘要语言',
+    summary_language_desc: '选择一个语言作为新会议的默认摘要语言。未固定的语言保留在快速切换菜单中。自动模式使用转录文本的主要语言。',
+    default_language_hint: '默认: {language} - 再次点击取消固定。最多 5 个快速切换选项。',
+  },
   summaryModelSettings: {
     auto_summary_title: '自动生成摘要',
     auto_summary_desc: '会议结束后自动生成摘要 (停止中)',
@@ -430,6 +435,31 @@ export const zh: Record<string, unknown> = {
     model_config_desc: '配置用于生成会议摘要的 AI 模型。',
     add_language: '＋ 添加语言',
     language_picker_help: '点击任意语言设为默认。最多 5 个快速切换选项。',
+  },
+  models: {
+    title: '内置 AI 模型',
+    showing_all: '显示所有模型 (含未下载)',
+    showing_available: '仅显示已下载的模型',
+    hide_undownloaded: '收起未下载的模型',
+    show_undownloaded: '展开未下载的模型 (可下载更多)',
+    status: {
+      ready: '已就绪',
+      selected: '已选中',
+      corrupted: '已损坏',
+      error: '错误',
+      downloading: '下载中...',
+    },
+    action: {
+      download: '下载',
+      cancel: '取消',
+      retry: '重试',
+      delete: '删除',
+      delete_model: '删除模型',
+    },
+    size: {
+      tokens: 'tokens',
+      unit_separator: ' · ',
+    },
   },
   summary: {
     no_model: '请先在设置里选择一个模型',
@@ -692,6 +722,9 @@ export const zh: Record<string, unknown> = {
     auto_saved_local: '仅保存在本机',
     auto_dominant_transcript: '使用转录文本的主要语言',
     summary_language_title: '纪要语言: {language}',
+    remove_label: '移除 {language}',
+    pin_label: '固定 {language} 为默认',
+    unpin_label: '取消固定 {language} 为默认',
   },
   pricing: {
     page_title: '选择套餐',
