@@ -1149,3 +1149,43 @@ bash scripts/cleanup_old_branches.sh --force
 - §29 (FunASR-Nano Pro tier gate) / §104 (华而不实隐藏) / §106 (固定本地模式)
 - §107 (i18n 路径教训 — 这次严格走 `summary.*` 顶级) / §108 (sync_app_bundle sidecar)
 - §122 (action_items parser 兼容多模板, 上次 commit, 同日)
+
+## §124 SummaryPanel 顶部工具栏统一 (2026-08-16 立)
+
+**触发**: 用户 8/16 截图反馈 "重新生成摘要页面和第一次生成的页面不一样, 你要统一了哦".
+
+**3 套不同 UI (现状)**:
+| 状态 | 顶部工具栏 |
+|---|---|
+| `!aiSummary` (首次) | 居中 `<SummaryGeneratorButtonGroup>` (生成/语言/⚙️Dialog/模板) |
+| `isSummaryLoading` (加载) | 居中 `<SummaryGeneratorButtonGroup>` (同上) |
+| `aiSummary` 已存在 | §110 4 元素 (说话人/重新生成/⚙️ Dropdown/📤 Dropdown) |
+
+**统一方案 (1 文件)**:
+- 删除 SummaryGeneratorButtonGroup + SummaryUpdaterButtonGroup imports (`SummaryUpdaterButtonGroup` 是 dead code, 从未真正 render)
+- 顶部条件 `{aiSummary && !isSummaryLoading && (...)}` → `{!isSummaryLoading && (...)}` (3 状态共享)
+- 主按钮 3 态: 加载中 = 红"■停止" / 有摘要 = "✨重新生成" / 无摘要 = "✨生成摘要"
+- 说话人 button: `aiSummary` 条件渲染 (没摘要就隐藏, 不需 disabled)
+- ⚙️ / 📤 Trigger button 加 `disabled={isSummaryLoading}`
+- ⚙️ 内 Template 项显示 `selectedTemplateName || t('summary.template')` (与 §123 一致)
+- 主区 3 态简化: loading = 流式/spinner / `!aiSummary` = EmptyState / `aiSummary` = BlockNote
+
+### 铁律 (§18 强化)
+1. **同一面板 3 状态必须共享工具栏** — 不允许"首次/重新/加载"看到不同按钮组
+2. **Disabled 通过 prop, 不是元素隐藏** — 让用户能看到按钮存在
+3. **隐藏 ≠ 删除** (§104 §110): "说话人 button" 是隐藏 (没摘要时)
+4. **dead import 必须清理** — SummaryUpdaterButtonGroup 从未真正 render, delete
+
+### 验证 (§37 硬闸门)
+- tsc --noEmit: 1 个 §18 bun:test (不动)
+- cargo check --lib: 0 errors / 28 warnings (§18 不动)
+- cargo test --lib: **337 passed / 0 failed / 3 ignored**
+- cargo build --release: 1m32s, binary 72M
+- check_historical_fixes.py: **200/200 PASS** (+7 §124 anchors)
+- sync_app_bundle.sh: 全 sync + §98 codesign
+
+### 关联
+- [[124-SummaryPanel-统一顶部工具栏-三状态]] (Obsidian)
+- `outputs/§124-...md` (Codex)
+- §110 (4 元素工具栏首次) / §123 (selectedTemplateName) / §18 (hidden ≠ deleted)
+- §37 (硬闸门) / §92 (决策迁移铁律) / §15 (GUI 验收)
