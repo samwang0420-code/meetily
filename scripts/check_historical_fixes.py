@@ -874,6 +874,22 @@ ANCHORS = [
     ("126_outputs_doc",
      "outputs/§126-会议脉络空数据修复-history-recovery-2026-08-16.md",
      r"§126"),
+    # §127: 会议脉络 UI 大气化 — hero + 双列卡片 + 侧边 dossier (2026-08-16)
+    ("127_knowledge_subcomponent",
+     "frontend/src/app/knowledge/page.tsx",
+     r"function StatMini"),
+    ("127_knowledge_hero_title",
+     "frontend/src/app/knowledge/page.tsx",
+     r"text-\[44px\]"),
+    ("127_knowledge_grid_layout",
+     "frontend/src/app/knowledge/page.tsx",
+     r"lg:grid-cols-\[minmax\(0,1fr\)_420px\]"),
+    ("127_knowledge_aside_sticky",
+     "frontend/src/app/knowledge/page.tsx",
+     r"lg:sticky lg:top-6"),
+    ("127_knowledge_outputs",
+     "outputs/§127-会议脉络UI大气化-2026-08-16.md",
+     r"§127"),
 ]
 
 

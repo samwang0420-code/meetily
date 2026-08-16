@@ -1300,3 +1300,52 @@ extract_missing_topics(app, pool, ...).await
 - §37 (硬闸门) / §15 (GUI 验收) / §92 (三处同步)
 
 **关联**: [[126-会议脉络空数据修复-history-recovery]] (Obsidian) / `outputs/§126-...md` (Codex)
+
+## §127 会议脉络 UI 大气化 (2026-08-16 立)
+
+**触发**: 用户原话 "另外整个会议脉络的UI太小气, 你整的好看点, 大气点"。截图反馈 Hero 区挤、stat card 全隐藏、Topic card 字号小、Dossier 面板 11/12px typography。
+
+### 设计决策 (5 条)
+1. **不加 modal**：保留双列体验, dossier 面板 lg:sticky 固定右侧
+2. **max-w-5xl → max-w-7xl** (1280px), Hero + 卡片更多呼吸
+3. **stat 摘要做 hero 右上角 4 个数字一行** (替代 §104 隐藏的 4 张卡片, 节省版面但仍传达数字)
+4. **typography 升级**: Hero 44px / 副标题 16px / Topic 卡片 18px / dossier 正文 13.5px / stat 数字 26px tabular-nums
+5. **质感细节**: Hero 渐变 `bg-gradient-to-br from-neutral-50 via-white to-violet-50/30` + 卡片左侧细色条 (project/decision/person/general) + AnimatePresence 切换 dossier
+
+### 改动 (1 文件, 481 → 460 行)
+- `frontend/src/app/knowledge/page.tsx` 完全重写:
+  - Hero 区: 标题 44px + 4-stat 数字走廊 (4 个 tabular-nums 大字)
+  - Toolbar: 圆角 pill filter + search input + refresh button (紫色回填状态)
+  - Topic grid: sm:grid-cols-2 2 列, left 0.5 彩色边条 + 类型 chip + mentions 计数
+  - Aside: AnimatePresence mode="wait", 3 态 (empty / loading / dossier) 平滑切换
+  - Dossier 区块: rounded-xl + 半透明背景 (neutral/emerald/amber)
+  - 删 6 个 §104 `{false as boolean}` hide 标记
+  - 加 framer-motion AnimatePresence
+
+### §37 6 步硬闸门
+- ✅ tsc --noEmit: 0 errors (1 §18 bun:test 不动)
+- ✅ next build: OK
+- ✅ cargo build --release: 1m32s
+- ✅ check_historical_fixes.py: **228/228 PASS** (+5 §127 anchors)
+- ✅ sync_app_bundle.sh: tauri bundle SHA synced
+
+### 设计原则 (任何 v0.X 演进适用)
+1. **字号梯度明确**: Hero 32+ / Section 18-20 / Card title 16-18 / 正文 13-14 — 不准 11/12 撑版面
+2. **背景渐变 1 个**: bg-gradient-to-br 整页, 卡片保持纯白半透明
+3. **保留 stat 但轻量化**: 不是隐藏也不是做 4 张大卡, hero 行 4 个数字
+4. **彩色色条比色块高级**: 卡片左侧 2-4px 细条, 比整块色块克制
+5. **sticky dossier 比 modal 连贯**: 主流程同屏
+6. **AnimatePresence mode="wait"**: dossier 切换不堆叠
+
+### §15 GUI 验收 (用户必做)
+```bash
+killall meetily && open '/Users/wangwei/Applications/言镜 AI.app'
+# 1. /knowledge → 大字 hero "会议脉络" + 右上 4 个数字
+# 2. 首次进入 (DB 0) → 紫色 banner "回填中..."
+# 3. 30-60s 后 → banner 消失, topic grid 浮现 30+ 卡片 (2 列)
+# 4. 点任一 topic → 右侧 dossier 平滑切换
+# 5. dossier 内 4 个区块 + 重建档案按钮
+```
+
+**关联**: §126 (auto-recover 喂数据) / §104 (sidebar 改名 + 隐藏 stat) / §124 (SummaryPanel 工具栏统一) / §37 / §15 / §92
+[[127-会议脉络UI大气化]] (Obsidian) / `outputs/§127-...md` (Codex)
