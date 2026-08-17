@@ -14,6 +14,12 @@ pub const LEGAL_CONSULTATION: &str = include_str!("../../../templates/legal_cons
 pub const MEDICAL_CONSULTATION: &str = include_str!("../../../templates/medical_consultation.json");
 /// §131.2 庭审纪要模板 — 法院庭审专版, 不与 legal_consultation 律师咨询混用
 pub const COURT_HEARING: &str = include_str!("../../../templates/court_hearing.json");
+/// §131.4 完整注册 — 之前 JSON 写了但未 register, 用户看不到
+pub const CROSS_BORDER_ECOMMERCE: &str = include_str!("../../../templates/cross_border_ecommerce.json");
+pub const PROJECT_SYNC: &str = include_str!("../../../templates/project_sync.json");
+pub const RETROSPECTIVE: &str = include_str!("../../../templates/retrospective.json");
+pub const SALES_MARKETING_CLIENT_CALL: &str = include_str!("../../../templates/sales_marketing_client_call.json");
+pub const PSYCHIATRIC_SESSION: &str = include_str!("../../../templates/psychatric_session.json");
 
 /// Registry of all built-in templates
 ///
@@ -25,6 +31,11 @@ pub fn get_builtin_templates() -> Vec<(&'static str, &'static str)> {
         ("legal_consultation", LEGAL_CONSULTATION),
         ("medical_consultation", MEDICAL_CONSULTATION),
         ("court_hearing", COURT_HEARING),
+        ("cross_border_ecommerce", CROSS_BORDER_ECOMMERCE),
+        ("project_sync", PROJECT_SYNC),
+        ("retrospective", RETROSPECTIVE),
+        ("sales_marketing_client_call", SALES_MARKETING_CLIENT_CALL),
+        ("psychiatric_session", PSYCHIATRIC_SESSION),
     ]
 }
 
@@ -42,6 +53,11 @@ pub fn get_builtin_template(id: &str) -> Option<&'static str> {
         "legal_consultation" => Some(LEGAL_CONSULTATION),
         "medical_consultation" => Some(MEDICAL_CONSULTATION),
         "court_hearing" => Some(COURT_HEARING),
+        "cross_border_ecommerce" => Some(CROSS_BORDER_ECOMMERCE),
+        "project_sync" => Some(PROJECT_SYNC),
+        "retrospective" => Some(RETROSPECTIVE),
+        "sales_marketing_client_call" => Some(SALES_MARKETING_CLIENT_CALL),
+        "psychiatric_session" => Some(PSYCHIATRIC_SESSION),
         _ => None,
     }
 }
@@ -54,6 +70,11 @@ pub fn list_builtin_template_ids() -> Vec<&'static str> {
         "legal_consultation",
         "medical_consultation",
         "court_hearing",
+        "cross_border_ecommerce",
+        "project_sync",
+        "retrospective",
+        "sales_marketing_client_call",
+        "psychiatric_session",
     ]
 }
 
