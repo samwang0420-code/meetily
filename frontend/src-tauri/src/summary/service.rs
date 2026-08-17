@@ -8,7 +8,7 @@ use crate::summary::metadata::read_detected_summary_language_from_metadata;
 use crate::summary::processor::{
     extract_meeting_name_from_markdown, generate_meeting_summary, language_name_from_code,
 };
-use crate::summary::fact_guard::{conservative_fallback, validate_summary, FactGuardReport};
+use crate::summary::fact_guard::{conservative_fallback, highlight_unexpected_facts, validate_summary, FactGuardReport};
 use crate::summary::commands::StructuredTranscriptEvidence;
 use crate::summary::templates::{self, Template};
 use crate::ollama::metadata::ModelMetadataCache;
@@ -632,36 +632,17 @@ impl SummaryService {
         match result {
             Ok((final_markdown, english_markdown, num_chunks)) => {
                 let fact_report = validate_summary(&evidence_text, &final_markdown);
-                if fact_report.is_severe() {
-                    warn!(
-                        "Summary fact guard SEVERE for meeting_id={}: unexpected_numbers={:?}, unexpected_dates={:?}, overclaimed_decision={}",
-                        meeting_id, fact_report.unexpected_numbers, fact_report.unexpected_dates, fact_report.overclaimed_decision
-                    );
-                    let fallback = conservative_fallback(&evidence_text, &fact_report);
-                    let fallback_json = build_summary_result_json_with_facts(
-                        &fallback,
-                        &fallback,
-                        cache_source,
-                        summary_language.as_deref(),
-                        Some(&fact_report),
-                    );
-                    if let Err(error) = SummaryProcessesRepository::update_process_completed(
-                        &pool,
-                        &meeting_id,
-                        fallback_json,
-                        num_chunks,
-                        duration,
-                    ).await {
-                        Self::update_process_failed(&pool, &meeting_id, &format!("Fact guard fallback failed: {error}")).await;
-                    }
-                    return;
-                }
-                // §131: needs_review 但非 severe (例如 1 个 fabricated 数字) 保留 AI 原文 + 追加警示横幅
+                // §131.1: 始终保留 AI 原文 — fact_guard 只追加警告, 不再替换内容
+                // 用户能从警告中识别 fabricated 字段, 但仍可读到 AI 生成的 5 段摘要
+                let mut final_markdown = final_markdown;
                 if fact_report.needs_review() {
+                    let severity = if fact_report.is_severe() { "SEVERE" } else { "MINOR" };
                     warn!(
-                        "Summary fact guard MINOR for meeting_id={}: unexpected_numbers={:?}, unexpected_dates={:?}, overclaimed_decision={} — keeping AI summary with warning",
+                        "Summary fact guard {severity} for meeting_id={}: unexpected_numbers={:?}, unexpected_dates={:?}, overclaimed_decision={} — keeping AI summary with warning banner",
                         meeting_id, fact_report.unexpected_numbers, fact_report.unexpected_dates, fact_report.overclaimed_decision
                     );
+                    // 在 AI 原文里 highlight fabricated tokens (用户直接看到问题位置)
+                    final_markdown = highlight_unexpected_facts(&final_markdown, &fact_report);
                 }
                 info!(
                     "✓ Successfully processed {} chunks for meeting_id: {}. Duration: {:.2}s",

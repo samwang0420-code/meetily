@@ -950,7 +950,14 @@ ANCHORS = [
      r"§131.*severe 判定更严格"),
     ("131_service_minor_warning_log",
      "frontend/src-tauri/src/summary/service.rs",
-     r"§131.*needs_review.*保留 AI 原文"),
+     r"§131.*fact_guard"),
+    # §131.1: 始终保留 AI 原文 (不再用 conservative_fallback 替换), fabricated tokens 用 ==⚠️X⚠️== 标黄
+    ("131_1_no_conservative_replacement",
+     "frontend/src-tauri/src/summary/service.rs",
+     r"§131\.1.*始终保留 AI 原文"),
+    ("131_1_highlight_function",
+     "frontend/src-tauri/src/summary/fact_guard.rs",
+     r"highlight_unexpected_facts"),
 ]
 
 

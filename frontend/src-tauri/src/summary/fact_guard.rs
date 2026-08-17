@@ -53,6 +53,25 @@ fn normalized_tokens(re: &Regex, text: &str) -> BTreeSet<String> {
     re.find_iter(text).map(|m| m.as_str().split_whitespace().collect::<String>().replace(',', "")).filter(|v| !v.is_empty()).collect()
 }
 
+/// §131.1: 在 AI 摘要原文里把 fabricated 数字/日期标黄 — 用户能直接看到问题所在
+/// 用 markdown `==text==` 黄色 highlight 包裹 fabricated tokens (兼容大部分 markdown 渲染器)
+/// 若无 fabricated tokens, 返回原 summary 不变
+pub fn highlight_unexpected_facts(summary: &str, report: &FactGuardReport) -> String {
+    if !report.needs_review() {
+        return summary.to_string();
+    }
+    let mut out = summary.to_string();
+    for token in report.unexpected_numbers.iter().chain(report.unexpected_dates.iter()) {
+        if token.is_empty() {
+            continue;
+        }
+        // 转义 markdown 特殊字符最小化, 直接 replace 即可
+        let marked = format!("==⚠️{}⚠️==", token);
+        out = out.replace(token, &marked);
+    }
+    out
+}
+
 pub fn validate_summary(transcript: &str, summary: &str) -> FactGuardReport {
     let source_numbers = normalized_tokens(&NUMBER_RE, transcript);
     let summary_numbers = normalized_tokens(&NUMBER_RE, summary);
@@ -319,5 +338,31 @@ mod tests {
         assert!(report.overclaimed_decision);
         assert_eq!(report.issue_count(), 1);
         assert!(report.is_severe());
+    }
+
+    // §131.1: highlight_unexpected_facts 标记 fabricated tokens
+    #[test]
+    fn highlight_marks_fabricated_number() {
+        let report = FactGuardReport {
+            unexpected_numbers: vec!["9.29千".to_string()],
+            unexpected_dates: vec![],
+            overclaimed_decision: false,
+        };
+        let summary = "实际佣金9.29千，案件背景清晰。";
+        let marked = highlight_unexpected_facts(summary, &report);
+        assert!(marked.contains("==⚠️9.29千⚠️=="), "marked: {marked}");
+        assert!(marked.contains("案件背景清晰"), "其他内容保留");
+    }
+
+    #[test]
+    fn highlight_no_op_when_safe() {
+        let report = FactGuardReport {
+            unexpected_numbers: vec![],
+            unexpected_dates: vec![],
+            overclaimed_decision: false,
+        };
+        let summary = "实际佣金3000元。";
+        let marked = highlight_unexpected_facts(summary, &report);
+        assert_eq!(marked, summary);
     }
 }
