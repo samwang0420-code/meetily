@@ -19,6 +19,8 @@
 - 自动发现 models/sherpa/ 下子目录(*-int8 or *),只要含 model.int8.onnx + tokens.txt
 - 4 个 provider 类型: paraformer / sense-voice / zipformer(预留) / Paraformer-分角色(预留 hotword)
 """
+SILENCE_DB = -45.0  # §130: 静音判定阈值 dB, 低于此值视为静音 VAD 段 (≤2.5s 不 raise)
+
 import base64
 import json
 import os
@@ -1074,8 +1076,17 @@ def transcribe(req):
     total_ms = int((time.time() - t0) * 1000)  # §103: renamed from duration_ms to avoid ambiguity vs audio_seconds
 
     raw_text = "".join(stream.result.text.strip() for stream in streams)
-    if not raw_text and len(arr) / sr >= 1.0:
-        raise RuntimeError(f"{loaded_tag} returned empty transcript for {len(arr)/sr:.2f}s audio")
+    audio_seconds = len(arr) / sr
+    # §130: 静音 VAD 段 (≤2.5s 短音频 + 低 RMS) 不 raise, 静默返回空文本
+    # 真 bug (≥2.5s 有声但空文本) 仍然 raise, 防止模型静默退化
+    if not raw_text and audio_seconds >= 2.5:
+        rms = float(_np.sqrt(_np.mean(_np.square(arr.astype(_np.float32))) + 1e-12))
+        db = 20.0 * _np.log10(rms + 1e-12)
+        if db > SILENCE_DB:
+            raise RuntimeError(f"{loaded_tag} returned empty transcript for {audio_seconds:.2f}s audio (rms={db:.1f}dB)")
+        # 静音: stderr warn 不 raise
+        sys.stderr.write(f"[sherpa_asr] §130 silent segment skipped: {audio_seconds:.2f}s rms={db:.1f}dB (<={SILENCE_DB}dB)\n")
+        sys.stderr.flush()
     # SenseVoice emotion/lang token cleanup (e.g. "<|zh|><|HAPPY|>你好" -> "你好")
     if loaded_tag.startswith("sensevoice") and raw_text.startswith("[") and "]" in raw_text[:30]:
         raw_text = raw_text.split("]", 1)[-1].strip()

@@ -285,6 +285,8 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
         });
 
         // Transcription error listener - handles structured error objects with actionable flag
+        // §130: 非 actionable 错误 (单段失败/短音频) 不停止录音, 仅累加错误计数 + toast
+        // 仅 actionable=true (模型加载失败等需用户介入) 才停止录音
         const transcriptionErrorUnsubscribe = await listen('transcription-error', (event) => {
           console.log('transcription-error event received:', event);
           console.error('Transcription error received:', event.payload);
@@ -308,9 +310,12 @@ export const RecordingControls: React.FC<RecordingControlsProps> = ({
             console.log('Transcription error count incremented:', newCount);
             return newCount;
           });
-          setIsProcessing(false);
-          console.log('Calling onRecordingStop(false) due to transcription error');
-          onRecordingStop(false);
+          // §130: 只 actionable 错误停止录音, 非 actionable (单段失败) 让用户继续录音
+          if (isActionable) {
+            setIsProcessing(false);
+            console.log('Calling onRecordingStop(false) due to actionable transcription error');
+            onRecordingStop(false);
+          }
 
           // For actionable errors (like model loading failures), the main page will handle showing the model selector
           // For regular errors, they are handled by useModalState global listener which shows a toast

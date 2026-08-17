@@ -696,6 +696,16 @@ async fn transcribe_chunk_with_provider<R: Runtime>(
                     Ok((cleaned_text, result.confidence, result.is_partial))
                 }
                 Err(e) => {
+                    // §130: 区分 "空段" vs "真错误". 空段是 VAD 静音或短音频, 不是 bug.
+                    let err_str = e.to_string();
+                    let is_empty_segment = err_str.contains("empty transcript for");
+                    if is_empty_segment {
+                        warn!(
+                            "Worker: empty transcript for chunk {} ({}), treating as silent segment",
+                            chunk_id, err_str
+                        );
+                        return Ok((String::new(), None, false));
+                    }
                     error!(
                         "Sherpa transcription failed for chunk {}: {}",
                         chunk.chunk_id, e

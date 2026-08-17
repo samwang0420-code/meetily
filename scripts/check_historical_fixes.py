@@ -931,6 +931,19 @@ ANCHORS = [
     ("129_outputs_doc",
      "outputs/§129-摘要polling超时修复-2026-08-17.md",
      r"§129"),
+    # §130 实时转写 1.02s 短音频报错 — VAD 静音段 raise + worker 不区分 + 前端停录音
+    ("130_silent_segment_skip",
+     "frontend/src-tauri/scripts/sherpa_asr.py",
+     r"§130.*silent segment skipped"),
+    ("130_module_silence_db",
+     "frontend/src-tauri/scripts/sherpa_asr.py",
+     r"^SILENCE_DB\s*=\s*-45\.0"),
+    ("130_worker_empty_segment_treat_as_silent",
+     "frontend/src-tauri/src/audio/transcription/worker.rs",
+     r"§130.*区分.*空段"),
+    ("130_recording_controls_no_stop_on_non_actionable",
+     "frontend/src/components/RecordingControls.tsx",
+     r"§130.*非 actionable 错误"),
 ]
 
 
