@@ -1,51 +1,51 @@
 {
-  "name": "Project Sync / Status Update",
-  "description": "Weekly or bi-weekly project status meeting focusing on milestones and risks.",
+  "name": "项目同步会",
+  "description": "周会或双周项目状态同步,聚焦里程碑进展、风险和决策。",
   "sections": [
     {
-      "title": "Meeting Date & Time",
-      "instruction": "Date, start/end time, facilitator name",
-      "format": "string"
-    },
-    {
-      "title": "Attendees",
-      "instruction": "List attendees and their roles",
+      "title": "会议元信息",
+      "instruction": "日期 (YYYY-MM-DD)、开始/结束时间 (HH:MM)、主持人姓名。仅列转录中明确提到的内容,缺失字段写'未提及'。",
       "format": "list"
     },
     {
-      "title": "Milestones & Status",
-      "instruction": "Current milestones with status and estimated completion date",
+      "title": "参会人员",
+      "instruction": "列出参会者及角色。Owner 必须是转录中真实出现的人名。无角色信息写'未提及'。",
       "format": "list",
-      "item_format": "| **Milestone** | **Status** | **ETA** |\n| --- | --- | --- |"
+      "item_format": "- **[姓名]**：角色"
     },
     {
-      "title": "Progress Summary",
-      "instruction": "Short paragraph summarizing progress since last sync meeting",
+      "title": "里程碑与状态",
+      "instruction": "列转录中明确提到的里程碑/项目节点/版本计划,含状态 (进行中/已完成/延期/未启动) 和预计完成时间。**日期必须 verbatim 引用转录**;无日期写'未明确'。空则写'无里程碑更新'。",
+      "format": "list",
+      "item_format": "- **[里程碑]**：<状态> · 预计完成时间"
+    },
+    {
+      "title": "进展摘要",
+      "instruction": "用一段话 (≤150 字) 总结自上次同步以来的关键进展。**只描述转录中明确提到的事实**,不评价、不推测。",
       "format": "paragraph"
     },
     {
-      "title": "Top Risks & Mitigations",
-      "instruction": "List top risks with impact level, mitigation plan, and owner",
+      "title": "风险与应对",
+      "instruction": "列出转录中提到的 top 风险 (技术/资源/外部依赖/合规),含影响级别 (高/中/低)、缓解方案、负责人。原文未明确影响级别的写'未明确'。空则写'无重大风险'。",
       "format": "list",
-      "item_format": "| **Risk** | **Impact** | **Mitigation** | **Owner** |\n| --- | --- | --- | --- |"
+      "item_format": "- **<风险>**：<影响> · 应对方案 · 负责人"
     },
     {
-      "title": "Key Decisions",
-      "instruction": "Decisions made in this meeting with rationale and timestamp",
+      "title": "关键决议",
+      "instruction": "本次会议明确做出的决议 (有'已确定/最终决定/会议决定'等措辞)。每条 ≤ 80 字。**禁止把提案/讨论/分享编造为决议**。空则写'本次无新决议'。",
       "format": "list",
-      "item_format": "| **Decision** | **Rationale** | **Timestamp** |\n| --- | --- | --- |"
+      "item_format": "- **决议**：内容（时间戳）"
     },
     {
-      "title": "Action Items",
-      "instruction": "Tasks with owners, due dates, priority, and status",
+      "title": "行动事项",
+      "instruction": "列出任务 + 责任人 + 截止日期 + 优先级 + 状态。Owner/Deadline 必须是转录 verbatim,**不推测**。空则写'无行动事项'。",
       "format": "list",
-      "item_format": "| **Owner** | **Task** | **Due Date** | **Priority** | **Status** |\n| --- | --- | --- | --- | --- |"
+      "item_format": "| **事项** | **责任人** | **截止时间** | **优先级** | **状态** |\n| --- | --- | --- | --- | --- |\n| 内容 | 姓名 | YYYY-MM-DD | 高/中/低 | 待办/进行/完成"
     },
     {
-      "title": "Related Documents",
-      "instruction": "Links to relevant documents, tickets, or designs discussed",
-      "format": "list",
-      "item_format": "| **Document Title** | **URL** | **Type** |\n| --- | --- | --- |"
+      "title": "相关文档",
+      "instruction": "转录中提到的文档链接/Ticket 号/设计稿 URL。原文字面照抄,空则写'无相关文档'。",
+      "format": "list"
     }
   ]
 }

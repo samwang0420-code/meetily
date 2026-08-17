@@ -1,44 +1,45 @@
 {
-      "name": "Client / Sales Meeting",
-      "description": "Capture client goals, deliverables, and next steps.",
-      "sections": [
-        {
-          "title": "Meeting Metadata",
-          "instruction": "Date, time, location/modality, account manager",
-          "format": "string"
-        },
-        {
-          "title": "Attendees",
-          "instruction": "Client and vendor attendees with roles",
-          "format": "list"
-        },
-        {
-          "title": "Client Goals & Success Criteria",
-          "instruction": "What the client wants to achieve and how success will be measured",
-          "format": "paragraph"
-        },
-        {
-          "title": "Agreed Deliverables",
-          "instruction": "Deliverables, owners, and due dates",
-          "format": "list",
-          "item_format": "| **Deliverable** | **Owner** | **Due Date** |\n| --- | --- | --- |"
-        },
-        {
-          "title": "Commercial Terms Discussed",
-          "instruction": "Pricing, SLAs, payment terms or contract items discussed",
-          "format": "paragraph"
-        },
-        {
-          "title": "Risks & Concerns",
-          "instruction": "Client concerns, blockers, or escalation items",
-          "format": "list",
-          "item_format": "| **Concern** | **Impact** | **Owner** |\n| --- | --- | --- |"
-        },
-        {
-          "title": "Next Steps",
-          "instruction": "Actions, owners, and due dates",
-          "format": "list",
-          "item_format": "| **Owner** | **Action** | **Due Date** |\n| --- | --- | --- |"
-        }
-      ]
+  "name": "客户/销售沟通",
+  "description": "B2B 销售/客户沟通记录,聚焦客户需求、报价、异议和下一步动作。",
+  "sections": [
+    {
+      "title": "客户基本信息",
+      "instruction": "列公司名/联系人/职位/沟通日期。仅记录转录中明确提到的内容,缺失字段写'未提及'。",
+      "format": "list"
+    },
+    {
+      "title": "客户需求与痛点",
+      "instruction": "列客户明确表达的痛点/需求/期望。每条 ≤ 80 字,**只引用客户原话或转录原文**。禁止添加客户未说的需求。空则写'客户未明确表达需求'。",
+      "format": "list",
+      "item_format": "- **<痛点/需求>**：原文摘要（时间戳）"
+    },
+    {
+      "title": "我方提供的方案",
+      "instruction": "列出我方 (销售/技术) 明确介绍的产品/方案/报价/技术规格。**所有数字 (价格/数量/折扣率) 必须 verbatim 引用转录**。不要换算单位、不要换算汇率、不要猜测。空则写'本次未涉及方案介绍'。",
+      "format": "list",
+      "item_format": "- **<方案/报价>****：内容（时间戳）"
+    },
+    {
+      "title": "客户异议与回应",
+      "instruction": "列出客户提出的异议 (价格/功能/竞品/时间) + 我方回应。空则写'无明确异议'。每条 ≤ 100 字。",
+      "format": "list",
+      "item_format": "- **<异议>**：我方回应"
+    },
+    {
+      "title": "下一步行动",
+      "instruction": "双方明确约定的下一步动作,含事项/责任人/截止时间。Owner verbatim,Deadline verbatim。空则写'无明确下一步'。",
+      "format": "list",
+      "item_format": "| **事项** | **责任人** | **截止时间** |\n| --- | --- | --- |\n| 内容 | 姓名 | YYYY-MM-DD"
+    },
+    {
+      "title": "关键风险",
+      "instruction": "列沟通中识别的关键风险 (合规/竞品/客户预算/技术不匹配)。空则写'无关键风险'。",
+      "format": "list"
+    },
+    {
+      "title": "赢率评估",
+      "instruction": "如转录中明确提到赢率 (高/中/低) 或成功概率,记录之。**禁止 AI 自行推测赢率**。无提及写'未提及'。",
+      "format": "list"
     }
+  ]
+}

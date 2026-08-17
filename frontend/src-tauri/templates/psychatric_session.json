@@ -1,64 +1,65 @@
- {
-      "name": "Psychiatric Session Note (SOAP + AI Hybrid)",
-      "description": "AI-assisted psychiatric progress note template based on SOAP, with clinical metadata and AI summary.",
-      "sections": [
-        {
-          "title": "Session Metadata",
-          "instruction": "Patient initials/ID, session date, provider, session type, duration (HIPAA-sensitive)",
-          "format": "string"
-        },
-        {
-          "title": "AI Session Summary",
-          "instruction": "One-line takeaway and one-paragraph executive summary (AI-generated). Include confidence score.",
-          "format": "paragraph"
-        },
-        {
-          "title": "Subjective (S)",
-          "instruction": "Patient's self-reported mood, symptoms, sleep, appetite, stressors",
-          "format": "paragraph"
-        },
-        {
-          "title": "Objective (O)",
-          "instruction": "Observable findings: affect, speech, behavior, orientation, vitals if relevant",
-          "format": "paragraph"
-        },
-        {
-          "title": "Assessment (A)",
-          "instruction": "Diagnostic impression, risk assessment (SI/HI), progress vs treatment goals",
-          "format": "paragraph"
-        },
-        {
-          "title": "Plan (P)",
-          "instruction": "Interventions, medication changes, referrals, therapy tasks and follow-up",
-          "format": "list",
-          "item_format": "| **Intervention** | **Owner** | **Frequency** | **Follow-up Date** |\n| --- | --- | --- | --- |"
-        },
-        {
-          "title": "Medications",
-          "instruction": "Current medications, doses, changes, and rationale",
-          "format": "list",
-          "item_format": "| **Medication** | **Dose** | **Route** | **Start/Change Date** |\n| --- | --- | --- | --- |"
-        },
-        {
-          "title": "Diagnoses (DSM/ICD)",
-          "instruction": "List diagnostic codes and working diagnosis",
-          "format": "list",
-          "item_format": "| **Code** | **System** | **Diagnosis** |\n| --- | --- | --- |"
-        },
-        {
-          "title": "Safety & Risk Management",
-          "instruction": "Safety plan, emergency contacts, hospitalization considerations",
-          "format": "paragraph"
-        },
-        {
-          "title": "Next Appointment",
-          "instruction": "Date, time and modality of next session",
-          "format": "string"
-        },
-        {
-          "title": "Audit Trail",
-          "instruction": "Human review flag, reviewer name and timestamp, AI version",
-          "format": "paragraph"
-        }
-      ]
+{
+  "name": "心理咨询/治疗记录 (SOAP)",
+  "description": "心理咨询/治疗过程记录 (基于 SOAP 模型)。**严格 PHI 保护**:仅提取客观信息、治疗进展、风险评估;**禁止记录患者姓名/身份证号/具体住址/工作单位**;不替代正式医疗文书;受 HIPAA 及当地隐私法规约束。",
+  "sections": [
+    {
+      "title": "会诊基本信息",
+      "instruction": "列会诊日期 (YYYY-MM-DD)、时长 (分钟)、就诊类型。仅记录转录中明确提到的内容。**禁止使用患者全名** — 用'患者'或'来访者'替代。缺失字段写'未提及'。",
+      "format": "list"
+    },
+    {
+      "title": "AI 会诊摘要",
+      "instruction": "用一句话总结本次会诊核心 (≤ 50 字)。**所有主观感受、症状描述必须 verbatim 引用患者原话**,禁止改写或润色。",
+      "format": "paragraph"
+    },
+    {
+      "title": "主观 (Subjective)",
+      "instruction": "记录患者**自述**的情绪、症状、睡眠、食欲、压力源。每条 ≤ 80 字,**只引用原话**,不推断病因、不做临床判断。空则写'患者未自述具体症状'。",
+      "format": "list",
+      "item_format": "- **<类别>**：患者原话"
+    },
+    {
+      "title": "客观 (Objective)",
+      "instruction": "记录可观察的客观表现 (情绪、言语、行为、定向力、生命体征等)。仅记录转录中明确提到的可观察信息。空则写'未提及客观观察'。",
+      "format": "list"
+    },
+    {
+      "title": "评估 (Assessment)",
+      "instruction": "记录治疗师/医生明确表达的专业评估 (诊断印象、风险评估、相对上次进展)。**禁止 AI 自行给出诊断**。每条 ≤ 80 字,**只引用转录中治疗师原话**。空则写'本次未明确评估'。",
+      "format": "list",
+      "item_format": "- **评估**：原文摘要"
+    },
+    {
+      "title": "计划 (Plan)",
+      "instruction": "列治疗师/医生明确提出的治疗调整、转诊、随访、用药变化。每条 ≤ 100 字。**药名、剂量、频次必须 verbatim 引用转录,禁止推测**。空则写'本次未明确调整计划'。",
+      "format": "list",
+      "item_format": "- **<计划>**：原文摘要"
+    },
+    {
+      "title": "用药记录",
+      "instruction": "记录当前用药、剂量、变化。**所有药名/剂量必须 verbatim 引用转录**,禁止改写、禁止推断新用药。空则写'未提及用药调整'。",
+      "format": "list"
+    },
+    {
+      "title": "诊断 (DSM/ICD)",
+      "instruction": "记录治疗师明确提到的诊断/编码。**禁止 AI 自行生成诊断码或添加未提及的诊断**。空则写'未提及诊断'。",
+      "format": "list"
+    },
+    {
+      "title": "安全与风险管理",
+      "instruction": "记录治疗师明确提到的安全计划、紧急联系人、住院考虑、自伤/他伤风险评估。**禁止 AI 自行评估风险等级**。空则写'未明确讨论安全风险'。",
+      "format": "list"
+    },
+    {
+      "title": "下次预约",
+      "instruction": "日期、时间和方式。仅记录转录中明确提到的内容,缺失字段写'未提及'。",
+      "format": "list"
+    },
+    {
+      "title": "审计与人工复核",
+      "instruction": "**强制**: 必须包含 'AI 生成,待人工复核' 标注。治疗师签字栏位留'未签字'。**禁止** AI 假装已签字/已确认。",
+      "format": "list",
+      "item_format": "- 状态：AI 生成,待人工复核\n- 复核人：未签字\n- 时间戳：<当前处理时间>"
     }
+  ]
+}

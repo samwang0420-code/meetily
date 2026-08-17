@@ -971,6 +971,26 @@ ANCHORS = [
     ("131_2_unit_confusion_field",
      "frontend/src-tauri/src/summary/fact_guard.rs",
      r"unit_confusion: Vec<String>"),
+    # §131.3 prompt 全面整改: unit confusion / template-content fit / evidence format
+    ("131_3_unit_confusion_rule",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"§131\.3 UNIT CONFUSION RULE"),
+    ("131_3_template_content_fit_rule",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"§131\.3 TEMPLATE-CONTENT FIT RULE"),
+    ("131_3_evidence_citation_format",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"§131\.3 EVIDENCE CITATION FORMAT"),
+    # §131.3 模板全面中文化
+    ("131_3_standard_meeting_chinese",
+     "frontend/src-tauri/templates/standard_meeting.json",
+     r"标准会议纪要"),
+    ("131_3_psychiatric_chinese",
+     "frontend/src-tauri/templates/psychatric_session.json",
+     r"心理咨询"),
+    ("131_3_medical_unit_warning",
+     "frontend/src-tauri/templates/medical_consultation.json",
+     r"单位混淆警告"),
 ]
 
 

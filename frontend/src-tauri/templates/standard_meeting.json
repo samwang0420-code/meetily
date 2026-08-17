@@ -1,27 +1,35 @@
 {
-  "name": "Standard Meeting Notes",
-  "description": "A standard template for general meetings, focusing on key outcomes and actions.",
+  "name": "标准会议纪要",
+  "description": "通用会议模板,适用于大多数商务会议、团队例会、跨部门沟通。重点提取关键决议、行动项和遗留风险。",
   "sections": [
     {
-      "title": "Summary",
-      "instruction": "Provide a brief, one-paragraph executive summary of the entire meeting.",
+      "title": "会议概要",
+      "instruction": "用一段话 (≤120 字) 总结整场会议的核心内容:谁在什么时间讨论了什么、达成了什么结论。**严禁推测未讨论的内容;只引用转录里明确提到的信息**。原文若为单向叙事/讲座/独白 (无互动讨论),明确写'本次为单向叙事,未形成会议决议'。",
       "format": "paragraph"
     },
     {
-      "title": "Key Decisions",
-      "instruction": "List the most important decisions made during the meeting. If no decisions were made (e.g. one-way narrative / monologue / lecture / no interactive discussion), write '本次无新决议 / 本次为单向叙事, 未形成新决议' verbatim. Do not fabricate decisions from presentation content.",
-      "format": "list"
-    },
-    {
-      "title": "Action Items",
-      "instruction": "List all assigned tasks with their owners and due date. If no action items were assigned (e.g. one-way narrative / lecture / no meeting decisions), write '本次无行动事项 / 本次为单向叙事, 未分配任务' verbatim. Do not invent owners or tasks from non-meeting content.",
+      "title": "关键决议",
+      "instruction": "列出会议中**明确做出**的关键决议 (有'已确定/决定了/最终决定/会议决定/确定执行/确定采用'等措辞的句子才计)。每条 ≤ 80 字,包含决议内容+责任方+时间窗。若无决议 (单向叙事/讲座/无互动讨论) 写'本次无新决议 / 本次为单向叙事,未形成新决议',**禁止把提案/讨论/分享编造为决议**。",
       "format": "list",
-      "item_format": "| **Owner** | Task | Due | Reference Transcript Segment | Segment Time stamp |\n| --- | --- | --- | --- | --- |"
+      "item_format": "- **决议**：内容（时间戳）"
     },
     {
-      "title": "Discussion Highlights",
-      "instruction": "Summarize the main topics of discussion, key arguments, and important insights.",
-      "format": "paragraph"
+      "title": "行动事项",
+      "instruction": "提取**明确分派**的行动项,每条包含:事项/责任人/截止时间/转录时间戳。缺失字段写'未明确',禁止猜测。**Owner 必须是转录中真实出现的人名**,不要从角色或部门推断。**Deadline 必须是转录里明确提到的日期**,不要用相对时间(如'下周')模糊处理。无行动项写'本次无行动事项 / 本次为单向叙事,未分配任务'。",
+      "format": "list",
+      "item_format": "| **事项** | **责任人** | **截止时间** | **引用转录时间戳** |\n| --- | --- | --- | --- |\n| 内容 | 姓名 (转录原文) | YYYY-MM-DD 或 未明确 | [mm:]]"
+    },
+    {
+      "title": "讨论要点",
+      "instruction": "按主题分组总结会议讨论的要点、关键论据和重要洞察。每条 ≤ 100 字,**所有数字/金额/日期必须 verbatim 引自转录**。**严禁做单位换算** (克 ≠ 元, 公斤 ≠ 美元)。转录里没有的数字写'未提及'。",
+      "format": "list",
+      "item_format": "- **<主题>**：讨论内容（时间戳）"
+    },
+    {
+      "title": "遗留与风险",
+      "instruction": "列出会议中明确表示'待补充/待核实/待决定/有风险/存在隐患'的问题。空则写'无遗留问题'。每条 ≤ 80 字,**不要新增**原文未提及的风险。",
+      "format": "list",
+      "item_format": "- **<问题>**：原文摘要（时间戳）"
     }
   ]
 }

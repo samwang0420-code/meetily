@@ -9,7 +9,7 @@
     },
     {
       "title": "本周核心数据",
-      "instruction": "本周关键 KPI:GMV、订单数、客单价、CTR、CPM、ROAS、毛利率、退货率,标注环比/同比变化",
+      "instruction": "本周关键 KPI:GMV、订单数、客单价、CTR、CPM、ROAS、毛利率、退货率,标注环比/同比变化 **所有 KPI 数字必须 verbatim 引用转录**,禁止换算单位 (美元 ≠ 人民币, 订单数 ≠ 销售额)。",
       "format": "list",
       "item_format": "| **指标** | **本周** | **上周** | **变化** | **备注** |\n| --- | --- | --- | --- | --- |"
     },
@@ -20,13 +20,13 @@
     },
     {
       "title": "广告投放决策",
-      "instruction": "Meta/Google/TikTok 广告预算调整,新素材测试,暂停的 campaign,ROAS 变化原因",
+      "instruction": "Meta/Google/TikTok 广告预算调整,新素材测试,暂停的 campaign,ROAS 变化原因 **预算金额必须 verbatim 引用转录**;ROAS/CPM/CTR 等比率数字也必须原值引用。",
       "format": "list",
       "item_format": "- **渠道**: 动作 (增/减预算/暂停/上新) — 原因 — 金额"
     },
     {
       "title": "供应链与库存",
-      "instruction": "断货风险、补货计划、FBA 仓库调拨、滞销品处理、原材料涨价影响",
+      "instruction": "断货风险、补货计划、FBA 仓库调拨、滞销品处理、原材料涨价影响 库存数量、重量单位 (件/箱/kg) 必须 verbatim 引用转录。",
       "format": "list"
     },
     {

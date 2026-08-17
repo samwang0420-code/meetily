@@ -1,45 +1,34 @@
 {
-      "name": "Retrospective (Agile)",
-      "description": "Sprint retrospective template for continuous improvement.",
-      "sections": [
-        {
-          "title": "Sprint",
-          "instruction": "Sprint name/number and date range",
-          "format": "string"
-        },
-        {
-          "title": "Attendance",
-          "instruction": "List of participants",
-          "format": "list"
-        },
-        {
-          "title": "Start Doing",
-          "instruction": "Actions or experiments to start next sprint",
-          "format": "list",
-          "item_format": "| **Idea** | **Proposer** |\n| --- | --- |"
-        },
-        {
-          "title": "Stop Doing",
-          "instruction": "Practices to stop",
-          "format": "list",
-          "item_format": "| **Practice** | **Reason** |\n| --- | --- |"
-        },
-        {
-          "title": "Continue Doing",
-          "instruction": "Practices to continue",
-          "format": "list",
-          "item_format": "| **Practice** | **Notes** |\n| --- | --- |"
-        },
-        {
-          "title": "Action Items",
-          "instruction": "Concrete experiments with owners and success metrics",
-          "format": "list",
-          "item_format": "| **Owner** | **Task** | **Due Date** | **Success Metric** |\n| --- | --- | --- | --- |"
-        },
-        {
-          "title": "Notes & Votes",
-          "instruction": "Summary and top-voted items",
-          "format": "paragraph"
-        }
-      ]
+  "name": "回顾会 (敏捷/Retro)",
+  "description": "敏捷迭代回顾,聚焦做得好的、待改进的、可执行的改进项。",
+  "sections": [
+    {
+      "title": "迭代信息",
+      "instruction": "迭代编号/起止日期。仅记录转录里明确提到的内容,缺失字段写'未提及'。",
+      "format": "list"
+    },
+    {
+      "title": "做得好 (Keep)",
+      "instruction": "列转录中明确提到的本迭代做得好的事项/可继续保持的实践。每条 ≤ 80 字,引用转录原文措辞。空则写'无明确 Keep 项'。",
+      "format": "list",
+      "item_format": "- **<事项>**：原文摘要"
+    },
+    {
+      "title": "可改进 (Drop/Improve)",
+      "instruction": "列转录中明确提到的问题/痛点/可改进点。每条 ≤ 80 字,引用转录原文。**不要新增原文未提的问题**。空则写'无明确改进项'。",
+      "format": "list",
+      "item_format": "- **<问题>**：原文摘要"
+    },
+    {
+      "title": "改进行动项",
+      "instruction": "列明确分派的改进行动,含事项 + 责任人 + 截止时间。Owner/Deadline 必须 verbatim,**不推测**。空则写'无明确行动项'。",
+      "format": "list",
+      "item_format": "- **<事项>**：**姓名** | YYYY-MM-DD"
+    },
+    {
+      "title": "团队情绪指标 (可选)",
+      "instruction": "如转录中明确提到团队情绪指数 (1-5) 或士气评估,记录之。无提及写'未提及'。",
+      "format": "list"
     }
+  ]
+}
