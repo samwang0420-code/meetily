@@ -5,6 +5,29 @@ import { usePathname, useRouter } from 'next/navigation';
 import Analytics from '@/lib/analytics';
 import { invoke } from '@tauri-apps/api/core';
 import { useRecordingState } from '@/contexts/RecordingStateContext';
+import { DICTS, Locale } from '@/i18n';
+
+// §129 (2026-08-17): localT utility for non-React code paths.
+//   startSummaryPolling is a callback (not a hook); cannot use useTranslation.
+//   Same pattern as recordingNotification.tsx (§104.1) — read locale from
+//   localStorage and resolve dotted path against DICTS. Falls back to path
+//   string if the key is missing.
+function localT(path: string): string {
+  if (typeof window === 'undefined') return path;
+  const saved = window.localStorage?.getItem('lixianhuiji.locale');
+  const locale: Locale = (saved === 'en' ? 'en' : 'zh');
+  const dict = DICTS[locale];
+  const parts = path.split('.');
+  let cur: unknown = dict;
+  for (const p of parts) {
+    if (cur && typeof cur === 'object' && p in (cur as Record<string, unknown>)) {
+      cur = (cur as Record<string, unknown>)[p];
+    } else {
+      return path;
+    }
+  }
+  return typeof cur === 'string' ? cur : path;
+}
 
 
 export interface SidebarItem {
@@ -198,12 +221,17 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     console.log(`📊 Starting polling for meeting ${meetingId}, process ${processId}`);
 
     let pollCount = 0;
-    const MAX_POLLS = 300; // 10 minutes at 2-second intervals
+    // §129 (2026-08-17): 300 → 900 polls (10 min → 30 min at 2s interval).
+    //   之前 MAX_POLLS=300 对 100 分钟会议 Map-Reduce 不够 (二郎神实测 1072s = 17.9 min 已超 10 min).
+    //   后端 GENERATION_TIMEOUT_SECS=900 (15 min) 是 per-chunk, 不影响整体 polling.
+    //   30 min polling 上限覆盖: 100 min 会议 + Map-Reduce 10+ chunks + fact guard + reduce + final.
+    const MAX_POLLS = 900;
+    const POLL_INTERVAL_MS = 2000;
 
     const pollInterval = setInterval(async () => {
       pollCount++;
 
-      // Timeout safety: Stop after 10 minutes
+      // Timeout safety: Stop after 30 minutes
       if (pollCount >= MAX_POLLS) {
         console.warn(`⏱️ Polling timeout for ${meetingId} after ${MAX_POLLS} iterations`);
         clearInterval(pollInterval);
@@ -212,9 +240,27 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
           next.delete(meetingId);
           return next;
         });
+        // §129: 超时后兜底再查一次 — backend 可能在我们 polling 30 min 期间已 completed,
+        //   用户不至于白等 30 min 看到 "失败" 但实际 DB 里有 result.
+        try {
+          const finalResult = await invoke('api_get_summary', { meetingId }) as any;
+          if (finalResult?.status === 'completed') {
+            console.log(`§129 timeout fallback: backend actually completed for ${meetingId}`);
+            onUpdate(finalResult);
+            return;
+          }
+          if (finalResult?.status === 'failed' || finalResult?.status === 'error') {
+            onUpdate(finalResult);
+            return;
+          }
+        } catch (e) {
+          console.warn(`§129 timeout fallback invoke failed:`, e);
+        }
+        // 仍然 pending → 提示"仍在后台处理"
+        const minutes = Math.round((MAX_POLLS * POLL_INTERVAL_MS) / 60000);
         onUpdate({
           status: 'error',
-          error: 'Summary generation timed out after 15 minutes. Please try again or check your model configuration.'
+          error: localT('summary.timeout_error').replace('{minutes}', String(minutes)),
         });
         return;
       }

@@ -564,6 +564,8 @@ export const en: Record<string, unknown> = {
       final: 'Building structured meeting minutes…',
       single: 'Generating meeting summary…',
     },
+    // §129 (2026-08-17): 摘要 polling 超时错误消息 i18n
+    timeout_error: 'Summary polling exceeded {minutes} minutes and was stopped. The backend may still be processing. Please refresh the meeting details page to check, or click Regenerate again.',
   },
   recovery: {
     title: 'Recover interrupted meetings',

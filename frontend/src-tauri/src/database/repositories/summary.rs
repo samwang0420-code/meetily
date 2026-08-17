@@ -118,6 +118,56 @@ impl SummaryProcessesRepository {
         Ok(())
     }
 
+
+
+    /// §129 (2026-08-17): Cleanup summary_processes rows stuck in PENDING
+    ///   after a previous app crash / force-quit / process kill.
+    ///   Real root cause: api_process_transcript sets status='PENDING' at start,
+    ///   update_process_completed/failed sets terminal status on success/failure.
+    ///   If the process gets killed mid-flight (app force-quit, OOM, llama-helper crash),
+    ///   PENDING rows stay forever and look stuck.
+    ///   This function marks PENDING rows older than `stale_minutes` as 'failed'
+    ///   with "Interrupted by app shutdown" message. Caller can choose threshold.
+    pub async fn cleanup_stale_pending_processes(
+        pool: &SqlitePool,
+        stale_minutes: i64,
+    ) -> Result<u64, sqlx::Error> {
+        let now = Utc::now();
+        let cutoff = now - chrono::Duration::minutes(stale_minutes);
+
+        let result = sqlx::query(
+            r#"
+            UPDATE summary_processes
+            SET status = 'failed',
+                error = 'Interrupted by app shutdown — backend did not complete within '
+                        || ? || ' minutes. Click Regenerate to retry.',
+                updated_at = ?,
+                end_time = ?,
+                result = COALESCE(result_backup, result),
+                result_backup = NULL,
+                result_backup_timestamp = NULL
+            WHERE status = 'PENDING'
+              AND updated_at < ?
+            "#,
+        )
+        .bind(stale_minutes)
+        .bind(now)
+        .bind(now)
+        .bind(cutoff)
+        .execute(pool)
+        .await?;
+
+        let count = result.rows_affected();
+        if count > 0 {
+            log_info!(
+                "§129 cleanup_stale_pending_processes: marked {} stale PENDING rows as failed (cutoff = {} minutes ago)",
+                count,
+                stale_minutes
+            );
+        }
+        Ok(count)
+    }
+
     pub async fn update_process_completed(
         pool: &SqlitePool,
         meeting_id: &str,

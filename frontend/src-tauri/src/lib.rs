@@ -698,6 +698,26 @@ pub fn run() {
             });
             log::info!("§99.2 user_id backfill scheduled (post-AppState registration)");
 
+            // §129 (2026-08-17): 清理陈旧 PENDING 行 (>30 min 没进展)
+            //   之前: api_process_transcript 设 status='PENDING' → 进程被 kill 时永远卡 PENDING
+            //   用户体验: "重新生成摘要报错" → 实际是后端早已死, 行残留 DB
+            //   现在: 启动时一次性扫, >30 min 的 PENDING 标 failed + "Interrupted by app shutdown"
+            //   阈值 30 min = MAX_POLLS 900 × 2s polling 间隔 + buffer
+            let app_for_cleanup = _app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Some(app_state) = app_for_cleanup.try_state::<crate::state::AppState>() {
+                    let pool = app_state.db_manager.pool();
+                    match database::repositories::summary::SummaryProcessesRepository::cleanup_stale_pending_processes(pool, 30).await {
+                        Ok(count) if count > 0 => log::info!("§129 startup cleanup: marked {} stale PENDING rows as failed", count),
+                        Ok(_) => log::debug!("§129 startup cleanup: no stale PENDING rows"),
+                        Err(e) => log::warn!("§129 startup cleanup failed (best-effort, continue): {}", e),
+                    }
+                } else {
+                    log::warn!("§129 startup cleanup: AppState not available, skip");
+                }
+            });
+            log::info!("§129 stale PENDING cleanup scheduled (threshold 30 min)");
+
             // §P2-B Topic dossier 夜间重建 scheduler (71 报告 P2-B)
             // 启动后 spawn 后台 task, 0-6 点 + 用户 idle + DB 有 stale topic 时跑.
             let app_for_scheduler = _app.handle().clone();

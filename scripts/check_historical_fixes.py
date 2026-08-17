@@ -909,6 +909,28 @@ ANCHORS = [
     ("128_outputs_doc",
      "outputs/§128-摘要设置下拉修复-2026-08-16.md",
      r"§128"),
+    # §129 (2026-08-17): 重新生成摘要报错修复 — polling 10min→30min + i18n + 超时兜底 + 陈旧 PENDING 启动清理
+    ("129_polling_max_900",
+     "frontend/src/components/Sidebar/SidebarProvider.tsx",
+     r"MAX_POLLS\s*=\s*900"),
+    ("129_localT_helper",
+     "frontend/src/components/Sidebar/SidebarProvider.tsx",
+     r"function localT|localT\(.summary.timeout_error.\)|import \{ DICTS, Locale \} from .@/i18n."),
+    ("129_timeout_error_zh",
+     "frontend/src/i18n/locales/zh.ts",
+     r"timeout_error"),
+    ("129_timeout_error_en",
+     "frontend/src/i18n/locales/en.ts",
+     r"timeout_error"),
+    ("129_cleanup_stale_pending",
+     "frontend/src-tauri/src/database/repositories/summary.rs",
+     r"pub async fn cleanup_stale_pending_processes|cleanup_stale_pending_processes"),
+    ("129_startup_cleanup_spawn",
+     "frontend/src-tauri/src/lib.rs",
+     r"§129 startup cleanup|cleanup_stale_pending_processes"),
+    ("129_outputs_doc",
+     "outputs/§129-摘要polling超时修复-2026-08-17.md",
+     r"§129"),
 ]
 
 

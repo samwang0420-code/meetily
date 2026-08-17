@@ -567,6 +567,8 @@ export const zh: Record<string, unknown> = {
       final: '生成全局结构化纪要…',
       single: '正在生成会议纪要…',
     },
+    // §129 (2026-08-17): 摘要 polling 超时 (10 min → 30 min) 错误消息, i18n + {minutes} 占位符
+    timeout_error: '会议摘要生成超过 {minutes} 分钟已自动停止轮询。后端可能仍在处理, 请稍后在「会议详情」页刷新查看结果, 或重新点击「重新生成」。',
   },
   recovery: {
     title: '恢复中断的会议',

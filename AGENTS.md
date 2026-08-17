@@ -1404,3 +1404,95 @@ killall meetily && open '/Users/wangwei/Applications/言镜 AI.app'
 - §37 / §15 / §56 / §92
 
 [[128-摘要设置下拉修复]] (Obsidian) / `outputs/§128-...md` (Codex)
+
+## §129 摘要 polling 超时修复 + 陈旧 PENDING 启动清理 (2026-08-17 立)
+
+**触发**: 用户 2026-08-17 上午截图反馈 "重新生成摘要报错":
+> 生成总结出错
+> Summary generation timed out after 15 minutes. Please try again or check your model configuration.
+
+DB 里 `meeting-566fe7a9` (106 min 音频 / 537 段 / 26k chars) 状态 PENDING 从 8/16 05:30 卡到 8/17 01:04, **永不清理**。
+
+### 根因 (3 条叠加)
+
+1. **`SidebarProvider.tsx:201`** `MAX_POLLS = 300` (10 min at 2s interval) 太短
+   - 二郎神 35 min 会议: 5 chunks × 1072s = **17.9 min** (超 MAX_POLLS)
+   - 宇宙演化 106 min 会议: 10 chunks × 565s = 9.4 min (贴近)
+   - 566fe7a9 106 min: 预估 12-15 min (必超)
+
+2. **错误消息硬编码 "15 minutes"** 但实际是 10 min (文案与数据脱节, 跟 §107 同病)
+
+3. **`summary_processes` PENDING 行永不清理** — `api_process_transcript` 设 PENDING → force-quit / OOM / llama-helper crash 时永远 PENDING
+
+### 修复 (4 文件)
+
+1. **`SidebarProvider.tsx`** — `MAX_POLLS = 300 → 900` (30 min) + 加 `localT()` helper (跟 §104.1 录音通知 toast 同模式, callback 不能用 useTranslation) + 超时后**兜底再查一次 backend** (万一是 polling 期间已完成 → 显示成功)
+
+2. **`i18n/locales/{zh,en}.ts`** — 加 `summary.timeout_error` zh/en, `{minutes}` 占位符
+
+3. **`database/repositories/summary.rs`** — 新增 `cleanup_stale_pending_processes(pool, stale_minutes)` 函数:
+   ```rust
+   UPDATE summary_processes
+   SET status='failed', error='Interrupted by app shutdown — ...',
+       result=COALESCE(result_backup, result),
+       result_backup=NULL, result_backup_timestamp=NULL
+   WHERE status='PENDING' AND updated_at < ?
+   ```
+   - 保留 result_backup 恢复 (跟 §P1-B 一致)
+
+4. **`lib.rs` 启动钩子** — 在 `database::setup` + §99.2 backfill spawn 之后, threshold 30 min:
+   ```rust
+   tauri::async_runtime::spawn(async move {
+       if let Some(app_state) = ... try_state::<crate::state::AppState>() {
+           let pool = app_state.db_manager.pool();
+           match SummaryProcessesRepository::cleanup_stale_pending_processes(pool, 30).await { ... }
+       }
+   });
+   ```
+   - 必须 `tauri::async_runtime::spawn` (§99.5 铁律, 不能 `tokio::spawn`)
+   - 必须在 §99.2 backfill spawn 之后 (AppState 已 manage)
+
+### §37 6 步硬闸门
+
+- ✅ tsc --noEmit: 1 §18 bun:test 不动
+- ✅ next build: OK
+- ✅ cargo check --lib: 0 errors / 28 §18 warnings
+- ✅ cargo build --release: 1m43s, binary 69M mtime 09:33
+- ✅ check_historical_fixes.py: **241/241 PASS** (+7 §129 anchors)
+- ✅ sync_app_bundle.sh: tauri bundle SHA synced
+
+### §15 GUI 验收 (用户必做)
+
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+```
+
+启动时日志应见: `§129 stale PENDING cleanup scheduled (threshold 30 min)`
+
+DB 验证 (PENDING 行应自动转 failed):
+```bash
+sqlite3 "$HOME/Library/Application Support/tech.yanjingai.app/meeting_minutes.sqlite" \
+  "SELECT meeting_id, status, substr(error,1,80), datetime(updated_at) FROM summary_processes ORDER BY updated_at DESC LIMIT 3"
+```
+应见: 之前 PENDING 那行 → status='failed', error='Interrupted by app shutdown — backend did not complete within 30 minutes. ...'
+
+错误消息 i18n 验收:
+- zh locale: "会议摘要生成超过 30 分钟已自动停止轮询。后端可能仍在处理, 请稍后在「会议详情」页刷新查看结果, 或重新点击「重新生成」。"
+- en locale: "Summary polling exceeded 30 minutes and was stopped. The backend may still be processing. Please refresh the meeting details page to check, or click Regenerate again."
+
+### 铁律 (任何 v0.X 演进适用)
+
+1. **polling 上限必须 ≥ 后端实际处理时长** — 长会议 Map-Reduce 经常 15-30 min, polling 必须给 buffer
+2. **错误消息必须 i18n + 跟实际数字一致** — 跟 §107 教训同
+3. **DB 启动时清理陈旧 PENDING** — 任何 background process 必须有 stale-state recovery
+5. **必须 §99.5 tauri::async_runtime::spawn** — 启动钩子里不能 tokio::spawn
+4. **结果兜底再查一次** — 超时后不能盲目报错, 万一 backend 已完成要给用户成功结果
+
+### 关联
+
+- §15 (GUI 验收) / §37 (硬闸门) / §56 (AGENTS.md §X ≠ 代码 commit, commit 前 grep 验证)
+- §92 (决策迁移铁律, outputs + Obsidian + AGENTS.md §X 同日落)
+- §104.1 (localT pattern 借鉴) / §107 (i18n 路径正确, 这次直接 summary.timeout_error)
+- §99.5 (tauri::async_runtime::spawn) / §99.2 (spawn 顺序)
+- [[129-摘要polling超时修复]] (Obsidian) / `outputs/§129-摘要polling超时修复-2026-08-17.md` (Codex)
