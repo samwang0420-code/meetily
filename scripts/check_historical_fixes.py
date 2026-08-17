@@ -944,6 +944,13 @@ ANCHORS = [
     ("130_recording_controls_no_stop_on_non_actionable",
      "frontend/src/components/RecordingControls.tsx",
      r"§130.*非 actionable 错误"),
+    # §131 fact_guard is_severe 阈值: 单 fabricated number 不再触发自动替换
+    ("131_is_severe_logic",
+     "frontend/src-tauri/src/summary/fact_guard.rs",
+     r"§131.*severe 判定更严格"),
+    ("131_service_minor_warning_log",
+     "frontend/src-tauri/src/summary/service.rs",
+     r"§131.*needs_review.*保留 AI 原文"),
 ]
 
 

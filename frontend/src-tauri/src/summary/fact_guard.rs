@@ -31,7 +31,14 @@ pub struct FactGuardReport {
 
 impl FactGuardReport {
     pub fn is_safe(&self) -> bool { self.unexpected_numbers.is_empty() && self.unexpected_dates.is_empty() && !self.overclaimed_decision }
-    pub fn is_severe(&self) -> bool { !self.is_safe() }
+    /// §131: severe 判定更严格 — 1 个无关 number 不再触发自动替换
+    /// 真 severe 条件:
+    ///   1. overclaimed_decision (AI 把"提案"说成"最终决定" — 法律风险高)
+    ///   2. 多个独立 issue (≥2 个 fabricated 数字/日期, 表示系统性失真)
+    /// 单个 fabricated 数字/日期 → needs_review=true (UI 横幅警告), 但保留 AI 原文供用户参考
+    pub fn is_severe(&self) -> bool {
+        self.overclaimed_decision || self.issue_count() >= 2
+    }
 
     /// Number of issues the user-visible UI should surface.
     pub fn issue_count(&self) -> usize {
@@ -232,10 +239,17 @@ mod tests {
         let report = validate_summary(transcript_text, safe_summary);
         assert!(report.is_safe(), "3000元 is in transcript, summary must be safe: {report:?}");
 
+        // §131: 1 个 fabricated number 现在 not severe (保留 AI 原文 + 警告)
         let unsafe_summary = "预算确定为12800元。";
         let report2 = validate_summary(transcript_text, unsafe_summary);
-        assert!(report2.is_severe());
+        assert!(report2.needs_review(), "single fabricated number should warn");
+        assert!(!report2.is_severe(), "single fabricated number should NOT auto-degrade (§131)");
         assert!(report2.unexpected_numbers.iter().any(|n| n.contains("12800")));
+
+        // §131: 多个 fabricated number + overclaimed → severe
+        let severe_summary = "预算确定为12800元，2026年7月16日交付。";
+        let report3 = validate_summary(transcript_text, severe_summary);
+        assert!(report3.is_severe(), "≥2 fabricated facts should auto-degrade");
     }
 
     #[test]
@@ -275,5 +289,35 @@ mod tests {
         let arr = json.get("unexpected_numbers").and_then(|v| v.as_array()).expect("array");
         assert!(arr.iter().any(|v| v.as_str() == Some("12800元")));
         assert_eq!(json.get("overclaimed_decision").and_then(|v| v.as_bool()), Some(false));
+    }
+
+    // §131: 单个 fabricated 数字不应触发 severe (保留 AI 原文 + 黄色警告)
+    #[test]
+    fn single_fabricated_number_is_not_severe() {
+        let report = validate_summary("实际佣金5万余元。", "实际佣金9.29千。");
+        assert_eq!(report.unexpected_numbers, vec!["9.29千".to_string()]);
+        assert!(!report.unexpected_dates.is_empty() == false);
+        assert!(!report.overclaimed_decision);
+        assert_eq!(report.issue_count(), 1);
+        assert!(report.needs_review(), "should warn UI");
+        assert!(!report.is_severe(), "should NOT replace AI summary (was 9.29千 case)");
+    }
+
+    // §131: 2 个 fabricated 数字触发 severe (系统性失真)
+    #[test]
+    fn two_fabricated_numbers_is_severe() {
+        let report = validate_summary("收取5万余元，支付2400余元。", "收取12800元，支付9900元。");
+        assert_eq!(report.unexpected_numbers.len(), 2);
+        assert_eq!(report.issue_count(), 2);
+        assert!(report.is_severe());
+    }
+
+    // §131: overclaimed_decision 单独触发 severe (法律风险高)
+    #[test]
+    fn overclaimed_decision_alone_is_severe() {
+        let report = validate_summary("暂定3000元，需要进一步确认。", "确定执行3000元。");
+        assert!(report.overclaimed_decision);
+        assert_eq!(report.issue_count(), 1);
+        assert!(report.is_severe());
     }
 }

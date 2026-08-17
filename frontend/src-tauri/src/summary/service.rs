@@ -634,7 +634,7 @@ impl SummaryService {
                 let fact_report = validate_summary(&evidence_text, &final_markdown);
                 if fact_report.is_severe() {
                     warn!(
-                        "Summary fact guard flagged meeting_id={}: unexpected_numbers={:?}, unexpected_dates={:?}, overclaimed_decision={}",
+                        "Summary fact guard SEVERE for meeting_id={}: unexpected_numbers={:?}, unexpected_dates={:?}, overclaimed_decision={}",
                         meeting_id, fact_report.unexpected_numbers, fact_report.unexpected_dates, fact_report.overclaimed_decision
                     );
                     let fallback = conservative_fallback(&evidence_text, &fact_report);
@@ -655,6 +655,13 @@ impl SummaryService {
                         Self::update_process_failed(&pool, &meeting_id, &format!("Fact guard fallback failed: {error}")).await;
                     }
                     return;
+                }
+                // §131: needs_review 但非 severe (例如 1 个 fabricated 数字) 保留 AI 原文 + 追加警示横幅
+                if fact_report.needs_review() {
+                    warn!(
+                        "Summary fact guard MINOR for meeting_id={}: unexpected_numbers={:?}, unexpected_dates={:?}, overclaimed_decision={} — keeping AI summary with warning",
+                        meeting_id, fact_report.unexpected_numbers, fact_report.unexpected_dates, fact_report.overclaimed_decision
+                    );
                 }
                 info!(
                     "✓ Successfully processed {} chunks for meeting_id: {}. Duration: {:.2}s",
