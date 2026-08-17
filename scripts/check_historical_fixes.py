@@ -958,6 +958,19 @@ ANCHORS = [
     ("131_1_highlight_function",
      "frontend/src-tauri/src/summary/fact_guard.rs",
      r"highlight_unexpected_facts"),
+    # §131.2 court_hearing 庭审模板 + 单位混淆检测 (克/元)
+    ("131_2_court_hearing_template",
+     "frontend/src-tauri/templates/court_hearing.json",
+     r"\u5ead\u5ba1\u7eaa\u8981|庭审纪要"),
+    ("131_2_court_hearing_registered",
+     "frontend/src-tauri/src/summary/templates/defaults.rs",
+     r"court_hearing.*COURT_HEARING|COURT_HEARING.*court_hearing"),
+    ("131_2_unit_confusion_check",
+     "frontend/src-tauri/src/summary/fact_guard.rs",
+     r"§131\.2.*单位混淆检测"),
+    ("131_2_unit_confusion_field",
+     "frontend/src-tauri/src/summary/fact_guard.rs",
+     r"unit_confusion: Vec<String>"),
 ]
 
 

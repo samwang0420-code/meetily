@@ -22,11 +22,21 @@ static NUMBER_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
 ).unwrap());
 static DATE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?x)20\d{2}年(?:\d{1,2}月(?:\d{1,2}[日号])?)?|\d{1,2}[月/-]\d{1,2}(?:日|号)?").unwrap());
 
+// §131.2: 单位混淆检测 — 重量/容量单位 vs 货币单位不能互换
+// 例: 转录里 "可卡因9千多克" 不能在 AI 摘要里写成 "9.29千" 金额
+// §131.2 fix: 中文数字 "九千" 也算 (源文常见 "九千二百九十七克")
+// 注意: 千/万/亿 极歧义 (既是重量 9千克 也是货币 9千元), 不放进 money 检测 (用 fabricated number 那条抓)
+static MONEY_UNIT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?x)(?:\d[\d,]*|[一-鿿]+)(?:\.\d+)?\s*(?:元|块|万美元|美元|人民币|dollars?)").unwrap());
+static WEIGHT_UNIT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?x)(?:\d[\d,]*|[一-鿿]+)(?:\.\d+)?\s*(?:克|公斤|千克|kg|g|mg|毫升|升|L|ml)").unwrap());
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FactGuardReport {
     pub unexpected_numbers: Vec<String>,
     pub unexpected_dates: Vec<String>,
     pub overclaimed_decision: bool,
+    /// §131.2: 单位混淆 (source=克, summary=元 等)
+    #[serde(default)]
+    pub unit_confusion: Vec<String>,
 }
 
 impl FactGuardReport {
@@ -42,7 +52,10 @@ impl FactGuardReport {
 
     /// Number of issues the user-visible UI should surface.
     pub fn issue_count(&self) -> usize {
-        self.unexpected_numbers.len() + self.unexpected_dates.len() + if self.overclaimed_decision { 1 } else { 0 }
+        self.unexpected_numbers.len()
+            + self.unexpected_dates.len()
+            + self.unit_confusion.len()
+            + if self.overclaimed_decision { 1 } else { 0 }
     }
 
     /// True when the report has issues worth a UI banner, even if not severe enough to replace the summary.
@@ -82,10 +95,43 @@ pub fn validate_summary(transcript: &str, summary: &str) -> FactGuardReport {
         && !summary.contains("不是最终决定")
         && !summary.contains("尚未确定")
         && !summary.contains("未确定");
+    let mut unit_confusion = Vec::new();
+    // §131.2: 检测 source 是否有重量/容量词, summary 是否生成歧义货币词 (千/万/亿) — 用户实际踩坑场景
+    let source_has_weight = WEIGHT_UNIT_RE.is_match(transcript);
+    let summary_has_money = MONEY_UNIT_RE.is_match(summary);
+    let summary_has_weight = WEIGHT_UNIT_RE.is_match(summary);
+    let source_has_money = MONEY_UNIT_RE.is_match(transcript);
+    // 场景 A: 原文有重量词, AI 摘要出现明确货币词 → 高优先级警告
+    if source_has_weight && summary_has_money {
+        unit_confusion.push("原文含重量/容量单位 (克/公斤/毫升), AI 摘要含明确货币金额 (元/块/美元) — 数字可能单位混淆, 请人工核对".to_string());
+    }
+    // 场景 B: 原文有货币词, AI 摘要出现重量词 → 反向警告
+    if source_has_money && summary_has_weight {
+        unit_confusion.push("原文含货币单位 (元/块/美元), AI 摘要含重量/容量 (克/公斤/毫升) — 数字可能单位混淆, 请人工核对".to_string());
+    }
+    // 场景 C: 用户实际踩坑 — 原文有克, AI 出现 "9.29千" 这种歧义大单位数字 (没明确货币标记)
+    // Rust regex 不支持 look-ahead, 用两段匹配实现
+    static AMBIGUOUS_LARGE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?x)\d[\d,]*(?:\.\d+)?\s*(?:千|万|亿)").unwrap());
+    static WEIGHT_AFTER_LARGE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?x)\d[\d,]*(?:\.\d+)?\s*(?:千克|公斤|kg)").unwrap());
+    if source_has_weight && !summary_has_money {
+        let mut ambiguous_hit = false;
+        for m in AMBIGUOUS_LARGE_RE.find_iter(summary) {
+            // 跳过后面紧跟重量单位的 (如 "9千克" 是重量不是金额)
+            if WEIGHT_AFTER_LARGE_RE.is_match(&summary[m.start()..]) {
+                continue;
+            }
+            ambiguous_hit = true;
+            break;
+        }
+        if ambiguous_hit {
+            unit_confusion.push("原文含重量 (克/公斤), AI 摘要出现歧义大单位 (千/万/亿) — 可能把重量当金额, 请核对 (例: 9千克 vs 9千元)".to_string());
+        }
+    }
     FactGuardReport {
         unexpected_numbers: summary_numbers.difference(&source_numbers).cloned().collect(),
         unexpected_dates: summary_dates.difference(&source_dates).cloned().collect(),
         overclaimed_decision: proposal_language && decision_language,
+        unit_confusion,
     }
 }
 
@@ -231,6 +277,7 @@ mod tests {
             unexpected_numbers: vec![],
             unexpected_dates: vec![],
             overclaimed_decision: false,
+            unit_confusion: vec![],
         };
         let fallback = conservative_fallback(source, &empty);
         assert!(fallback.contains("未识别到具体错误字段"));
@@ -347,6 +394,7 @@ mod tests {
             unexpected_numbers: vec!["9.29千".to_string()],
             unexpected_dates: vec![],
             overclaimed_decision: false,
+            unit_confusion: vec![],
         };
         let summary = "实际佣金9.29千，案件背景清晰。";
         let marked = highlight_unexpected_facts(summary, &report);
@@ -360,9 +408,28 @@ mod tests {
             unexpected_numbers: vec![],
             unexpected_dates: vec![],
             overclaimed_decision: false,
+            unit_confusion: vec![],
         };
         let summary = "实际佣金3000元。";
         let marked = highlight_unexpected_facts(summary, &report);
         assert_eq!(marked, summary);
+    }
+
+    // §131.2: 单位混淆检测 — 转录含重量词, 摘要含货币 → 警告
+    #[test]
+    fn unit_confusion_weight_to_money() {
+        let source = "现场查获可卡因九千二百九十七克。收取佣金人民币五万元。";
+        let summary = "涉案重量9.29千，金额五万。";
+        let report = validate_summary(source, summary);
+        assert!(!report.unit_confusion.is_empty(), "应检测出单位混淆: {report:?}");
+        assert!(report.needs_review());
+    }
+
+    #[test]
+    fn unit_confusion_not_triggered_when_consistent() {
+        let source = "现场查获可卡因九千二百九十七克。";
+        let summary = "涉案重量九千二百九十七克。";
+        let report = validate_summary(source, summary);
+        assert!(report.unit_confusion.is_empty(), "单位一致不应警告: {report:?}");
     }
 }
