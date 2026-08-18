@@ -1496,3 +1496,62 @@ sqlite3 "$HOME/Library/Application Support/tech.yanjingai.app/meeting_minutes.sq
 - §104.1 (localT pattern 借鉴) / §107 (i18n 路径正确, 这次直接 summary.timeout_error)
 - §99.5 (tauri::async_runtime::spawn) / §99.2 (spawn 顺序)
 - [[129-摘要polling超时修复]] (Obsidian) / `outputs/§129-摘要polling超时修复-2026-08-17.md` (Codex)
+
+## §132.1 Ollama 不可用 banner 改友好文案 (2026-08-18 立, commit cf97a1f)
+
+**触发**: §132 commit 后 banner 文案 "历史主题回填已跳过 — Ollama 未运行。启动 Ollama 后点击右上角"刷新"重试" 太技术化, 用户反馈"啥意思"。
+
+**commit**: `cf97a1f` (branch main, push OK)
+**binary**: target/release/meetily 70M mtime 12:52
+
+### 改动 (4 文件, +66/-8)
+
+1. **`frontend/src/app/knowledge/page.tsx`** — 加 `X` icon import, 第 253-262 行旧简短 1 行文案 → 新 banner 卡片:
+   - 标题: `t('knowledge.ollama_offline_title')` = "想跨会议追踪主题, 需要本地 AI 模型"
+   - 描述: `t('knowledge.ollama_offline_desc')` = "会议脉络会把每场会议的摘要提炼成主题、人物、决议..."
+   - 选项 A 卡片 (链 https://ollama.com/download): "选项 A: 安装 Ollama (推荐)" + "到 ollama.com 下载安装, 启动后会自动在后台运行, 然后回到这里点"刷新""
+   - 选项 B 卡片 (链 /settings/models): "选项 B: 使用言镜 AI 内置模型" + "打开设置 → 模型管理, 下载 Qwen 3.5 2B (2GB), 然后点"刷新""
+   - 关闭按钮 (X 图标, 调 `setRecoverStatus('idle')` 让 banner 消失)
+   - 保持琥珀色 (border-amber-200 + bg-amber-50/60)
+
+2. **`frontend/src/i18n/locales/zh.ts`** — 加 8 个 key (ollama_offline_title/_desc/_option1_title/_option1_desc/_option2_title/_option2_desc/_download/_dismiss)
+
+3. **`frontend/src/i18n/locales/en.ts`** — 同步英文版
+
+4. **`scripts/check_historical_fixes.py`** — 加 2 个 §132.1 anchor:
+   - `132_1_banner_i18n_title` — `t('knowledge.ollama_offline_title')` 存在
+   - `132_1_banner_dismiss_button` — `setRecoverStatus('idle')` 存在
+   - guard 325 → **327/327 PASS**
+
+### 设计原则
+
+1. **技术文案 → 用户场景**: 不说"回填已跳过", 说"想跨会议追踪主题, 需要本地 AI 模型"
+2. **不只说"为什么不能", 说"怎么办"**: 两个明确选项 (Ollama / 内置), 用户可点直达
+3. **不绑架用户**: 关闭按钮让用户跳过这个引导, 不强制看完
+4. **保留原琥珀色 + 边框**: 视觉仍警示, 内容从技术报错 → 行动引导
+
+### §37 6 步硬闸门 (commit cf97a1f)
+- ✅ tsc --noEmit: 0 errors (除 §18 bun:test 已知)
+- ✅ next build OK
+- ✅ cargo build --release: 1m 量级, binary 12:52
+- ✅ check_historical_fixes.py **327/327 PASS**
+- ✅ sync_app_bundle.sh: 3 binary 全 sync (main + llama-helper + ffmpeg)
+
+### §15 GUI 验收 (用户必做)
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# 1. 进 /knowledge 页 (会议脉络)
+# 2. 如果 Ollama 没跑, banner 应显示 8 个新文案
+# 3. 选项 A 按钮 → 浏览器打开 https://ollama.com/download
+# 4. 选项 B 按钮 → 跳到 /settings/models
+# 5. X 关闭按钮 → banner 消失, recoverStatus = 'idle'
+```
+
+### 关联
+- §132 (banner 首次出现, 7d timeout + 5 meetings cap)
+- §18 (云端 API 永不接入 — 引导用户用本地)
+- §56 (AGENTS.md §X 描述 ≠ 代码 commit, 这次 code + i18n + guard 一次到位)
+- §37 (硬闸门) / §92 (决策迁移铁律, outputs + Obsidian + AGENTS.md §X 同日落)
+- outputs/§132.1-Ollama不可用banner-改友好文案-2026-08-18.md
+- [[132.1-Ollama不可用banner-改友好文案]] (Obsidian)
