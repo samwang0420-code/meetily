@@ -517,6 +517,15 @@ export const en: Record<string, unknown> = {
     save_failed: 'Save failed',
     template_selected: 'Template selected',
     loading_templates: 'Loading templates…',
+    // §132.1: Ollama unavailable banner — user-friendly version
+    ollama_offline_title: 'Cross-meeting topic tracking needs a local AI model',
+    ollama_offline_desc: 'Meeting Timeline extracts topics, people, and decisions from each meeting summary. To enable this, install Ollama (free, runs locally).',
+    ollama_offline_option1_title: 'Option A: Install Ollama (recommended)',
+    ollama_offline_option1_desc: 'Download from ollama.com. It runs in the background. Then come back here and click "Refresh".',
+    ollama_offline_option2_title: 'Option B: Use SpeakMirror built-in model',
+    ollama_offline_option2_desc: 'Open Settings → Model Manager, download Qwen 3.5 2B (2GB), then click "Refresh".',
+    ollama_offline_download: 'Download Ollama',
+    ollama_offline_dismiss: 'Got it, dismiss',
     // §135: Current template badge + history button
     current_template_badge: 'Current template',
     history_button: 'History',

@@ -5,7 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft, Sparkles, ChevronRight, RefreshCw,
-  Loader2, Network, GitBranch, AlertCircle,
+  Loader2, Network, GitBranch, AlertCircle, X,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from '@/i18n';
@@ -251,13 +251,47 @@ export default function KnowledgePage() {
             )}
 
             {recoverStatus === 'ollama_offline' && (
-              <div className="mb-6 flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50/60 px-5 py-4">
-                <AlertCircle className="h-4 w-4 text-amber-600" />
-                <p className="text-[13px] text-amber-900">
-                  {isZh
-                    ? '历史主题回填已跳过 — Ollama 未运行。启动 Ollama 后点击右上角"刷新"重试。'
-                    : 'History backfill skipped — Ollama not running. Start Ollama then click "Refresh" to retry.'}
-                </p>
+              <div className="mb-6 rounded-2xl border border-amber-200 bg-amber-50/60 p-5">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-600" />
+                    <div className="flex-1">
+                      <h3 className="text-[14px] font-semibold text-amber-900">
+                        {t('knowledge.ollama_offline_title')}
+                      </h3>
+                      <p className="mt-1 text-[13px] leading-[1.6] text-amber-800">
+                        {t('knowledge.ollama_offline_desc')}
+                      </p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                        <a
+                          href="https://ollama.com/download"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-[12px] text-amber-900 transition-colors hover:bg-amber-50"
+                        >
+                          <div className="font-medium">{t('knowledge.ollama_offline_option1_title')}</div>
+                          <div className="mt-0.5 text-amber-700">{t('knowledge.ollama_offline_option1_desc')}</div>
+                          <div className="mt-1 font-medium text-amber-600">→ {t('knowledge.ollama_offline_download')}</div>
+                        </a>
+                        <a
+                          href="/settings/models"
+                          className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-[12px] text-amber-900 transition-colors hover:bg-amber-50"
+                        >
+                          <div className="font-medium">{t('knowledge.ollama_offline_option2_title')}</div>
+                          <div className="mt-0.5 text-amber-700">{t('knowledge.ollama_offline_option2_desc')}</div>
+                        </a>
+                      </div>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setRecoverStatus('idle')}
+                    className="rounded-lg p-1 text-amber-600 transition-colors hover:bg-amber-100"
+                    title={t('knowledge.ollama_offline_dismiss')}
+                    aria-label={t('knowledge.ollama_offline_dismiss')}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
             )}
 
