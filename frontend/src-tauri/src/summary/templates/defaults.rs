@@ -163,4 +163,18 @@ mod tests {
             assert!(has_timeline, "template {id} must have a Key Events Timeline section (one of sections)");
         }
     }
+
+    // §136: 全部 10 模板必须有"整件事叙述"段 (用户最看重的连贯叙事)
+    #[test]
+    fn test_all_builtin_templates_have_narrative_summary() {
+        for (id, json) in get_builtin_templates() {
+            let parsed: serde_json::Value = serde_json::from_str(json).expect("parse");
+            let sections = parsed.get("sections").and_then(|s| s.as_array()).expect("sections array");
+            let has_narrative = sections.iter().any(|s| {
+                let title = s.get("title").and_then(|t| t.as_str()).unwrap_or("");
+                title.contains("整件事") || title.to_lowercase().contains("narrative")
+            });
+            assert!(has_narrative, "template {id} must have a Narrative Summary section (整件事叙述)");
+        }
+    }
 }

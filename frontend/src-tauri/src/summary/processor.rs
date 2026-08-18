@@ -243,6 +243,19 @@ fn build_final_report_system_prompt(
 13. **For long meetings (≥ 60 min, multiple chunks)**: the map-reduce phase has already extracted per-chunk events. The final report must CONSOLIDATE these into the timeline, not just repeat them. Merge events that are continuations of the same story (e.g., "魏某 2021 年起诉 → 2022 年专利被宣告无效 → 2022 年 5 月被驳回" should appear as 1 connected timeline entry OR 3 tightly-linked entries with the same subject — NOT as 3 disconnected abstract events).
 14. **Numbers, names, dates, places must be VERBATIM from transcript** in EVERY section, not just the timeline. If a section says "判决金额" it must give the actual number (10 万元, not "一笔金额"). If it says "原告" it must give the actual name (魏某, not "原告方").
 
+**§136 NARRATIVE_COHERENCE_RULE — MANDATORY:**
+15. **THE GOAL IS TO TELL THE STORY CLEARLY, NOT JUST LIST FACTS.** A good summary reads like the CCTV 节目简介 example below — a coherent narrative where the reader understands the WHOLE story from start to finish. Your job is NARRATIVE COHERENCE, not just fact extraction.
+    - **CCTV 2012-2022 example (gold standard)**:
+        "2012年,吉林省松原市的魏某开始经营稻米销售,2020年其公司稻米的外观设计专利获得国家知识产权局授权。2021年,魏某发现当地'徐氏米业'的稻米包装与自家高度相似,于是魏某两次将徐氏米业诉至法院要求其停止侵权。徐氏米业表示其包装设计在2013年获得国家知识产权局专利授权,且2022年5月国家知识产权局宣告魏某专利无效,据此,松原中院驳回魏某的起诉。后徐氏米业认为,魏某的两次诉讼侵害自身权益,构成恶意诉讼,将魏某诉至法院。法院最终认定魏某的行为构成恶意诉讼,判其赔付徐氏米业10万元,魏某不服一审判决,向吉林省高级人民法院提起上诉。"
+        Notice: 6 consecutive sentences, each one CAUSAL-CONSECUTIVE. The reader can answer: who → what → when → why → result → next step, all from one paragraph.
+16. **SUBJECT CONSISTENCY** — Use the SAME NAME for the same entity throughout the entire report. If you introduce 魏某, do not later switch to "原告" / "上诉人" / "当事人" without good reason (in court templates, formal roles like 原告/被告/上诉人 are acceptable in the 控辩主张 section, but in the timeline + 整件事叙述 section, always use the actual name). DO NOT mix "魏某" / "魏丽秋" / "魏" in the same paragraph.
+17. **CAUSAL CONNECTORS** — Between sentences, use 因为 / 所以 / 据此 / 于是 / 后 / 表明 / 认定 / 判其 / 受理 / 诉至 (or English equivalents). Banned: "接下来"/"然后" alone (these don't show causation). Show the LOGICAL FLOW, not just chronological sequence. Example: "2022年5月国家知识产权局宣告魏某专利无效,**据此**松原中院驳回魏某的起诉" (the 据此 IS the causal link — without it, the two events look unrelated).
+18. **STORY ARCS** — Every long meeting (≥ 30 min) has a story arc: background → conflict/proposal → discussion → decision/outcome → next steps. Your "整件事叙述" section MUST cover all 5 beats. If a beat is missing from the transcript, say "本会议未明确提及" — do NOT skip the beat entirely.
+19. **KEY MOMENT HIGHLIGHTING** — When a turning point happens (判决 / 决定 / 决议 / 上诉 / 失败 / 达成协议), use **【重点】** markdown emphasis to mark it. Example: "**【重点】**法院最终认定魏某的行为构成恶意诉讼,判其赔付徐氏米业10万元". This makes scanning the summary much easier for the user. Use **【重点】** at most 2-3 times per report — only for THE most important moments.
+20. **NUMBERS IN NARRATIVE, NOT ISOLATED** — When the narrative mentions a number, CONTEXTUALIZE it immediately. Bad: "判赔 10 万元" (lone number). Good: "判其赔付徐氏米业10万元 (魏某主张8万元律师费被驳回)". The reader should understand what the number MEANS without cross-referencing other sections.
+21. **THE FIRST SENTENCE MATTERS MOST** — Open the "整件事叙述" section with a single-sentence PUNCH that names the core subject + core action + key result. Example: "魏某因自家稻米包装专利被宣告无效,反被徐氏米业以恶意诉讼为由诉至法院,被判赔付10万元,后上诉至吉林省高院。" This is the one sentence the user will remember — make it count.
+22. **NEVER START WITH ABSTRACT FRAMING** — Forbidden openings: "本会议"/"本次"/"今天"/"大家"/"我们". Start with a SPECIFIC PERSON or SPECIFIC ACTION. "魏某因..." / "会议讨论了 X 项目的 Y 决策" / "客户提出..." — these are good. "本会议讨论了 X" is bad (use the actual subject).
+
 **SECTION-SPECIFIC INSTRUCTIONS:**
 {section_instructions}
 
@@ -1122,6 +1135,32 @@ mod tests {
         assert!(
             prompt.contains("ANTI-ABSTRACT across ALL sections"),
             "must extend anti-abstract to all sections, not just timeline"
+        );
+    }
+
+    // §136: prompt 必须包含叙事连贯性规则 (subject consistency + causal connector + CCTV reference)
+    #[test]
+    fn evidence_rules_cover_narrative_coherence() {
+        let prompt = build_final_report_system_prompt("sections", "# template", "Chinese");
+        assert!(
+            prompt.contains("§136 NARRATIVE_COHERENCE_RULE"),
+            "must include §136 narrative coherence rule"
+        );
+        assert!(
+            prompt.contains("SUBJECT CONSISTENCY"),
+            "must include subject consistency rule"
+        );
+        assert!(
+            prompt.contains("CAUSAL CONNECTORS"),
+            "must include causal connector rule"
+        );
+        assert!(
+            prompt.contains("CCTV"),
+            "must include CCTV reference example"
+        );
+        assert!(
+            prompt.contains("【重点】"),
+            "must include 【重点】emphasis marker rule"
         );
     }
 
