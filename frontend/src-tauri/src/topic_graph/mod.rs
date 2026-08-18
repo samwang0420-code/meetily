@@ -388,8 +388,10 @@ pub async fn trigger_after_summary<R: Runtime>(
     let prompt = ExtractPromptBuilder::build(&summary_markdown);
 
     // 4) Call BuiltInAI (best-effort). 失败仅 log warn, 不影响主流程.
+    // §132: 120s 太长 — Ollama 不可用每场等 120s, 9 场 = 18 分钟一直转. 改 30s.
+    //       Ollama connect refuse 通常 3s, qwen3.5:2b 推理 800 token ≤ 25s.
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(120))
+        .timeout(std::time::Duration::from_secs(30))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
     let response = match generate_summary(
@@ -463,6 +465,22 @@ pub async fn trigger_after_summary<R: Runtime>(
 }
 
 
+/// §132: preflight Ollama 检查 — 3s timeout ping localhost:11434/api/tags.
+/// 用于 history recovery 顶部, 避免 9 场会议 × 30s 全 30s 等完才告诉用户 "Ollama 没启".
+/// Returns Ok(()) 可用, Err(reason) 不可用.
+pub async fn preflight_ollama_async() -> Result<(), String> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(3))
+        .build()
+        .unwrap_or_else(|_| reqwest::Client::new());
+    let url = "http://localhost:11434/api/tags";
+    match client.get(url).send().await {
+        Ok(resp) if resp.status().is_success() => Ok(()),
+        Ok(resp) => Err(format!("ollama http {}", resp.status())),
+        Err(e) => Err(format!("ollama unreachable: {e}")),
+    }
+}
+
 /// §126: 手动批量补提 — 找所有 status='completed' 但无 meeting_episode_node 的会议,
 /// 逐个调 trigger_after_summary 补 topic extract. 用于 history recovery (LLM 第一次失败 /
 /// Ollama 未启动 / 模型未下载 / 其他 silent fail 后 retry). 串行执行避免 Ollama 连接抖动.
@@ -474,6 +492,19 @@ pub async fn extract_missing_topics<R: Runtime>(
     max_meetings: i64,
 ) -> Result<(usize, usize), String> {
     // 1) 找所有 completed summary 但还没 episode 的 meeting
+    // §132: preflight — Ollama 没启就立刻 return (-1, 0), 前端不再转 18 分钟.
+    if let Err(reason) = preflight_ollama_async().await {
+        log::warn!("[topic_graph] §132 preflight failed: {reason}, skip history recovery");
+        let _ = app.emit(
+            "topic-recover-skipped",
+            serde_json::json!({
+                "reason": reason,
+                "at": chrono::Utc::now().to_rfc3339(),
+            }),
+        );
+        return Ok((0, 0));
+    }
+
     let rows: Vec<(String, String)> = sqlx::query_as(
         "SELECT sp.meeting_id, sp.result
          FROM summary_processes sp
@@ -488,6 +519,16 @@ pub async fn extract_missing_topics<R: Runtime>(
     .map_err(|e| format!("extract_missing_topics query: {e}"))?;
 
     log::info!("[topic_graph] §126 manual recover: found {} meetings to reprocess", rows.len());
+    let total = rows.len();
+    let _ = app.emit(
+        "topic-recover-progress",
+        serde_json::json!({
+            "phase": "start",
+            "total": total,
+            "processed": 0,
+            "at": chrono::Utc::now().to_rfc3339(),
+        }),
+    );
     let mut processed = 0usize;
     for (meeting_id, result_json) in rows {
         // 2) parse result.english_cache.markdown (or fallback .markdown)
@@ -513,7 +554,26 @@ pub async fn extract_missing_topics<R: Runtime>(
         // 串行: 直接 await trigger_after_summary (内部就 await Ollama). 不再 clone pool.
         trigger_after_summary(app_clone, pool.clone(), mid, md).await;
         processed += 1;
+        let _ = app.emit(
+            "topic-recover-progress",
+            serde_json::json!({
+                "phase": "step",
+                "total": total,
+                "processed": processed,
+                "current_meeting": meeting_id,
+                "at": chrono::Utc::now().to_rfc3339(),
+            }),
+        );
     }
+    let _ = app.emit(
+        "topic-recover-progress",
+        serde_json::json!({
+            "phase": "done",
+            "total": total,
+            "processed": processed,
+            "at": chrono::Utc::now().to_rfc3339(),
+        }),
+    );
     // 3) linked count = upsert_topic 实际写了多少 — 简易: query topic_node count delta
     let total_after: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM topic_node")
         .fetch_one(pool)

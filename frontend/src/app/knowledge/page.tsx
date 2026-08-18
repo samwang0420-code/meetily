@@ -5,7 +5,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { useRouter } from 'next/navigation';
 import {
   ArrowLeft, Sparkles, ChevronRight, RefreshCw,
-  Loader2, Network, GitBranch,
+  Loader2, Network, GitBranch, AlertCircle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from '@/i18n';
@@ -68,6 +68,8 @@ export default function KnowledgePage() {
   const [rebuilding, setRebuilding] = useState(false);
   const [rebuildError, setRebuildError] = useState<string | null>(null);
   const [recovering, setRecovering] = useState(false);
+  // §132: 'running' | 'ollama_offline' | 'done' — 给用户准确状态, 不再写 1~2 分钟误导
+  const [recoverStatus, setRecoverStatus] = useState<'idle' | 'running' | 'ollama_offline' | 'done'>('idle');
 
   const [searchQuery, setSearchQuery] = useState('');
   const [filterType, setFilterType] = useState<string>('all');
@@ -79,9 +81,12 @@ export default function KnowledgePage() {
       if (list.length === 0) {
         try {
           setRecovering(true);
-          const recover = (await invoke('api_topic_extract_missing', { maxMeetings: 30 })) as [number, number];
+          // §132: maxMeetings 30 -> 5 (每场 ≤ 30s, 5 场 ≤ 2.5 min, 30 场 = 15 min 等太久了)
+          //       Ollama 不可用由后端 emit topic-recover-skipped 事件提示 (useEffect listener),
+          //       不再在返回值里塞 sentinel (usize 不能是 -1).
+          const recover = (await invoke('api_topic_extract_missing', { maxMeetings: 5 })) as [number, number];
           if (recover[0] > 0) {
-            console.info(`[§126] topic recover: processed=${recover[0]} total_topics=${recover[1]}`);
+            console.info(`[§132] topic recover: processed=${recover[0]} total_topics=${recover[1]}`);
             list = (await invoke('api_topic_recent', { limit: 60 })) as TopicSearchHit[];
           }
         } catch (e) {
@@ -97,6 +102,24 @@ export default function KnowledgePage() {
   }, []);
 
   useEffect(() => { void loadTopics(); }, [loadTopics]);
+
+  // §132: 监听后端 emit 的 topic-recover-skipped 事件 (Ollama 不可用 preflight fail)
+  useEffect(() => {
+    let unlisten: (() => void) | null = null;
+    (async () => {
+      try {
+        const { listen } = await import('@tauri-apps/api/event');
+        unlisten = await listen<{ reason: string; at: string }>('topic-recover-skipped', (e) => {
+          console.info('[§132] topic recover skipped:', e.payload.reason);
+          setRecoverStatus('ollama_offline');
+          setRecovering(false);
+        });
+      } catch (e) {
+        console.warn('[§132] failed to subscribe topic-recover-skipped', e);
+      }
+    })();
+    return () => { if (unlisten) void unlisten(); };
+  }, []);
 
   const openTopic = useCallback(async (topicId: number) => {
     setLoadingTopic(true);
@@ -221,8 +244,19 @@ export default function KnowledgePage() {
                 <Loader2 className="h-4 w-4 animate-spin text-violet-600" />
                 <p className="text-[13px] text-violet-900">
                   {isZh
-                    ? '正在从历史会议摘要中回填主题 (首次进入自动执行, Ollama 推理约需 1~2 分钟)…'
-                    : 'Backfilling topics from historical meeting summaries (auto on first visit, ~1-2 min via Ollama)…'}
+                    ? `正在从历史摘要回填主题 (需 Ollama 在跑, 单场 ≤ 30s, 最多 5 场)…`
+                    : `Backfilling topics from historical summaries (Ollama required, ≤ 30s/meeting, max 5)…`}
+                </p>
+              </div>
+            )}
+
+            {recoverStatus === 'ollama_offline' && (
+              <div className="mb-6 flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50/60 px-5 py-4">
+                <AlertCircle className="h-4 w-4 text-amber-600" />
+                <p className="text-[13px] text-amber-900">
+                  {isZh
+                    ? '历史主题回填已跳过 — Ollama 未运行。启动 Ollama 后点击右上角"刷新"重试。'
+                    : 'History backfill skipped — Ollama not running. Start Ollama then click "Refresh" to retry.'}
                 </p>
               </div>
             )}
