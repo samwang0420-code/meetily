@@ -35,6 +35,11 @@ export const en: Record<string, unknown> = {
     failed_update_title: 'Failed to update title',
     deleted_data: 'All related data has been removed',
     no_transcript: 'No transcript for this meeting yet',
+    // §133: StatusOverlays 状态提示 i18n
+    status_overlay: {
+      finalizing: 'Finalizing transcription...',
+      saving: 'Saving transcript...',
+    },
     transcribing: 'Transcribing...',
     retranscribe: 'Re-transcribe',
     regenerate_summary: 'Regenerate summary',

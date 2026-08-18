@@ -39,6 +39,11 @@ export const zh: Record<string, unknown> = {
     failed_update_title: '更新会议标题失败',
     deleted_data: '关联数据已全部删除',
     no_transcript: '该会议还没有转录文字',
+    // §133: StatusOverlays 状态提示 i18n
+    status_overlay: {
+      finalizing: '正在完成转录…',
+      saving: '正在保存转录…',
+    },
     transcribing: '正在转录...',
     retranscribe: '重新转录',
     regenerate_summary: '重新生成纪要',

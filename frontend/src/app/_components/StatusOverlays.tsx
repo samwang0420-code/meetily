@@ -1,3 +1,5 @@
+import { useTranslation } from '@/i18n';
+
 interface StatusOverlaysProps {
   // Status flags
   isProcessing: boolean;      // Processing transcription after recording stops
@@ -42,19 +44,19 @@ export function StatusOverlays({
   isSaving,
   sidebarCollapsed
 }: StatusOverlaysProps) {
+  // §133: i18n 适配 — "Finalizing transcription..." / "Saving transcript..." 改 t() 调用,
+  //       之前硬编码英文 (zh locale 用户也看到英文)
+  const { t } = useTranslation();
   return (
     <>
-      {/* Processing status overlay - shown after recording stops while finalizing transcription */}
       <StatusOverlay
         show={isProcessing}
-        message="Finalizing transcription..."
+        message={t('transcript.status_overlay.finalizing')}
         sidebarCollapsed={sidebarCollapsed}
       />
-
-      {/* Saving status overlay - shown while saving transcript to database */}
       <StatusOverlay
         show={isSaving}
-        message="Saving transcript..."
+        message={t('transcript.status_overlay.saving')}
         sidebarCollapsed={sidebarCollapsed}
       />
     </>
