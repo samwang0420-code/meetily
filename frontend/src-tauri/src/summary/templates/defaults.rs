@@ -150,20 +150,17 @@ mod tests {
         }
     }
 
-    // §135: 4 主模板必须有 Key Events Timeline 段 (用户核心价值,90+ min 庭审必填)
+    // §135.1: 全部 10 模板必须有 Key Events Timeline 段 (用户核心价值, 任何场景都有时间线)
     #[test]
-    fn test_four_main_templates_have_key_events_timeline() {
+    fn test_all_builtin_templates_have_key_events_timeline() {
         for (id, json) in get_builtin_templates() {
-            if !matches!(id, "standard_meeting" | "court_hearing" | "legal_consultation" | "medical_consultation") {
-                continue;
-            }
             let parsed: serde_json::Value = serde_json::from_str(json).expect("parse");
             let sections = parsed.get("sections").and_then(|s| s.as_array()).expect("sections array");
             let has_timeline = sections.iter().any(|s| {
                 let title = s.get("title").and_then(|t| t.as_str()).unwrap_or("");
                 title.contains("时间线") || title.to_lowercase().contains("timeline")
             });
-            assert!(has_timeline, "template {id} must have a Key Events Timeline section as the first section");
+            assert!(has_timeline, "template {id} must have a Key Events Timeline section (one of sections)");
         }
     }
 }

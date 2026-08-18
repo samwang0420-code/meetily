@@ -3,6 +3,12 @@
   "description": "面向跨境电商、SMM 工作室的运营周会,重点提取 KPI 变化、达人/红人合作、广告投放决策。",
   "sections": [
     {
+      "title": "事实时间线 / Key Events Timeline",
+      "instruction": "按时间顺序提取**具体事件** — 周会时间线 — 提取具体 KPI 变化、达人合作、广告投放决策的时间点. 每条事件必须含: (1) 时间 (年/月/日/周/迭代, 原文出现则 verbatim, 没出现就标'时间未明') (2) 主体 (谁做了/谁被做了什么) (3) 行为 (具体做了什么 — 部署/签约/测试/会面/治疗) (4) 数字 (金额/数量/单位, 原文 verbatim, 克/元/万元单位**不能换算**) (5) 结果 (判决/结论/下一步). **最少 5 条, 上不封顶**, 引用原文措辞, 附 [证据: mm:ss] 时间戳. **禁止用'未提及'填空** — 如果原文没提就跳过该字段, 留空或省略, 不要造占位. 例: \"- **Q1 月**: TikTok 美区 达人 X 投放 $5000, ROI 2.3 [证据: 03:42]\"",
+      "format": "list",
+      "item_format": "- **<时间>**: <主体> <行为> <数字> <结果> [证据: mm:ss]"
+    },
+    {
       "title": "周会基本信息",
       "instruction": "Date, week number, channel (Amazon / TikTok Shop / Shopify / Instagram / YouTube), attending team members",
       "format": "string"

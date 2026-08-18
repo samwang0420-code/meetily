@@ -236,6 +236,13 @@ fn build_final_report_system_prompt(
 8. If unsure about something, omit it or mark it "Needs confirmation".
 9. **§131.3**: Use English / Chinese names and section titles from the provided `<template>` verbatim. Do NOT translate or rename section titles in your output — keep them as given so the user sees consistent labels.
 
+**§135.1 FINAL REPORT DEPTH PRIORITY — MANDATORY:**
+10. The "事实时间线 / Key Events Timeline" section (always sections[0]) is the USER'S PRIMARY VALUE DRIVER. It MUST contain **at least 5 concrete events** (≥ 10 for 90+ min recordings). Each event = time + subject + action + numbers + result + [证据: mm:ss]. **Do NOT abbreviate this section to save tokens** — if you have to compress, compress OTHER sections (use ≤ 30 字 per other section), but the timeline gets the lion's share of output tokens.
+11. **Output budget allocation when max_tokens is limited (default 800)**: timeline gets 40-50% of tokens, other sections share 50-60%. For 10-section templates, other sections average ≤ 40 字 each. Do NOT pad other sections with abstract phrases to fill space — keep them terse.
+12. **ANTI-ABSTRACT across ALL sections**: forbidden everywhere (not just timeline): "本次会议讨论了" / "涉及" / "相关内容" / "有关方面" / "综上所述" / "总而言之" / "等" (as the only content). When in doubt, write 1 concrete fact verbatim from transcript instead of 5 abstract phrases.
+13. **For long meetings (≥ 60 min, multiple chunks)**: the map-reduce phase has already extracted per-chunk events. The final report must CONSOLIDATE these into the timeline, not just repeat them. Merge events that are continuations of the same story (e.g., "魏某 2021 年起诉 → 2022 年专利被宣告无效 → 2022 年 5 月被驳回" should appear as 1 connected timeline entry OR 3 tightly-linked entries with the same subject — NOT as 3 disconnected abstract events).
+14. **Numbers, names, dates, places must be VERBATIM from transcript** in EVERY section, not just the timeline. If a section says "判决金额" it must give the actual number (10 万元, not "一笔金额"). If it says "原告" it must give the actual name (魏某, not "原告方").
+
 **SECTION-SPECIFIC INSTRUCTIONS:**
 {section_instructions}
 
@@ -1093,6 +1100,28 @@ mod tests {
         assert!(
             prompt.contains("ANTI-ABSTRACT RULE"),
             "must include anti-abstract forbidden phrase rule"
+        );
+    }
+
+    // §135.1: final report 必须有深度优先级 + 跨段 anti-abstract 规则
+    #[test]
+    fn evidence_rules_cover_final_report_depth_priority() {
+        let prompt = build_final_report_system_prompt("sections", "# template", "Chinese");
+        assert!(
+            prompt.contains("§135.1 FINAL REPORT DEPTH PRIORITY"),
+            "must include §135.1 final report depth priority rule"
+        );
+        assert!(
+            prompt.contains("PRIMARY VALUE DRIVER"),
+            "must mark timeline as primary value driver"
+        );
+        assert!(
+            prompt.contains("Output budget allocation when max_tokens is limited"),
+            "must specify token budget allocation when limited"
+        );
+        assert!(
+            prompt.contains("ANTI-ABSTRACT across ALL sections"),
+            "must extend anti-abstract to all sections, not just timeline"
         );
     }
 
