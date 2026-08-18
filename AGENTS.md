@@ -1555,3 +1555,74 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - §37 (硬闸门) / §92 (决策迁移铁律, outputs + Obsidian + AGENTS.md §X 同日落)
 - outputs/§132.1-Ollama不可用banner-改友好文案-2026-08-18.md
 - [[132.1-Ollama不可用banner-改友好文案]] (Obsidian)
+
+## §137 摘要生成中拦截跳转 (2026-08-18 立, commit 48be0f6)
+
+**触发**: 用户反馈 "现在生成摘要的过程不能跳到其他页面，否则就停了。如果用户点了切换其他页面，这时正好在生成摘要，需要让用户确认"
+
+**commit**: `48be0f6` (main, push OK), binary 13:50 70M, guard **331/331 PASS**
+
+### 改动 (6 文件, +310/-0)
+
+1. **新建 `frontend/src/hooks/useNavigationGuard.ts`** (174 行):
+   - 拦截 3 层: `history.pushState` (Next.js router.push) / `popstate` (浏览器后退) / `beforeunload` (刷新/关闭)
+   - 保存原始 pushState/replaceState, 替换为 wrapper
+   - 同一 pathname+search (query 变化) 放行
+   - 不同 url → 拦截, setPendingNav({to, type})
+   - confirm 调原始 pushState, cancel popstate 时把 url 推回
+
+2. **新建 `frontend/src/components/NavigationConfirmDialog.tsx`** (87 行):
+   - 复用 shadcn Dialog + Button (outline/destructive)
+   - lucide `AlertTriangle` (amber) + 动态 `Loader2` (等待)
+   - 智能描述: popstate 追加 "(浏览器后退)", beforeunload 追加 "(关闭/刷新浏览器)"
+   - data-testid: `navigation-guard-cancel` / `navigation-guard-confirm`
+
+3. **`frontend/src/app/meeting-details/page-content.tsx`** (+30/-0):
+   - import useNavigationGuard + NavigationConfirmDialog
+   - 算 `isSummaryInProgress = ['processing','summarizing','regenerating'].includes(summaryGeneration.summaryStatus)`
+   - 调 useNavigationGuard({when: isSummaryInProgress, ...})
+   - </motion.div> 之前插 dialog 渲染
+
+4. **`frontend/src/i18n/locales/zh.ts`** + **en.ts** — 顶层 `nav_guard` 块 (title/description/confirm_text/cancel_text)
+
+5. **`scripts/check_historical_fixes.py`** — 4 个 §137 anchor (hook/dialog/integration/i18n), guard 327 → 331
+
+### 设计原则
+1. **拦截 3 层**: pushState (90%) / popstate (5%) / beforeunload (5%)
+2. **不破坏 Next.js**: 原始引用保存, 同一 pathname+search 放行
+3. **取消时回滚 url**: popstate 触发时浏览器已改 url, 取消用原始 pushState 推回原 url
+4. **智能描述**: popstate 追加 "(浏览器后退)", 让用户知道是哪个动作触发的
+
+### §37 6 步硬闸门
+- ✅ tsc 0 / next build OK / cargo 1-3m / guard 331/331 / sync 3 binary
+
+### §15 GUI 验收
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# 1. 进任一会议 → 点"生成摘要" (或"重新生成")
+# 2. 进度条开始跑 (state = processing/summarizing/regenerating)
+# 3. 点"返回工作台" 按钮 → 弹确认 dialog
+# 4. 点 Sidebar 任意 nav → 弹同样 dialog
+# 5. 浏览器后退 (⌘+[) → 弹 dialog, 描述追加 "(浏览器后退)"
+# 6. "继续等摘要" → 关闭 dialog, 还在原页, 摘要继续跑
+# 7. 再次点 → "继续离开" → 真跳走
+```
+
+### 铁律
+1. **重要 background process 必须有 navigation guard** — 摘要 / 录音 / 重新转录 等长时操作, 用户误触离开会丢失进度
+2. **拦截在 history 层而非 router 层** — Next.js 13+ App Router 用 history.pushState, 在更底层拦截覆盖所有调用方式 (router.push / <Link> / Sidebar 按钮)
+3. **3 层缺一不可**:
+   - pushState (90%): 按钮 / Sidebar / Link
+   - popstate (5%): 浏览器后退
+   - beforeunload (5%): 刷新 / 关闭
+4. **不破坏 Next.js** — 原始引用保存 + 同一 pathname 放行
+5. **新加 background process 必加 guard** — 任何 "长时操作" UI 都加 useNavigationGuard
+
+### 关联
+- §135 (摘要多次生成历史, history 保留)
+- §129 (摘要 polling 30 min, stale PENDING 清理) — 跟 §137 互补: 一个防卡死, 一个防误中断
+- §104 (录制通知 toast i18n, 同样的"用 React state 但不在 React 组件" pattern)
+- §15 (GUI 验收) / §37 (硬闸门) / §56 (AGENTS.md 双校) / §92 (决策迁移铁律)
+- outputs/§137-摘要生成中拦截跳转-2026-08-18.md
+- [[137-摘要生成中拦截跳转]] (Obsidian)
