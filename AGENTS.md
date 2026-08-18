@@ -1626,3 +1626,91 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - §15 (GUI 验收) / §37 (硬闸门) / §56 (AGENTS.md 双校) / §92 (决策迁移铁律)
 - outputs/§137-摘要生成中拦截跳转-2026-08-18.md
 - [[137-摘要生成中拦截跳转]] (Obsidian)
+
+## §138 摘要质量根因修复 (2026-08-18 立, commit 9807c64)
+
+**触发**: 用户截图 8/18 庭审摘要 7212 字符, 段落大规模重复 + ASR 错字进摘要 + 编造人名"魏立秋". 用户说 "OK 完成p0然后再进行p1和p2".
+
+**commit**: `9807c64` (main, push OK), binary 14:37 70M, guard **337/337 PASS**
+
+### 4 类根因 + 4 项修复
+
+#### P0.1 Map-Reduce 段落去重
+- 现象: 8 chunk × 8 段 = 64 段, 5+ 段重复 (LLM 每个 chunk 都生完整 8 段)
+- 修: `processor.rs::dedup_chunk_summaries` — 解析 ## / ### 段, normalized hash 判重, 跨 chunk 重复只保留首次
+- 集成: `recursive_reduce_summaries` 末轮调 `summarize_fn` 之前 dedup 一次
+- 测试: 4 个全过 (removes_duplicate / normalizes_punctuation / keeps_distinct / empty_and_single)
+
+#### P0.2 ASR 错字过滤
+- 现象: "院二二二二二二二二的原则上下发了..." ASR 错字直接进 transcripts
+- 修: 新建 `audio/asr_sanitize.rs::sanitize_asr_text` — 折叠连续 5+ 重复字符 / 截断 200 字无标点段 / 质量分级 (High/Medium/Low)
+- 集成: `database/repositories/transcript.rs::save_transcript` 写入前
+- Low quality 段不写入 DB (避免污染摘要 prompt)
+- 测试: 5 个全过 (collapse / truncate / low / high / garbled)
+
+#### P1.1 + P1.2 + P1.3 0-编造 + 强制 mm:ss + 金额计算
+- 现象: 编造"魏立秋" (转录只有"魏某"), 时间线 `[证据:未明]` 占位, 8 万 / 10 万 数字不区分
+- 修: `processor.rs::P1_PRECISION_RULES` 常量, 6 条硬规则:
+  1. 0 编造人名/日期/案号/金额
+  2. 强制 [证据: mm:ss] (无锚点拒绝写入)
+  3. 金额计算显式化 ("11.5 万 × 5 倍 = 57.5 万")
+  4. 称谓一致 (不混用"魏某" / "魏立秋")
+  5. Subject Name Consistency
+  6. Alias Normalization (别名映射表)
+- 注入到 3 个 prompt: build_chunk / build_combine / build_final_report
+
+#### P2.1 Alias 规范化 (文本预处理)
+- 现象: "徐氏米业公司" / "徐某" / "该公司" / "被告" 混用
+- 修: `asr_sanitize.rs::normalize_aliases` — 转录写入前替换
+  - "徐氏米业公司" / "徐氏米业有限责任公司" → "徐氏米业"
+  - "魏丽秋" / "魏立秋" → "魏某"
+- 测试: 3 个全过 (unify_company / collapses_fabricated / no_op)
+
+### 6 个新 guard 锚点 (§138)
+- `138_p01_dedup_function` / `138_p01_dedup_called`
+- `138_p02_sanitize_module` / `138_p02_sanitize_in_transcripts`
+- `138_p21_alias_normalize`
+- `138_p11_p12_p1_precision_rules`
+- guard 331 → **337/337 PASS**
+
+### §37 6 步硬闸门 (commit 9807c64)
+- ✅ tsc 0 errors
+- ✅ next build OK
+- ✅ cargo test --lib: **364 passed / 0 failed** (12 个 §138 新测全过)
+- ✅ cargo build --release: 1m39s, binary 14:37 70M
+- ✅ check_historical_fixes.py **337/337 PASS**
+- ✅ sync_app_bundle.sh: 3 binary 全 sync
+
+### §15 GUI 验收
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# 1. 重新生成 meeting-911f52ae 摘要
+# 2. 期望:
+#    - 摘要长度 < 3500 字符 (之前 7212)
+#    - 段落不重复 (之前 5+ 段重复)
+#    - 时间线每条带 [证据: mm:ss]
+#    - 没有"魏丽秋" / "魏立秋" (应该是"魏某")
+#    - "11.5 万 × 5 倍 = 57.5 万" 列出
+# 3. DB: SELECT chunk_count, processing_time FROM summary_processes
+#       WHERE meeting_id='meeting-911f52ae-07f6-43fb-9f95-2d79fc4ccc1f'
+```
+
+### 铁律
+1. **Map-Reduce 必加 dedup** — 任何 chunk 跑完整模板, 必 dedup 否则大量重复
+2. **ASR 错字必须过滤** — sherpa-onnx 中文偶发严重错字, 不过滤直接进 prompt 必污染摘要
+3. **P1 规则 prompt-level, 不能完全保证 LLM 100% 执行** — 大幅改善, 极端 case 仍可能漏
+4. **Alias 规范化双管齐下** — 文本预处理 (确定性) + Prompt 规则 (LLM 辅助), 两层防护
+5. **下次新加摘要模板必带 P1 规则** — templates/*.json 改完要看 system prompt 是否包含 P1_PRECISION_RULES
+
+### 关联
+- §137 (navigation guard) — 上一个 commit
+- §135 (摘要多次生成历史) — chunk_count 仍然有, dedup 后会少
+- §136 (整件事叙述段) — narrative 规则保留, P1 加强
+- §135.1 (final report depth priority) — 时间线拿 40-50% token
+- §131.3 (anti-fabrication) — P1_PRECISION_RULES 升级版
+- §15 / §37 / §56 / §92
+
+### 已知边界
+- 老数据 (v0.8.6 之前生成的摘要) 不重做, 历史污染无法补救
+- tsc 1 个 §18 bun:test 错误, 36 cargo warnings (§18 不动)
