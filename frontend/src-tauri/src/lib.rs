@@ -794,6 +794,10 @@ pub fn run() {
             topic_graph::api_topic_search,
             topic_graph::api_topic_recent,
             topic_graph::api_topic_extract_missing,
+            // §135 多次生成摘要历史
+            summary::commands::api_summary_history,
+            summary::commands::api_summary_current,
+            summary::commands::api_summary_history_get,
             topic_graph::api_topic_get_dossier,
             topic_graph::api_topic_rebuild_dossier,
             live_qa::api_meeting_live_qa,

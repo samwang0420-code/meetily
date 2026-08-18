@@ -64,6 +64,22 @@ const EVIDENCE_GROUNDED_SUMMARY_RULES: &str = r#"
 **§131.3 EVIDENCE CITATION FORMAT — MANDATORY:**
 14. If you cite a timestamp/evidence marker like `[证据: mm:ss]` or `[mm:ss]`, the mm:ss MUST be derivable from a real transcript segment. DO NOT invent evidence markers like `[evidence:71]` or `[00:71]` for content that has no clear timestamp grounding. ( Example of bad: `[evidence:71 start=unknown end=unknown] 随机片段`. Example of good: omit the evidence marker, or use the actual segment timestamp from the transcript.)
 
+**§135 TIMELINE EXTRACTION RULE — MANDATORY:**
+15. EXTRACT SPECIFIC EVENTS, NOT ABSTRACT SUMMARIES. The first section of every template (Key Events Timeline) requires concrete events: (time + subject + action + numbers + result). For each event:
+    - **Time**: verbatim year/month/day from transcript. If not stated, write "时间未明" (do NOT invent dates).
+    - **Subject**: WHO did it. Use names verbatim from transcript. "未提及" is FORBIDDEN — if no subject is identifiable, omit the event entirely rather than fabricating one.
+    - **Action**: WHAT they did. Be specific (e.g., "提起诉讼" / "作出判决" / "宣告专利无效" / "赔付 10 万元") — not generic verbs like "处理" / "涉及" / "相关".
+    - **Numbers**: amounts, quantities, units — VERBATIM from transcript. UNITS MUST MATCH (克 ≠ 元). Never compute, round, or convert.
+    - **Result**: concrete outcome (判决结果 / 裁定 / 协议 / 上诉 / 驳回 / 维持原判 / 改判). If the transcript doesn't state a result, write "结果未明" — do NOT speculate.
+    - **Minimum 5 events** for any meeting ≥ 10 minutes. For 90+ min recordings, extract 10+ events. The 2012/2020/2021/2022 CCTV court case example shows the expected detail level:
+        - "2012 年: 吉林省松原市 魏某开始经营稻米销售"
+        - "2020 年: 魏某的稻米外观设计专利获国家知识产权局授权"
+        - "2021 年: 魏某发现徐氏米业稻米包装与自家高度相似, 两次将徐氏米业诉至法院"
+        - "2022 年 5 月: 国家知识产权局宣告魏某专利无效, 松原中院据此驳回魏某起诉"
+        - "随后: 徐氏米业反诉魏某构成恶意诉讼, 法院判魏某赔付 10 万元, 魏某不服上诉至吉林省高院"
+    - This is the user's primary value driver. If you produce abstract summaries without these concrete events, the summary is USELESS and the user will regenerate with a different template.
+16. ANTI-ABSTRACT RULE: Forbidden phrases in Key Events Timeline: "本次会议讨论了" / "涉及" / "相关内容" / "有关方面" / "未提及" (in subject field) / "等" (as the only content). If you find yourself writing these, you have not extracted enough — go back to the transcript and find a SPECIFIC event with a SPECIFIC person/time/number.
+
 **Hard rule for downstream fact-check pass:**
 - The post-processing fact guard will reject any date, amount, or owner that is not present in the source transcript, and will flag any unit confusion (weight ↔ money). Producing unsupported values, fabricated owners, or unit-mismatched numbers will cause the entire summary to be marked for human review. Treat the transcript as the only source of truth.
 "#;
@@ -1059,6 +1075,24 @@ mod tests {
         assert!(
             prompt.contains("本次无相关"),
             "empty section marker should be Chinese"
+        );
+    }
+
+    // §135: prompt 必须包含 Key Events Timeline 强制规则
+    #[test]
+    fn evidence_rules_cover_timeline_extraction_rule() {
+        let prompt = build_final_report_system_prompt("sections", "# template", "Chinese");
+        assert!(
+            prompt.contains("§135 TIMELINE EXTRACTION RULE"),
+            "must include §135 timeline extraction rule"
+        );
+        assert!(
+            prompt.contains("EXTRACT SPECIFIC EVENTS, NOT ABSTRACT SUMMARIES"),
+            "must emphasize specific events over abstract"
+        );
+        assert!(
+            prompt.contains("ANTI-ABSTRACT RULE"),
+            "must include anti-abstract forbidden phrase rule"
         );
     }
 

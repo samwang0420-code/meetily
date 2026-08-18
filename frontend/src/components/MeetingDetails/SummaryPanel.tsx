@@ -7,6 +7,7 @@ import { BlockNoteSummaryView, BlockNoteSummaryViewRef } from '@/components/AISu
 import { EmptyStateSummary } from '@/components/EmptyStateSummary';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 import { ActionItemsList } from './ActionItemsList';
+import { SummaryHistoryPanel } from './SummaryHistoryPanel';
 // §124 dead-code-elimination: SummaryGeneratorButtonGroup import removed (was at line 9 in §123 baseline)
 // §124 dead-code-elimination: SummaryUpdaterButtonGroup import removed (was at line 12 in §123 baseline)
 import { SpeakerRosterDrawer } from '@/components/SpeakerRoster/SpeakerRosterDrawer';
@@ -15,7 +16,7 @@ import { useEffect, useRef, useState, RefObject } from 'react';
 import { listen } from '@tauri-apps/api/event';
 import { toast } from 'sonner';
 import { safeToast } from '@/lib/safeToast';
-import { Languages, ChevronDown, Users } from 'lucide-react';
+import { Languages, ChevronDown, Users, History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import {
@@ -133,6 +134,8 @@ export function SummaryPanel({
   const [streamedMarkdown, setStreamedMarkdown] = useState('');
   // v0.7.0+ P0-1: Map-Reduce 阶段显示
   const [summaryPhase, setSummaryPhase] = useState<'idle'|'single'|'map'|'reduce'|'final'>('idle');
+  // §135: 历史摘要弹窗
+  const [historyOpen, setHistoryOpen] = useState(false);
   // §128: 让"摘要设置 → AI 模型" 真正打开 ModelSettingsModal 对话框 (而不是空回调)
   const [modelSettingsDialogOpen, setModelSettingsDialogOpen] = useState(false);
   const languageLoadVersionRef = useRef(0);
@@ -572,6 +575,30 @@ export function SummaryPanel({
         </div>
       ) : transcripts?.length > 0 && (
         <div className="flex-1 overflow-y-auto min-h-0">
+          {/* §135: 当前模板徽章 + 历史摘要按钮 (用户一眼看到本次生成用的什么模板) */}
+          <div className="mx-6 mt-4 flex items-center justify-between gap-2">
+            <div className="inline-flex items-center gap-1.5 rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700 border border-violet-200">
+              <FileType className="h-3.5 w-3.5" />
+              <span>{t('summary.current_template_badge')}: {selectedTemplateName || t('summary.template')}</span>
+            </div>
+            <button
+              onClick={() => setHistoryOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-full border border-neutral-200 bg-white px-3 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+            >
+              <History className="h-3.5 w-3.5" />
+              {t('summary.history_button')}
+            </button>
+          </div>
+          <SummaryHistoryPanel
+            meetingId={meeting.id}
+            currentTemplateName={selectedTemplateName}
+            open={historyOpen}
+            onClose={() => setHistoryOpen(false)}
+            onLoadHistory={(historyId) => {
+              window.dispatchEvent(new CustomEvent('summary-history-load', { detail: { historyId, meetingId: meeting.id } }));
+              setHistoryOpen(false);
+            }}
+          />
           {summaryResponse && (
             <div className="fixed bottom-0 left-0 right-0 bg-white shadow-lg p-4 max-h-1/3 overflow-y-auto">
               <h3 className="text-lg font-semibold mb-2">{t('summary.title')}</h3>

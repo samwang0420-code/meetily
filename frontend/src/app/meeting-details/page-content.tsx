@@ -165,6 +165,27 @@ export default function PageContent({
     Analytics.trackPageView('meeting_details');
   }, []);
 
+  // §135: 监听 summary-history-load 事件 — 用户在历史弹窗点"查看"时
+  //       调 api_summary_history_get 拿历史 result, setAiSummary 切换显示
+  useEffect(() => {
+    const handler = async (e: Event) => {
+      const ce = e as CustomEvent<{ historyId: number; meetingId: string }>;
+      if (!ce.detail || ce.detail.meetingId !== meeting.id) return;
+      try {
+        const result = await invoke<unknown>('api_summary_history_get', { historyId: ce.detail.historyId });
+        if (result && typeof result === 'object' && result !== null && 'markdown' in (result as Record<string, unknown>)) {
+          meetingData.setAiSummary(result as Parameters<typeof meetingData.setAiSummary>[0]);
+          toast.success(t('summary.history_switch_tooltip'));
+        }
+      } catch (err) {
+        console.error('[§135] failed to load history:', err);
+        toast.error(String(err));
+      }
+    };
+    window.addEventListener('summary-history-load', handler as EventListener);
+    return () => window.removeEventListener('summary-history-load', handler as EventListener);
+  }, [meeting.id, meetingData, t]);
+
   // v0.6.10+: 监听录音后自动重新转录的进度, complete 时刷新 transcript
   useEffect(() => {
     let unlistenFn: (() => void) | undefined;

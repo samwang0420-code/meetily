@@ -471,3 +471,82 @@ pub async fn api_cancel_summary<R: Runtime>(
         }))
     }
 }
+
+// === §135 多次生成摘要历史 ===
+
+#[derive(Debug, serde::Serialize, sqlx::FromRow)]
+pub struct SummaryHistoryEntry {
+    pub id: i64,
+    pub meeting_id: String,
+    pub template_id: Option<String>,
+    pub template_name: Option<String>,
+    pub model_name: Option<String>,
+    pub chunk_count: i64,
+    pub processing_time: f64,
+    pub created_at: String,
+    pub archived_at: String,
+    pub backup_reason: String,
+    /// 完整 result JSON 字符串 (前端解析)
+    pub result_json: String,
+}
+
+/// §135: 拉该会议所有历史摘要 (按 archived_at 倒序, 最新归档在前)
+#[tauri::command]
+pub async fn api_summary_history<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+) -> Result<Vec<SummaryHistoryEntry>, String> {
+    let pool = state.db_manager.pool();
+    let rows: Vec<SummaryHistoryEntry> = sqlx::query_as::<_, SummaryHistoryEntry>(
+        r#"
+        SELECT id, meeting_id, template_id, template_name, model_name,
+               chunk_count, processing_time,
+               created_at, archived_at, backup_reason, result_json
+        FROM summary_history
+        WHERE meeting_id = ?1
+        ORDER BY archived_at DESC
+        "#,
+    )
+    .bind(&meeting_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|e| format!("api_summary_history query: {e}"))?;
+    Ok(rows)
+}
+
+/// §135: 拉当前 summary_processes 的 result (最新) — 与 history 区分开
+#[tauri::command]
+pub async fn api_summary_current<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    meeting_id: String,
+) -> Result<Option<serde_json::Value>, String> {
+    let pool = state.db_manager.pool();
+    let row: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT result FROM summary_processes WHERE meeting_id = ?1"
+    )
+    .bind(&meeting_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("api_summary_current query: {e}"))?;
+    Ok(row.and_then(|(r,)| r.and_then(|s| serde_json::from_str(&s).ok())))
+}
+
+/// §135: 拉某条 history 的 result (前端切换历史摘要时调)
+#[tauri::command]
+pub async fn api_summary_history_get<R: Runtime>(
+    _app: AppHandle<R>,
+    state: tauri::State<'_, AppState>,
+    history_id: i64,
+) -> Result<Option<serde_json::Value>, String> {
+    let pool = state.db_manager.pool();
+    let row: Option<(Option<String>,)> = sqlx::query_as(
+        "SELECT result_json FROM summary_history WHERE id = ?1"
+    )
+    .bind(history_id)
+    .fetch_optional(pool)
+    .await
+    .map_err(|e| format!("api_summary_history_get query: {e}"))?;
+    Ok(row.and_then(|(r,)| r.and_then(|s| serde_json::from_str(&s).ok())))
+}

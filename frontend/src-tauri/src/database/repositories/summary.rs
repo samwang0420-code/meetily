@@ -91,6 +91,8 @@ impl SummaryProcessesRepository {
             meeting_id
         );
         let now = Utc::now();
+        // §135: 先把旧 result 写入 summary_history (永久保留), 再做 backup (用于失败回滚).
+        //       一次生成成功: history + 1 条 (旧版本); 失败: 回滚到 backup, history 也保留.
         sqlx::query(
             r#"
             INSERT INTO summary_processes (meeting_id, status, created_at, updated_at, start_time, result, error)
@@ -111,6 +113,53 @@ impl SummaryProcessesRepository {
         .bind(now)
         .execute(pool)
         .await?;
+
+        // §135: 备份到 summary_history (只在旧 result 存在且非空时)
+        let old: Option<(Option<String>, Option<String>, Option<String>, Option<String>, Option<i64>, Option<f64>)> =
+            sqlx::query_as(
+                r#"
+                SELECT sp.result, sp.result_backup,
+                       json_extract(sp.result, '$.source.template_id'),
+                       json_extract(sp.result, '$.source.model_name'),
+                       sp.chunk_count, sp.processing_time
+                FROM summary_processes sp
+                WHERE sp.meeting_id = ?1
+                "#
+            )
+            .bind(meeting_id)
+            .fetch_optional(pool)
+            .await?;
+        if let Some((Some(result_str), _, tid, mname, cc, pt)) = old {
+            // 用 summary_processes.result_backup_timestamp 作为 created_at (旧版本原时间)
+            let old_ts: Option<String> = sqlx::query_scalar(
+                "SELECT result_backup_timestamp FROM summary_processes WHERE meeting_id = ?1"
+            )
+            .bind(meeting_id)
+            .fetch_optional(pool)
+            .await?
+            .flatten();
+            sqlx::query(
+                r#"
+                INSERT INTO summary_history
+                    (meeting_id, template_id, template_name, model_name, chunk_count, processing_time,
+                     result_json, created_at, archived_at, backup_reason)
+                VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, 'regenerate')
+                "#
+            )
+            .bind(meeting_id)
+            .bind(&tid)
+            .bind(&tid)  // template_name 暂用 id (前端可读 built-in name 表)
+            .bind(&mname)
+            .bind(cc.unwrap_or(0))
+            .bind(pt.unwrap_or(0.0))
+            .bind(result_str)
+            .bind(old_ts.unwrap_or_else(|| now.to_rfc3339()))
+            .bind(now.to_rfc3339())
+            .execute(pool)
+            .await?;
+            log_info!("[§135] archived previous summary to history for meeting_id: {}", meeting_id);
+        }
+
         log_info!(
             "Backed up existing summary before regeneration for meeting_id: {}",
             meeting_id
