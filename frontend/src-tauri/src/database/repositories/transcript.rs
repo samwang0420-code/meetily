@@ -1,4 +1,5 @@
 use crate::api::{TranscriptSearchResult, TranscriptSegment};
+use crate::audio::asr_sanitize::{normalize_aliases, sanitize_asr_text, AsrQuality};
 use chrono::Utc;
 use sqlx::{Connection, Error as SqlxError, SqlitePool};
 use tracing::{error, info};
@@ -50,18 +51,48 @@ impl TranscriptsRepository {
             return Err(e);
         }
 
+        // §138 P0.2 ASR sanitize 统计
+        let mut sanitized_count = 0usize;
+        let mut low_quality_count = 0usize;
+
         info!("Successfully created meeting with id: {}", meeting_id);
 
         // 2. Save each transcript segment with audio timing fields
+        // §138 P0.2: ASR 错字过滤 — 折叠连续重复字符 + 截断长无标点段
+        // 严重错字段 (Low quality) 不写入 transcripts, 避免污染摘要 prompt
         for segment in transcripts {
             let transcript_id = format!("transcript-{}", Uuid::new_v4());
+            // §138 P2.1: 别名规范化 (转录写入前替换, 让 LLM 看到一致输入)
+            let (aliased_text, alias_count) = normalize_aliases(&segment.text);
+            // §138 P0.2: ASR 错字过滤
+            let (sanitized_text, was_modified, quality) = sanitize_asr_text(&aliased_text);
+            if was_modified {
+                sanitized_count += 1;
+            }
+            if alias_count > 0 {
+                tracing::debug!(
+                    "§138 P2.1 normalized {} aliases in segment {}",
+                    alias_count,
+                    transcript_id
+                );
+            }
+            if quality == AsrQuality::Low {
+                low_quality_count += 1;
+                tracing::warn!(
+                    "§138 P0.2 dropped low-quality ASR segment: id={} chars={} preview={:?}",
+                    transcript_id,
+                    segment.text.chars().count(),
+                    &segment.text.chars().take(50).collect::<String>()
+                );
+                continue; // 不写入 DB
+            }
             let result = sqlx::query(
                 "INSERT OR IGNORE INTO transcripts (id, meeting_id, transcript, timestamp, audio_start_time, audio_end_time, duration)
                  VALUES (?, ?, ?, ?, ?, ?, ?)"
             )
             .bind(&transcript_id)
             .bind(&meeting_id)
-            .bind(&segment.text)
+            .bind(&sanitized_text)
             .bind(&segment.timestamp)
             .bind(segment.audio_start_time)
             .bind(segment.audio_end_time)
@@ -87,6 +118,15 @@ impl TranscriptsRepository {
 
         // Commit the transaction
         transaction.commit().await?;
+
+        // §138 P0.2 ASR sanitize 统计 log
+        info!(
+            "§138 P0.2 ASR sanitize summary: meeting={} total={} sanitized={} dropped_low_quality={}",
+            meeting_id,
+            transcripts.len(),
+            sanitized_count,
+            low_quality_count
+        );
 
         Ok(meeting_id)
     }

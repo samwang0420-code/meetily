@@ -51,6 +51,9 @@ pub mod retranscription;
 // sherpa-onnx 后端 daemon (离线会记 W2)
 pub mod sherpa_daemon;
 
+// §138 P0.2: ASR 错字过滤 (折叠连续重复 / 截断长无标点段)
+pub mod asr_sanitize;
+
 // Import module (import external audio files as new meetings)
 pub mod import;
 
