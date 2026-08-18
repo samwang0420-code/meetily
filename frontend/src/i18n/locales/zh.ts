@@ -15,6 +15,12 @@ export const zh: Record<string, unknown> = {
     import_audio: '导入音频',
     recording_in_progress: '录音进行中...',
   },
+  nav_guard: {  // §137: 摘要生成中拦截跳转的确认 modal
+    title: '摘要还在生成中',
+    description: '现在离开会中断摘要生成, 之前的进度会丢失。确定要离开吗?',
+    confirm_text: '继续离开',
+    cancel_text: '继续等摘要',
+  },
   home: {
     welcome: '欢迎使用言镜 AI!',
     hint_record: '开始录音, 即可看到实时转录文字',

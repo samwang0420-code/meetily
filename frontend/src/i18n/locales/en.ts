@@ -15,6 +15,12 @@ export const en: Record<string, unknown> = {
     import_audio: 'Import Audio',
     recording_in_progress: 'Recording...',
   },
+  nav_guard: {  // §137: Navigation guard for in-progress summary
+    title: 'Summary is still generating',
+    description: 'Leaving now will interrupt summary generation. The progress so far will be lost. Are you sure you want to leave?',
+    confirm_text: 'Leave anyway',
+    cancel_text: 'Keep waiting',
+  },
   home: {
     welcome: 'Welcome to 言镜 AI!',
     hint_record: 'Start recording to see live transcription',

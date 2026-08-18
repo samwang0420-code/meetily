@@ -17,6 +17,8 @@ import { ModelConfig } from '@/components/ModelSettingsModal';
 // Custom hooks
 import { useMeetingData } from '@/hooks/meeting-details/useMeetingData';
 import { useSummaryGeneration } from '@/hooks/meeting-details/useSummaryGeneration';
+import { useNavigationGuard } from '@/hooks/useNavigationGuard';
+import { NavigationConfirmDialog } from '@/components/NavigationConfirmDialog';
 import { useTemplates } from '@/hooks/meeting-details/useTemplates';
 import { useCopyOperations } from '@/hooks/meeting-details/useCopyOperations';
 import { useMeetingOperations } from '@/hooks/meeting-details/useMeetingOperations';
@@ -158,6 +160,18 @@ export default function PageContent({
 
   const meetingOperations = useMeetingOperations({
     meeting,
+  });
+
+  // §137: 摘要生成中拦截所有跳转 (router.push / 后退 / 刷新 / Sidebar 链接 / 返回工作台)
+  const isSummaryInProgress = ['processing', 'summarizing', 'regenerating'].includes(
+    summaryGeneration.summaryStatus
+  );
+  const { pendingNav, confirm: confirmNav, cancel: cancelNav } = useNavigationGuard({
+    when: isSummaryInProgress,
+    title: t('nav_guard.title'),
+    description: t('nav_guard.description'),
+    confirmText: t('nav_guard.confirm_text'),
+    cancelText: t('nav_guard.cancel_text'),
   });
 
   // Track page view
@@ -397,6 +411,17 @@ export default function PageContent({
           onOpenModelSettings={handleRegisterModalOpen}
         />
       </div>
+
+      {/* §137: 摘要生成中确认 dialog */}
+      <NavigationConfirmDialog
+        pendingNav={pendingNav}
+        title={t('nav_guard.title')}
+        description={t('nav_guard.description')}
+        confirmText={t('nav_guard.confirm_text')}
+        cancelText={t('nav_guard.cancel_text')}
+        onConfirm={confirmNav}
+        onCancel={cancelNav}
+      />
     </motion.div>
   );
 }
