@@ -1149,4 +1149,64 @@ mod tests {
             "1h47m transcript must exceed §116 cap to trigger Map-Reduce"
         );
     }
+
+    // §141 B 方案: VERBATIM FACT-CHECK 注入 system prompt + user prompt
+    // 触发: meeting-8ce922f9 (2026-08-19) — transcript "二零一八年七月十四日" 被 LLM 改成 "2017年8月26日"
+    //       transcript "一百二十三万余元" 被 LLM 改成 "23.75万元"
+    // §141 强制: system prompt 注入 P141_VERBATIM_FACT_CHECK + user prompt 注入 fact_check_reminder
+    #[test]
+    fn section_141_verbatim_fact_check_prompt_contains_before_after_pairs() {
+        // 验证 processor.rs P141 常量含关键 BEFORE/AFTER 例子
+        let prompt = include_str!("processor.rs");
+        // §141.1 PRECISE VERBATIM DEMO 表格必须含 6+ 反例
+        assert!(
+            prompt.contains("§141.1 PRECISE VERBATIM DEMO"),
+            "§141.1 demo table missing"
+        );
+        assert!(
+            prompt.contains("二零一八年七月十四日"),
+            "§141 demo missing date example (二零一八年七月十四日)"
+        );
+        assert!(
+            prompt.contains("一百二十三万余元"),
+            "§141 demo missing amount example (一百二十三万余元)"
+        );
+        assert!(
+            prompt.contains("温明仁"),
+            "§141 demo missing name example (温明仁)"
+        );
+        // §141.3 TIMELINE-SPECIFIC WARNING 必须存在
+        assert!(
+            prompt.contains("§141.3 TIMELINE-SPECIFIC WARNING"),
+            "§141.3 timeline warning missing"
+        );
+    }
+
+    #[test]
+    fn section_141_final_report_system_prompt_includes_p141_block() {
+        // 验证 build_final_report_system_prompt 把 P141 注入到 system prompt
+        let prompt = include_str!("processor.rs");
+        assert!(
+            prompt.contains("2.6. {P141_VERBATIM_FACT_CHECK}"),
+            "build_final_report_system_prompt must inject P141 block (line 2.6)"
+        );
+    }
+
+    #[test]
+    fn section_141_final_user_prompt_includes_fact_check_reminder() {
+        // 验证 final stage 拼装时, user prompt 注入 <fact_check_reminder> 块
+        let prompt = include_str!("processor.rs");
+        assert!(
+            prompt.contains("<fact_check_reminder>"),
+            "final_user_prompt must include <fact_check_reminder> block"
+        );
+        assert!(
+            prompt.contains("Re-scan <transcript_chunks>"),
+            "fact_check_reminder must instruct LLM to re-scan transcript"
+        );
+        assert!(
+            prompt.contains("2x") && prompt.contains("0.5x"),
+            "fact_check_reminder must give magnitude threshold (2x / 0.5x)"
+        );
+    }
 }

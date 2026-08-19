@@ -8,6 +8,7 @@ import { Block } from '@blocknote/core';
 import { useCreateBlockNote } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/shadcn';
 import { blocksToMarkdownSafely } from '@/lib/blocknote-markdown';
+import { highlightUnexpectedFacts } from '@/lib/highlight_facts';
 import { FactGuardBanner } from './FactGuardBanner';
 import "@blocknote/shadcn/style.css";
 
@@ -97,9 +98,12 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
           // v0.6.22: 防 #321 死循环 — 在 replaceBlocks 前先关掉 isContentLoaded,
           // 让 onChange 期间的 setCurrentBlocks/setIsDirty 不触发 parent re-render
           isContentLoaded.current = false;
-          const blocks = await editor.tryParseMarkdownToBlocks(data.markdown);
+          // §141 D 方案: 把 fact_guard 报警的 unexpected_dates/numbers 用 ==包裹==
+          // 让 BlockNote markdown parser 渲染成高亮 (BlockNote 默认支持 ==highlight== 语法)
+          const highlighted = highlightUnexpectedFacts(data.markdown, data.fact_guard);
+          const blocks = await editor.tryParseMarkdownToBlocks(highlighted);
           editor.replaceBlocks(editor.document, blocks);
-          console.log('✅ Markdown parsed successfully');
+          console.log('✅ Markdown parsed successfully', { highlighted: highlighted !== data.markdown });
 
           // Delay to ensure editor has finished rendering before allowing onChange
           setTimeout(() => {
@@ -138,10 +142,12 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
     lastLoadedMarkdownRef.current = markdownKey;
     (async () => {
       try {
-        const blocks = await editor.tryParseMarkdownToBlocks(md);
+        // §141 D 方案: 高亮 fact_guard 报警项
+        const highlighted = highlightUnexpectedFacts(md, data.fact_guard);
+        const blocks = await editor.tryParseMarkdownToBlocks(highlighted);
         editor.replaceBlocks(editor.document, blocks);
         isContentLoaded.current = true;
-        console.log('✅ [BlockNote] force reload on status=completed, len=', md.length);
+        console.log('✅ [BlockNote] force reload on status=completed, len=', md.length, { highlighted: highlighted !== md });
       } catch (err) {
         console.error('❌ [BlockNote] force reload failed', err);
       }
