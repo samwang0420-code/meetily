@@ -1629,6 +1629,68 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 
 ## §138 摘要质量根因修复 (2026-08-18 立, commit 9807c64)
 
+## §137.1 nav_guard 模块级 singleton 修复 (2026-08-19 立, commit 即将)
+
+**触发**: 用户 8/19 11:00 反馈"之前的录音生成**音效**时切换到其他地方需要提醒的功能还没生效" (语义实为"摘要生成")。
+
+**根因 (race condition)**: §137 旧版用 `useEffect` 注册 `pushState` wrapper + React `useState` 存 `pendingNav`。当用户点 Sidebar 链接触发 Next.js 路由切换:
+1. Next.js 内部调 `history.pushState` → wrapper 拦截 → `setPendingNav(...)`
+2. **同步**: Next.js fetch 响应回来, 准备 unmount meeting-details
+3. **React commit**: meeting-details unmount → useEffect cleanup 跑 → `pushState = originalPush` 还原
+4. setPendingNav 排队的 state 更新被丢弃 (component 已 unmount)
+5. KnowledgePage mount, dialog **永远不弹**
+
+**修复方案 — Module-level singleton + 引用计数**:
+- `pushState` / `replaceState` 包装移到 module-level (跨 component lifecycle)
+- `pendingNav` 用 module-level + 订阅者 Set
+- 引用计数 (`refCount`): 第一个 hook `when=true` 装 wrapper, 最后一个 `when=false` 卸 wrapper
+- **关键**: 有 `pendingNav` 时不卸载 wrapper, 防止 dialog 在 unmount 后无法响 confirm
+
+**实现位置** (frontend/src/hooks/useNavigationGuard.ts):
+- 14 个 module-level 变量 (wrapperInstalled/originalPush/.../subscribers Set)
+- 8 个 module-level 函数 (installWrapper/uninstallWrapper/acquireWrapper/releaseWrapper/moduleConfirm/moduleCancel/notify/getCurrentKey)
+- hook 内 useEffect 只管 subscribe/unsubscribe + acquire/release, **不再** 直接改 `window.history`
+
+**7 个新守卫锚点** (guard 342 → 349):
+- `137_1_module_singleton` / `137_1_ref_count` / `137_1_acquire_release`
+- `137_1_install_uninstall` / `137_1_module_confirm`
+- `137_1_no_effect_cleanup` (在 uninstallWrapper 内, 非 useEffect)
+- `137_1_pendingnav_survives_unmount` (有 pending 不卸载)
+
+**§37 6 步硬闸门 (本次)**:
+- ✅ tsc 0 errors (1 §18 bun:test 不动)
+- ✅ next build 13.2s
+- ✅ cargo build --release 1m37s (36 §18 warnings 不动)
+- ✅ guard **349/349 PASS** (342 → 349, +7)
+- ✅ sync_app_bundle.sh 3 binary OK
+- ⏳ §15 GUI 验收 (用户必做, 不能 CLI 测)
+
+**§15 GUI 验收 (用户必做)**:
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# 1. 进任一会议 → 点"生成摘要"
+# 2. summaryStatus 变 'processing' / 'summarizing' / 'regenerating'
+# 3. 点 Sidebar "会议脉络" 或 "返回工作台" 按钮
+# 4. 预期: 弹 dialog "🔴 摘要还在生成中 / 现在离开会中断摘要生成, 之前的进度会丢失"
+# 5. 点"继续等摘要" → URL 不变, 摘要继续
+# 6. 再点 Sidebar, 这次点"继续离开" → 真跳转, 摘要中断
+```
+
+**铁律 (防同类 bug)**:
+1. **任何 useEffect 里修改 `window.history` / `window.addEventListener('beforeunload')` / 全局副作用都有 unmount race 风险** — 必须 module-level singleton
+2. **跨 component lifecycle 状态禁止用 React useState 单挂** — 用 module-level + subscribers
+3. **多 hook 实例共存用引用计数** — `refCount > 0` 时不卸载
+4. **有 pending state 时保留 wrapper** — 让 dialog 在 unmount 后仍能响应 confirm/cancel
+5. **navigation guard / beforeunload / 全局 event listener 都按此模板** — §137.1 是黄金标准
+
+**关联**:
+- §137 (8/18 原版, useEffect race) — 本节取代
+- §110 §132.1 (Ollama i18n 路径错位) — 同类"代码 ≠ 描述"教训
+- §15 §37 §92 §56 — 必须跑硬闸门 + commit 描述必须匹配代码
+- outputs/§137.1-nav_guard-模块级singleton修复-React-unmount-race-2026-08-19.md
+- [[137.1-nav_guard-模块级singleton修复-React-unmount-race]] (Obsidian)
+
 **触发**: 用户截图 8/18 庭审摘要 7212 字符, 段落大规模重复 + ASR 错字进摘要 + 编造人名"魏立秋". 用户说 "OK 完成p0然后再进行p1和p2".
 
 **commit**: `9807c64` (main, push OK), binary 14:37 70M, guard **337/337 PASS**
