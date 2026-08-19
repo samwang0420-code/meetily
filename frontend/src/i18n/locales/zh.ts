@@ -526,15 +526,6 @@ export const zh: Record<string, unknown> = {
     save_failed: '保存失败',
     template_selected: '已选择模板',
     loading_templates: '正在加载模板…',
-    // §132.1: Ollama 不可用 banner — 用户友好版本
-    ollama_offline_title: '想跨会议追踪主题, 需要本地 AI 模型',
-    ollama_offline_desc: '会议脉络会把每场会议的摘要提炼成主题、人物、决议。要启用此功能, 你需要安装 Ollama (免费, 本地运行)。',
-    ollama_offline_option1_title: '选项 A: 安装 Ollama (推荐)',
-    ollama_offline_option1_desc: '到 ollama.com 下载安装, 启动后会自动在后台运行, 然后回到这里点"刷新"。',
-    ollama_offline_option2_title: '选项 B: 使用言镜 AI 内置模型',
-    ollama_offline_option2_desc: '打开设置 → 模型管理, 下载 Qwen 3.5 2B (2GB), 然后点"刷新"。',
-    ollama_offline_download: '下载 Ollama',
-    ollama_offline_dismiss: '知道了, 暂时不用',
     // §135: 当前模板徽章 + 历史按钮
     current_template_badge: '当前模板',
     history_button: '历史摘要',
@@ -692,6 +683,19 @@ export const zh: Record<string, unknown> = {
     toast_failed: '导入失败',
     toast_cancelled: '导入已取消',
     try_again: '重试',
+  },
+
+
+  knowledge: {
+    // §132.1: Ollama 不可用 banner — 用户友好版本 (page.tsx t('knowledge.*') 调用)
+    ollama_offline_title: '想跨会议追踪主题, 需要本地 AI 模型',
+    ollama_offline_desc: '会议脉络会把每场会议的摘要提炼成主题、人物、决议。要启用此功能, 你需要安装 Ollama (免费, 本地运行)。',
+    ollama_offline_option1_title: '选项 A: 安装 Ollama (推荐)',
+    ollama_offline_option1_desc: '到 ollama.com 下载安装, 启动后会自动在后台运行, 然后回到这里点"刷新"。',
+    ollama_offline_option2_title: '选项 B: 使用言镜 AI 内置模型',
+    ollama_offline_option2_desc: '打开设置 → 模型管理, 下载 Qwen 3.5 2B (2GB), 然后点"刷新"。',
+    ollama_offline_download: '下载 Ollama',
+    ollama_offline_dismiss: '知道了, 暂时不用',
   },
 
   speaker: {
