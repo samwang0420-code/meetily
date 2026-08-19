@@ -1777,6 +1777,43 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - 老数据 (v0.8.6 之前生成的摘要) 不重做, 历史污染无法补救
 - tsc 1 个 §18 bun:test 错误, 36 cargo warnings (§18 不动)
 
+## §137.4 本地 LLM 调用 thinking mode off 铁律 (2026-08-19 立, commit 即将)
+
+**触发**: 用户 8/19 指令"调用本地模型都需要使用 thinking mode:off 的模式" — 防止 Qwen3.5 thinking mode 拖慢所有本地 LLM 推理 (topic extract / 摘要 / dossier rebuild / LiveQA)。
+
+### 现状审计 (8/19)
+- **BuiltInAI (llama-helper)**: `model_def.template = "qwen3.5_nonthinking"` + `QWEN35_NONTHINKING_TEMPLATE` 模板末尾 `<think>\n</think>\n\n` 强制 assistant 跳过 think 块 ✓
+- **Ollama**: `llm_client.rs:297` `"think": false` (json body) ✓
+- **3 个调用点都覆盖**: processor.rs (Map-Reduce 摘要) + topic_graph (extract/dossier) + live_qa (⌥+Space)
+
+**实际已对, 只是没 guard 防未来漏掉。**
+
+### 3 个新守卫锚点 (guard 355 → 358)
+- `137_4_ollama_think_false_in_llm_client` — `llm_client.rs:297` `"think": false`
+- `137_4_qwen_nonthinking_template` — `models.rs` 含 `qwen3.5_nonthinking`
+- `137_4_qwen_nonthinking_template_const` — `models.rs` 含 `QWEN35_NONTHINKING_TEMPLATE` 常量
+
+### 铁律 (适用所有未来 v0.X)
+1. **Ollama provider 必须 `think:false`** — Qwen3.5 thinking mode 默认开, 推理 30-50s 且空 content
+2. **BuiltInAI Qwen3.5 必须用 `qwen3.5_nonthinking` template** — 模板末尾 `<think>\n</think>\n\n` 强制跳过
+3. **新加 LLM provider / model 必须立刻加 anchor** — 不加 anchor 下次重构被覆盖 (§56 §92)
+4. **不允许暴露"thinking mode"开关给用户** — 99% 用户不知道 Qwen thinking, 99% 场景不该用
+5. **新加 ModelDef 必须配 nonthinking template** — 不允许只配 `qwen3.5` 默认 thinking template
+
+### 未来加 LLM provider/model 的 SOP
+1. `models.rs` 加 `ModelDef`, template 字段必须指向 "nonthinking" 变体
+2. 或: `llm_client.rs` 加 provider 分支, Ollama 路径加 `think:false`
+3. 加 anchor 到 `check_historical_fixes.py` (字符串检查)
+4. 跑 guard 确认新增 anchor PASS
+
+### 关联
+- §111 (8/18 Ollama /api/chat + think:false 原始修复)
+- §137.3 (8/19 topic_graph 优先 BuiltInAI, BuiltInAI 走 nonthinking template)
+- §91 (8/7 Qwen3.5 2B 集成 + nonthinking template)
+- §18 §37 §56 §92 — 硬闸门 + commit 必带代码 + AGENTS.md 双校
+- outputs/§137.4-本地LLM调用thinking-mode-off铁律-2026-08-19.md
+- [[137.4-本地LLM调用thinking-mode-off铁律]] (Obsidian)
+
 ## §137.3 topic_graph 优先 BuiltInAI 路径 (2026-08-19 立, commit 即将)
 
 **触发**: 用户 8/19 反馈"我们本地不是有模型吗, 为什么还要再下载" — 弹窗让用户去下载 Ollama, 但本机已装 `models/summary/Qwen3.5-2B-Q4_K_M.gguf` (1221 MB BuiltInAI 路径)。
