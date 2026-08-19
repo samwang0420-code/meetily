@@ -1776,3 +1776,56 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 ### 已知边界
 - 老数据 (v0.8.6 之前生成的摘要) 不重做, 历史污染无法补救
 - tsc 1 个 §18 bun:test 错误, 36 cargo warnings (§18 不动)
+
+## §137.2 open_meeting_folder SQL 漏 template_id 字段修复 (2026-08-19)
+
+**触发**: 用户 8/19 12:00 反馈"点击打开录音文件夹报错: Database error: no column found for name: template_id"。
+
+**根因**: §123 commit 在 `MeetingModel` struct 加了 `pub template_id: Option<String>` 字段,但 `frontend/src-tauri/src/api/api.rs:1083` `open_meeting_folder` 的 `sqlx::query_as` 只 SELECT 5 个旧字段 (id, title, created_at, updated_at, folder_path),漏了 `template_id`。sqlx derive `FromRow` 严格按 struct 字段取值,缺字段直接报"no column found"。
+
+**全仓库扫描 MeetingModel 引用** (4 处, 唯一漏处):
+- `meeting.rs:12` — `SELECT *` OK
+- `meeting.rs:65` — 完整 SELECT OK
+- `meeting.rs:128` — 完整 SELECT OK
+- `api/api.rs:343` — 走 repository, 内部 SELECT * OK
+- `api/api.rs:1083` — **本次唯一漏处**
+
+**修复** (1 行 SQL):
+```rust
+"SELECT id, title, created_at, updated_at, folder_path, template_id FROM meetings WHERE id = ?"
+```
+
+**2 个新守卫锚点** (guard 349 → 351):
+- `137_2_open_meeting_folder_sql_template_id` — api.rs:1083 包含完整 SELECT
+- `137_2_meeting_model_template_id_field` — MeetingModel 保留 template_id
+
+**§37 6 步硬闸门**:
+- ✅ cargo check --lib: 0 errors (36 §18 warnings 不动)
+- ✅ cargo build --release: 1m35s
+- ✅ tsc --noEmit: 1 §18 bun:test 不动
+- ✅ guard **351/351 PASS**
+- ✅ sync_app_bundle.sh: 3 binary OK
+- ⏳ §15 GUI 验收 (用户必做)
+
+**§15 GUI 验收 (用户必做)**:
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# 1. 打开任一会议
+# 2. 点 TranscriptButtonGroup "录音" 按钮 (open meeting folder)
+# 3. 预期: Finder 打开会议录音文件夹, 不再报错
+```
+
+**教训 (§56 强化 — sqlx query_as 严格 schema)**:
+1. **sqlx `query_as::<_, T>` 严格按 T 字段 SELECT** — 加 struct 字段必须同步所有 SQL
+2. **不写 `SELECT *` 是 sqlx 用法错误** — 用 `query_as_unchecked!` (compile-time check) 或 `SELECT *`
+3. **改 struct 后必须全仓库 grep 验证** — `grep -rn "query_as.*Model\b"` 列出所有 SELECT
+4. **加字段 commit 必须加 anchor** — 本节 +2 个 §137.2 anchor 防回归
+5. **AGENTS.md §X 描述 ≠ 代码 commit** — §123 加字段时漏改 api.rs:1083, 用户撞出才被发现
+
+**关联**:
+- §123 (8/18 加 MeetingModel.template_id)
+- §137.1 (8/19 nav_guard race 修复) — 同 commit batch
+- §15 §37 §56 §92 — 硬闸门 + AGENTS.md 双校
+- outputs/§137.2-open_meeting_folder-SQL漏template_id修复-2026-08-19.md
+- [[137.2-open_meeting_folder-SQL漏template_id修复]] (Obsidian)
