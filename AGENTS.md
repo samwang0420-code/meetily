@@ -1701,6 +1701,56 @@ killall meetily && open binary
 
 ---
 
+
+## §140 topic_graph parser 容错修复 (2026-08-19 立)
+
+**触发**: 用户 8/19 反馈"已经点了重新生成, 你检查问题; 会议脉络还是不生效"。`topic_node` / `meeting_episode_node` / `topic_dossier` 全部 0 行, 23 个 completed 摘要都未触发 topic extract 成功。
+
+**3 层根因** (parser 严格, LLM 输出不规范):
+1. **字段名错**: qwen3.5:2b 输出 `topic_name` (不是 `canonical_name`)
+2. **sentiment 数字**: 输出 `sentiment: -1` (不是字符串 "negative")
+3. **JavaScript-style 无引号 key**: `{topic_name: "x"}` 不是合法 JSON, serde_json 直接 reject
+
+加上 LLM 包 ```json 包装, parse_extract_response 0 topics 解析成功。
+
+**修复 (4 处)**:
+1. `strip_markdown_fence` — 去 ``` / ```json 包装
+2. `quote_unquoted_keys` — JavaScript-style 无引号 key 加引号 (regex: `([,{]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:` → `$1"$2":`)
+3. `normalize_extract_line` — 别名映射 (topic_name/name/title/subject → canonical_name; type/category/kind → topic_type; score/polarity/tone → sentiment) + sentiment 数字 → 字符串 (1=positive, 0=neutral, -1=negative)
+4. `PROMPT_INSTRUCTIONS` 严格化 — 明确字段名 (canonical_name / topic_type / excerpt / sentiment) + 明确说"不是 topic_name / name / type / score 等别名" + "sentiment 必须是字符串, 不是数字 1/0/-1"
+
+**兜底**: trigger_after_summary 已有白名单 fallback (general / project / person / decision) → "general"
+
+**端到端验证 (用真实 qwen3.5:2b + 新 prompt)**: 3 topics 全部解析成功 (修复前 0 topics)。
+
+**测试**: `cargo test --lib topic_graph::extract` **12/12 PASS** (10 → 12, +2 §140 markdown fence + unknown topic_type)
+
+**验证**:
+- `cargo build --release`: 73MB binary 22:55 OK
+- `check_historical_fixes.py`: **414/414 PASS** (405 → 414, +9 §140 anchors)
+- `sync_app_bundle.sh`: §99.6 sync tauri bundle binary OK
+
+**9 个新 guard anchor (§140)**:
+- `140_extract_prompt_canonical_name` / `140_extract_prompt_sentiment_string` / `140_parser_normalize_alias` / `140_parser_quote_unquoted_keys` / `140_parser_sentiment_number_mapping` / `140_extract_test_topic_name_alias` / `140_extract_test_sentiment_positive` / `140_extract_test_sentiment_zero` / `140_quote_unquoted_keys_test`
+
+**§15 GUI 验收**:
+```
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# 重生成 f2dfa2e0 (顺义执行案) 摘要
+# sqlite3 ... "SELECT COUNT(*) FROM topic_node" 期望 ≥ 1
+# /knowledge 页应该看到 topic 出现
+```
+
+**已知边界** (§18 不动):
+- 1 个 §18 bun:test tsc 错误
+- 37 cargo warnings (extract.rs 加了 1 个 unused import warning - 不修)
+- 旧 meeting topic_node 是 0 的, 需要重新生成摘要触发 trigger_after_summary
+
+**关联**: §139 (模板商业化精进, prompt 大改 - §140 是 §139 上线后 LLM 实际调用才发现的 parser bug) / §P0-A Phase 2 (topic_graph 实施, 当时只测 mock 输出, 没真用 qwen3.5:2b 跑) / §56 / §92 / §37
+
+[[§140-topic_graph-parser-容错-2026-08-19]] (Obsidian) / `outputs/§140-topic_graph-parser-容错-2026-08-19.md` (Codex)
+
 ## §139 模板提示词商业化精进 (2026-08-19 立)
 
 **触发**: 用户 8/19 原话 "针对各种模板的提示词, 你站在商业化的角度, 再次精进"
