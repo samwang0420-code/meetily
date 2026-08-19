@@ -228,7 +228,7 @@ pub async fn generate_summary_with_stream(
         LLMProvider::Ollama => {
             let host = ollama_endpoint
                 .map(|s| s.to_string())
-                .unwrap_or_else(|| "http://localhost:11434".to_string());
+                .unwrap_or_else(|| "http://127.0.0.1:11434".to_string());
             // §111: 用 Ollama 原生 /api/chat + think:false. OpenAI-compat wrapper 对 qwen3.5 等
             //       thinking 模型会返回空 content + 800 token thinking 耗时 30+s
             (

@@ -160,7 +160,7 @@ async fn get_models_via_http_with_retry(endpoint: Option<&str>) -> Result<Vec<Ol
 
 async fn get_models_via_http_async(endpoint: Option<&str>) -> Result<Vec<OllamaModel>, String> {
     let client = Client::new();
-    let base_url = endpoint.unwrap_or("http://localhost:11434");
+    let base_url = endpoint.unwrap_or("http://127.0.0.1:11434");
     let url = format!("{}/api/tags", base_url);
 
     let response = client
@@ -279,7 +279,7 @@ pub async fn pull_ollama_model<R: Runtime>(
     }
 
     let client = Client::new();
-    let base_url = endpoint.as_deref().unwrap_or("http://localhost:11434");
+    let base_url = endpoint.as_deref().unwrap_or("http://127.0.0.1:11434");
     let url = format!("{}/api/pull", base_url);
 
     let payload = serde_json::json!({
@@ -438,7 +438,7 @@ pub async fn delete_ollama_model(
     endpoint: Option<String>,
 ) -> Result<(), String> {
     let client = Client::new();
-    let base_url = endpoint.as_deref().unwrap_or("http://localhost:11434");
+    let base_url = endpoint.as_deref().unwrap_or("http://127.0.0.1:11434");
     let url = format!("{}/api/delete", base_url);
 
     let payload = serde_json::json!({

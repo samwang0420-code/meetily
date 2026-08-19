@@ -476,7 +476,7 @@ pub async fn preflight_ollama_async() -> Result<(), String> {
         .timeout(std::time::Duration::from_secs(3))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
-    let url = "http://localhost:11434/api/tags";
+    let url = "http://127.0.0.1:11434/api/tags";
     match client.get(url).send().await {
         Ok(resp) if resp.status().is_success() => Ok(()),
         Ok(resp) => Err(format!("ollama http {}", resp.status())),

@@ -142,7 +142,7 @@ async fn fetch_model_info(
     endpoint: Option<&str>,
 ) -> Result<ModelMetadata, String> {
     let client = Client::new();
-    let base_url = endpoint.unwrap_or("http://localhost:11434");
+    let base_url = endpoint.unwrap_or("http://127.0.0.1:11434");
     let url = format!("{}/api/show", base_url);
 
     let payload = serde_json::json!({
