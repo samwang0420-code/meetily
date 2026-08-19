@@ -1777,6 +1777,80 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - 老数据 (v0.8.6 之前生成的摘要) 不重做, 历史污染无法补救
 - tsc 1 个 §18 bun:test 错误, 36 cargo warnings (§18 不动)
 
+## §137.3 topic_graph 优先 BuiltInAI 路径 (2026-08-19 立, commit 即将)
+
+**触发**: 用户 8/19 反馈"我们本地不是有模型吗, 为什么还要再下载" — 弹窗让用户去下载 Ollama, 但本机已装 `models/summary/Qwen3.5-2B-Q4_K_M.gguf` (1221 MB BuiltInAI 路径)。
+
+**根因** (3 跳):
+1. `topic_graph::trigger_after_summary` §121 决定只支持 Ollama — 注释明确 "BuiltInAI 强制要 app_data_dir, trigger 链路传 None → llm 永远 fail"
+2. `preflight_ollama_async` 只 ping localhost:11434, BuiltInAI 路径完全不查
+3. 用户本机已装 Qwen3.5 2B, 但 Ollama 服务没起 → preflight fail → 弹窗推荐下载 Ollama
+4. 用户困惑: "本机不是有模型吗, 为什么还要下载"
+
+**修复** (1 文件, +30/-10):
+- 新增 `builtin_ai_model_exists(app_data_dir: &Path) -> bool` helper: 检查 `app_data_dir/models/summary/*.gguf`
+- `preflight_ollama_async()` → `preflight_llm_async(app) -> Result<&'static str, String>`:
+  - 优先 BuiltInAI (本机 .gguf) → Ok("builtin_ai")
+  - fallback Ollama (3s ping) → Ok("ollama")
+  - 都失败 → Err(reason)
+- `trigger_after_summary` 加 BuiltInAI 分支:
+  - 本机有 .gguf → `LLMProvider::BuiltInAI` + `qwen3.5:2b` + `app_data_dir=Some(...)`
+  - 否则 fallback Ollama (兼容老逻辑)
+- 调用方 `preflight_ollama_async()` → `preflight_llm_async(&app)`
+
+**用户效果**:
+- 本机已装 Qwen3.5 2B → preflight Ok("builtin_ai") → **完全不弹窗**, topic extract 直接用本机 LLM
+- 没装 BuiltInAI + Ollama 在跑 → preflight Ok("ollama") → 不弹窗
+- 都没 → 弹窗 (兼容老逻辑)
+
+**关键文件**:
+- `frontend/src-tauri/src/topic_graph/mod.rs` — 1 个 helper + 1 个 preflight + 1 个 trigger 分支
+
+**5 个新守卫锚点** (guard 351 → 355):
+- `137_3_preflight_llm_builtin_ai` — `fn builtin_ai_model_exists`
+- `137_3_preflight_llm_async` — `pub async fn preflight_llm_async`
+- `137_3_trigger_uses_builtin_ai` — `(LLMProvider::BuiltInAI, "qwen3.5:2b")`
+- `137_3_no_ollama_hardcoded_in_trigger` — `if use_builtin_ai`
+- 旧 §132 anchor `132_ollama_preflight_function` → `132_ollama_preflight_function_renamed` 检查新名
+
+**§37 6 步硬闸门**:
+- ✅ cargo check --lib: 0 errors
+- ✅ cargo build --release: 2m47s, 73,053,072 bytes
+- ✅ tsc: 1 §18 bun:test 不动
+- ✅ guard **355/355 PASS**
+- ✅ sync_app_bundle.sh: 3 binary OK
+- ⏳ §15 GUI 验收 (用户必做)
+
+**§15 GUI 验收 (用户必做)**:
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# 1. 进 /knowledge 页 — 弹窗不再出现
+# 2. 打开任一会议 → 等摘要生成完成
+# 3. 等 30-60s, 观察: topic_graph 自动跑, 不依赖 Ollama
+# 4. DB 验证:
+#    sqlite3 "$HOME/Library/Application Support/tech.yanjingai.app/meeting_minutes.sqlite" \
+#      "SELECT COUNT(*) FROM meeting_episode_node WHERE meeting_id='meeting-xxx'"
+# 5. 后端日志应见 "[topic_graph] using BuiltInAI (Qwen3.5 2B, local sidecar)"
+```
+
+**铁律 (本地 LLM 路径防分裂)**:
+1. **不要硬编码单一 provider** — BuiltInAI 跟 Ollama 是同等地位本地 LLM 路径, 触发链路必须都能用
+2. **preflight 跟 trigger 必须支持同样 provider set** — §132 旧 preflight 只查 Ollama, 本节修复让 trigger 同步支持 BuiltInAI
+3. **app_data_dir 是 Tauri 2 标准 API** — `app.path().app_data_dir()`, 任何需 sidecar binary 的路径都能用
+4. **本机已装能用就直接用** — 弹窗最忌讳诱导下载新东西, 优先推荐已装路径
+5. **用户语"本机有模型" = 任何已装的 LLM 模型** — 不要默认用户只懂 ASR 模型
+
+**关联**:
+- §121 (8/16 改用 Ollama) — 历史决策, 当时 BuiltInAI 链路缺 app_data_dir; 本节修正
+- §132 (8/18 preflight Ollama) — 旧 preflight, 本节扩展支持 BuiltInAI
+- §91 P0-B Obsidian vault 写入 — 同样基于 Qwen3.5 2B 路径
+- §111 Ollama /api/chat think:false — BuiltInAI 路径已走 llama-helper
+- §137.1 §137.2 (8/19 同日 batch) — nav_guard + open_meeting_folder 修复
+- §15 §37 §56 §92 — 硬闸门 + commit 必带代码 + AGENTS.md 双校
+- outputs/§137.3-topic_graph优先BuiltInAI-本机Qwen3.5直接用-2026-08-19.md
+- [[137.3-topic_graph-优先BuiltInAI-本机Qwen3.5直接用]] (Obsidian)
+
 ## §137.2 open_meeting_folder SQL 漏 template_id 字段修复 (2026-08-19)
 
 **触发**: 用户 8/19 12:00 反馈"点击打开录音文件夹报错: Database error: no column found for name: template_id"。

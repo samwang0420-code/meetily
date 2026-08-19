@@ -397,21 +397,32 @@ pub async fn trigger_after_summary<R: Runtime>(
         .timeout(std::time::Duration::from_secs(90))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
+    // §137.3: 优先 BuiltInAI (本机已装 Qwen3.5-2B-Q4_K_M.gguf), fallback Ollama
+    let app_data_dir = app.path().app_data_dir().ok();
+    let use_builtin_ai = app_data_dir
+        .as_ref()
+        .map(|d| builtin_ai_model_exists(d))
+        .unwrap_or(false);
+    let (provider, model_name) = if use_builtin_ai {
+        log::info!("[topic_graph] {meeting_id} using BuiltInAI (Qwen3.5 2B, local sidecar)");
+        (LLMProvider::BuiltInAI, "qwen3.5:2b")
+    } else {
+        log::info!("[topic_graph] {meeting_id} using Ollama (localhost:11434, qwen3.5:2b)");
+        (LLMProvider::Ollama, "qwen3.5:2b")
+    };
     let response = match generate_summary(
         &client,
-        &LLMProvider::Ollama,        // §121: 改用 Ollama (localhost:11434,qwen3.5:2b)
-                                    //      BuiltInAI 强制要 app_data_dir (sidecar binary),
-                                    //      trigger 链路传 None -> llm 永远 fail -> swallow log
-        "qwen3.5:2b",
-        "",          // api_key unused for Ollama
+        &provider,
+        model_name,
+        "",          // api_key unused for local providers
         "",          // system_prompt (instructions already in user prompt)
         &prompt,
-        None,        // ollama_endpoint (用默认 localhost:11434)
+        None,        // ollama_endpoint
         None,        // custom_openai_endpoint
         Some(800),   // max_tokens (per AGENTS.md §52)
         None,        // temperature
         None,        // top_p
-        None,        // app_data_dir (unused for Ollama)
+        app_data_dir.as_ref(), // app_data_dir (BuiltInAI 需要)
         None,        // cancellation_token
     )
     .await
@@ -468,17 +479,52 @@ pub async fn trigger_after_summary<R: Runtime>(
 }
 
 
-/// §132: preflight Ollama 检查 — 3s timeout ping localhost:11434/api/tags.
-/// 用于 history recovery 顶部, 避免 9 场会议 × 30s 全 30s 等完才告诉用户 "Ollama 没启".
-/// Returns Ok(()) 可用, Err(reason) 不可用.
-pub async fn preflight_ollama_async() -> Result<(), String> {
+/// §137.3: helper — 检查 app_data_dir/models/summary/ 是否有 .gguf 文件.
+/// BuiltInAI 路径判定 — 有就 OK, 没有就 fallback Ollama.
+fn builtin_ai_model_exists(app_data_dir: &std::path::Path) -> bool {
+    let models_dir = app_data_dir.join("models").join("summary");
+    if !models_dir.is_dir() {
+        return false;
+    }
+    match std::fs::read_dir(&models_dir) {
+        Ok(entries) => entries.filter_map(|e| e.ok()).any(|e| {
+            e.path().extension().and_then(|s| s.to_str()) == Some("gguf")
+        }),
+        Err(_) => false,
+    }
+}
+
+/// §137.3: preflight LLM 检查 — 优先 BuiltInAI (本机内置, 零下载), fallback Ollama.
+/// BuiltInAI: 检查 `app_data_dir/models/summary/` 是否有 .gguf 文件.
+/// Ollama: 3s timeout ping localhost:11434/api/tags.
+/// Returns Ok(provider_name) 任一就绪, Err(reason) 都不可用.
+pub async fn preflight_llm_async<R: Runtime>(app: &tauri::AppHandle<R>) -> Result<&'static str, String> {
+    // 1) BuiltInAI 路径: 检查 app_data_dir/models/summary/*.gguf
+    if let Some(app_data_dir) = app.path().app_data_dir().ok() {
+        let models_dir = app_data_dir.join("models").join("summary");
+        if models_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&models_dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    if path.extension().and_then(|s| s.to_str()) == Some("gguf") {
+                        log::info!("[preflight] BuiltInAI model found: {}", path.display());
+                        return Ok("builtin_ai");
+                    }
+                }
+            }
+        }
+    }
+    // 2) Ollama fallback
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(3))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
     let url = "http://127.0.0.1:11434/api/tags";
     match client.get(url).send().await {
-        Ok(resp) if resp.status().is_success() => Ok(()),
+        Ok(resp) if resp.status().is_success() => {
+            log::info!("[preflight] Ollama available at localhost:11434");
+            Ok("ollama")
+        }
         Ok(resp) => Err(format!("ollama http {}", resp.status())),
         Err(e) => Err(format!("ollama unreachable: {e}")),
     }
@@ -496,7 +542,7 @@ pub async fn extract_missing_topics<R: Runtime>(
 ) -> Result<(usize, usize), String> {
     // 1) 找所有 completed summary 但还没 episode 的 meeting
     // §132: preflight — Ollama 没启就立刻 return (-1, 0), 前端不再转 18 分钟.
-    if let Err(reason) = preflight_ollama_async().await {
+    if let Err(reason) = preflight_llm_async(&app).await {
         log::warn!("[topic_graph] §132 preflight failed: {reason}, skip history recovery");
         let _ = app.emit(
             "topic-recover-skipped",
