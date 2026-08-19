@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { invoke } from '@tauri-apps/api/core';
 import { useTranslation } from '@/i18n';
+import { useConfig } from '@/contexts/ConfigContext';
 import { Search, Sparkles, ChevronRight, X } from 'lucide-react';
 
 interface TopicSearchHit {
@@ -52,6 +53,9 @@ const TYPES: Array<{ value: string; labelZh: string; labelEn: string }> = [
 ];
 
 export function TopicSearchModal({ open, onOpenChange, onSelectTopic }: Props) {
+  // §137.5: 拿用户当前 LLM provider + model (dossier rebuild 用)
+  const { modelConfig } = useConfig();
+
   const { t, locale } = useTranslation();
   const [query, setQuery] = useState('');
   const [filterType, setFilterType] = useState('all');
@@ -135,6 +139,8 @@ export function TopicSearchModal({ open, onOpenChange, onSelectTopic }: Props) {
     try {
       await invoke('api_topic_rebuild_dossier', {
         topicId: selectedTopic.topic_id,
+        provider: modelConfig.provider,  // §137.5: 用用户选的 provider
+        modelName: modelConfig.model,    // §137.5: 用用户选的 model_name
       });
       // re-fetch dossier
       const ds = (await invoke('api_topic_get_dossier', {

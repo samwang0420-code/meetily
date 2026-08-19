@@ -2,6 +2,7 @@
 // 71 报告 P2-B: "每天 0-6 点本地无操作时, 跑未处理的 topic dossier 增量更新".
 // 设计: tokio interval polling, idle detection, sequential rebuild with cap.
 
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -169,7 +170,14 @@ pub async fn run_one_pass<R: Runtime>(
     let mut rebuilt = 0;
     for (tid, name) in topics {
         log::info!("[topic_graph.scheduler] rebuild {} (id={})", name, tid);
-        match super::rebuild_topic_dossier(app.clone(), pool.clone(), tid).await {
+        // §137.5: 用 settings 表里用户选的 provider + model (不再硬编码 qwen3.5:2b)
+        let (provider, model_name) = match crate::database::repositories::setting::SettingsRepository::get_model_config(&pool).await {
+            Ok(Some(setting)) => (setting.provider, setting.model),
+            _ => ("ollama".to_string(), "llama3.2:latest".to_string()),  // 兜底默认
+        };
+        let llm_provider = crate::summary::llm_client::LLMProvider::from_str(&provider)
+            .unwrap_or(crate::summary::llm_client::LLMProvider::Ollama);
+        match super::rebuild_topic_dossier(app.clone(), pool.clone(), tid, llm_provider, &model_name).await {
             Ok(()) => rebuilt += 1,
             Err(e) => log::warn!("[topic_graph.scheduler] {} failed: {}", tid, e),
         }

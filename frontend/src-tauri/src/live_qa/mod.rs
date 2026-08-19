@@ -27,7 +27,6 @@ pub struct LiveQAResult {
 pub const MAX_SUGGESTIONS: usize = 3;
 pub const CONTEXT_WINDOW_SECS: i64 = 300; // 最近 5 分钟
 pub const MAX_CONTEXT_CHARS: usize = 4000;
-pub const MODEL_NAME: &str = "qwen3.5:2b";
 pub const MAX_TOKENS_PER_SUGGESTION: u32 = 120; // 3 条 × 120 = 360 token, < §52 上限
 
 const QA_PROMPT_INSTRUCTIONS: &str = r#"你是一个实时会议助手. 用户会问一个具体问题.
@@ -109,6 +108,8 @@ pub async fn ask_live_qa(
     pool: SqlitePool,
     meeting_id: String,
     question: String,
+    provider: LLMProvider,    // §137.5: 用用户选的 provider (不再硬编码 Ollama)
+    model_name: &str,        // §137.5: 用用户选的 model_name (不再硬编码 qwen3.5:2b)
 ) -> Result<LiveQAResult, String> {
     let q = question.trim();
     if q.is_empty() {
@@ -126,21 +127,20 @@ pub async fn ask_live_qa(
     );
 
     let client = get_http_client().await;
+    let app_data_dir = app_data_dir_for_built_in_ai(); // §137.5: BuiltInAI 需要
     let response = generate_summary(
         client,
-        &LLMProvider::Ollama,        // §121: 改用 Ollama (localhost:11434,qwen3.5:2b)
-                                    //      BuiltInAI 强制要 app_data_dir,LiveQA trigger 链
-                                    //      传 None -> llm 永远 fail -> 用户按 ⌥+Space 无反应
-        MODEL_NAME,
+        &provider,                    // §137.5: 用用户选的 provider (不再硬编码 Ollama)
+        model_name,                   // §137.5: 用用户选的 model_name (不再硬编码 qwen3.5:2b)
         "",
         "",
         &user_prompt,
         None, None,
         Some(MAX_TOKENS_PER_SUGGESTION * MAX_SUGGESTIONS as u32 + 40), // 留 buffer
         Some(0.7),  // 稍高 temperature 多样性
-        None,
-        None,
-        None,
+        None,                          // top_p
+        app_data_dir.as_ref(),         // app_data_dir (BuiltInAI 需要)
+        None,                          // cancellation_token
     )
     .await?;
 
@@ -152,7 +152,7 @@ pub async fn ask_live_qa(
     Ok(LiveQAResult {
         suggestions,
         context_chars,
-        model: MODEL_NAME.to_string(),
+        model: model_name.to_string(),
     })
 }
 
@@ -185,9 +185,25 @@ pub async fn api_meeting_live_qa<R: Runtime>(
     app: AppHandle<R>,
     meeting_id: String,
     question: String,
+    provider: String,         // §137.5: 前端传当前 modelConfig.provider
+    model_name: String,       // §137.5: 前端传当前 modelConfig.model
 ) -> Result<LiveQAResult, String> {
     let pool = app.state::<AppState>().db_manager.pool().clone();
-    ask_live_qa(pool, meeting_id, question).await
+    let llm_provider = LLMProvider::from_str(&provider)
+        .map_err(|e| format!("unsupported provider: {e}"))?;
+    ask_live_qa(pool, meeting_id, question, llm_provider, &model_name).await
+}
+
+/// §137.5: BuiltInAI 需要 app_data_dir 路径, 其它 provider 返 None.
+fn app_data_dir_for_built_in_ai() -> Option<std::path::PathBuf> {
+    if let Ok(app_data_dir) = std::env::var("YANJINGAI_APP_DATA_DIR") {
+        return Some(std::path::PathBuf::from(app_data_dir));
+    }
+    // 兜底: 标准 Library/Application Support 路径
+    if let Ok(home) = std::env::var("HOME") {
+        return Some(std::path::PathBuf::from(home).join("Library/Application Support/tech.yanjingai.app"));
+    }
+    None
 }
 
 #[cfg(test)]

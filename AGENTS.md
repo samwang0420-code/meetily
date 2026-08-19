@@ -1814,6 +1814,69 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - outputs/§137.4-本地LLM调用thinking-mode-off铁律-2026-08-19.md
 - [[137.4-本地LLM调用thinking-mode-off铁律]] (Obsidian)
 
+## §137.5 topic_graph / live_qa 用用户选模型 — 不再硬编码 qwen3.5:2b (2026-08-19 立)
+
+**触发**: 用户 8/19 原话
+> model name qwen3.5-2b不要写死啊, 我们本地模型可以选择其他模型, 用户选择什么本地模型就要用什么本地模型
+
+§137.3 (commit b961822) 我加了 BuiltInAI 兜底, **同时硬编码了 `"qwen3.5:2b"`** — 用户当场指出。grep 全代码后发现同样反模式在 `rebuild_topic_dossier` + `live_qa::ask_live_qa` + `live_qa::api_meeting_live_qa` + `topic_graph::scheduler` 都存在, 一次全修。
+
+### 改动 (8 个文件)
+
+**Rust**:
+- `topic_graph/mod.rs`: `trigger_after_summary` / `preflight_llm_async` / `extract_missing_topics` / `rebuild_topic_dossier` / `api_topic_extract_missing` / `api_topic_rebuild_dossier` 全部接受 `provider: LLMProvider` + `model_name: &str` 参数
+- `summary/service.rs::process_transcript_background` 调 `trigger_after_summary` 处透传 provider + model_name
+- `topic_graph/scheduler.rs`: 夜间重建 scheduler 从 `SettingsRepository::get_model_config(pool)` 读用户当前 model_config (兜底 `ollama` + `llama3.2:latest`)
+- `live_qa/mod.rs`: 删 `MODEL_NAME` const, `ask_live_qa` / `api_meeting_live_qa` 接受 provider + model_name, 加 `app_data_dir_for_built_in_ai()` helper
+
+**TS (3 个调用方)**:
+- `app/knowledge/page.tsx`: `useConfig()` 拿 `modelConfig`, `api_topic_extract_missing` + `api_topic_rebuild_dossier` invoke 都加 `provider: modelConfig.provider, modelName: modelConfig.model`
+- `components/TopicSearch/TopicSearchModal.tsx`: `useConfig()` + `api_topic_rebuild_dossier` invoke 加 provider/modelName
+- `components/LiveQA/LiveQAOverlay.tsx`: `useConfig()` + `api_meeting_live_qa` invoke 加 provider/modelName
+
+### 14 个 guard anchor (新增)
+
+| Anchor | 守卫目标 |
+|---|---|
+| `137_5_trigger_takes_provider_param` / `_takes_model_param` | `trigger_after_summary` 签名 |
+| `137_5_preflight_takes_provider_param` | `preflight_llm_async` 签名 |
+| `137_5_extract_takes_provider_param` | `extract_missing_topics` 签名 |
+| `137_5_rebuild_takes_provider_param` | `rebuild_topic_dossier` 签名 |
+| `137_5_api_topic_extract_takes_provider` | `api_topic_extract_missing` Tauri command |
+| `137_5_api_topic_rebuild_takes_provider` | `api_topic_rebuild_dossier` Tauri command |
+| `137_5_live_qa_takes_provider` / `_api_takes_provider` | live_qa 两个函数 |
+| `137_5_knowledge_passes_modelconfig` / `_topicsmodal` / `_liveqaoverlay` | 3 个前端 invoke 传 modelConfig |
+| `137_5_summary_service_passes_provider` | service.rs 调用 trigger_after_summary 传 tg_provider |
+| `137_5_scheduler_uses_settings` | scheduler 调 SettingsRepository::get_model_config |
+
+`scripts/check_historical_fixes.py::grep()` 加 `-U` 多行模式 flag, 让 `[\s\S]` 跨行匹配生效 (历史 anchor 全部回溯验证仍 PASS)。
+
+### guard 数变化
+
+358 (handoff 上次) → **367/367 PASS** (本节): -5 (删除 3 §121 + 2 §137.3 硬编码 anchor) + 14 §137.5 新 anchor。
+
+### §56 教训扩展
+
+§137.3 我写 BuiltInAI 兜底时**手贱硬编码了 `"qwen3.5:2b"`** — 用户当场指出。**今后写 § 修复必须 grep 全代码确认同类反模式没漏**: `grep -rn '"qwen3.5:2b"' frontend/src-tauri/src --include="*.rs"` 在 commit 前必跑。
+
+### §15 GUI 验收 (用户必做)
+
+1. killall meetily && open binary (确认 mtime 13:26+)
+2. 设置 → 模型 → 切换 (例如 Ollama + qwen3.5:4b 或 BuiltInAI + qwen2.5:3b)
+3. 触发 4 动作, 后端日志看 `using {provider:?} model={model_name}` 跟随切换:
+   - 生成摘要 (trigger_after_summary)
+   - 摘要完成后 (spawn hook 跑 topic extract)
+   - Cmd+K → Topic Search → 选 topic → 重建档案 (rebuild_topic_dossier)
+   - 会议详情 → ⌥+Space → LiveQAOverlay → 提问 (live_qa)
+
+### 关联
+
+- §137.3 (昨天, BuiltInAI 兜底引入硬编码)
+- §137.4 (thinking mode off)
+- §18 / §37 / §56 / §92
+
+---
+
 ## §137.3 topic_graph 优先 BuiltInAI 路径 (2026-08-19 立, commit 即将)
 
 **触发**: 用户 8/19 反馈"我们本地不是有模型吗, 为什么还要再下载" — 弹窗让用户去下载 Ollama, 但本机已装 `models/summary/Qwen3.5-2B-Q4_K_M.gguf` (1221 MB BuiltInAI 路径)。

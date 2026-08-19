@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useTranslation } from "@/i18n";
+import { useConfig } from "@/contexts/ConfigContext";
 import { Sparkles, Send, X, Loader2 } from "lucide-react";
 
 interface LiveQASuggestion {
@@ -21,6 +22,9 @@ interface Props {
 }
 
 export function LiveQAOverlay({ meetingId }: Props) {
+  // §137.5: 拿用户当前 LLM provider + model (live_qa 用)
+  const { modelConfig } = useConfig();
+
   const { t, locale } = useTranslation();
   const [open, setOpen] = useState(false);
   const [question, setQuestion] = useState("");
@@ -57,6 +61,8 @@ export function LiveQAOverlay({ meetingId }: Props) {
       const r = (await invoke("api_meeting_live_qa", {
         meetingId,
         question: q,
+        provider: modelConfig.provider,  // §137.5: 用用户选的 provider
+        modelName: modelConfig.model,    // §137.5: 用用户选的 model_name
       })) as LiveQAResult;
       setResult(r);
     } catch (e) {
@@ -65,7 +71,7 @@ export function LiveQAOverlay({ meetingId }: Props) {
     } finally {
       setAsking(false);
     }
-  }, [meetingId, question]);
+  }, [meetingId, question, modelConfig.provider, modelConfig.model]);
 
   if (!open || !meetingId) return null;
 

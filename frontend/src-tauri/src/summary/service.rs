@@ -698,12 +698,15 @@ impl SummaryService {
                         obsidian_export::trigger_after_summary(obs_app, obs_pool, obs_meeting_id).await;
                     });
                     // §P0-A Phase 2: summary completed -> spawn topic graph extract + link
+                    // §137.5: 传用户选的 provider + model_name (不再硬编码 qwen3.5:2b)
                     let tg_app = app.clone();
                     let tg_pool = pool.clone();
                     let tg_meeting_id = meeting_id.clone();
                     let tg_summary = final_markdown.clone();
+                    let tg_provider = provider.clone();
+                    let tg_model_name = model_name.to_string();
                     tokio::spawn(async move {
-                        crate::topic_graph::trigger_after_summary(tg_app, tg_pool, tg_meeting_id, tg_summary).await;
+                        crate::topic_graph::trigger_after_summary(tg_app, tg_pool, tg_meeting_id, tg_summary, tg_provider, &tg_model_name).await;
                     });
                     // §P2-A: 摘要完成 -> spawn action_items 表写入
                     let ai_app = app.clone();

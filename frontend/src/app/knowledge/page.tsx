@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from '@/i18n';
+import { useConfig } from '@/contexts/ConfigContext';
 
 interface TopicSearchHit {
   topic_id: number;
@@ -61,6 +62,8 @@ export default function KnowledgePage() {
   const router = useRouter();
   const { t, locale } = useTranslation();
   const isZh = locale === 'zh';
+  // §137.5: 拿用户当前 LLM provider + model (topic extract 用)
+  const { modelConfig } = useConfig();
 
   const [topics, setTopics] = useState<TopicSearchHit[]>([]);
   const [selectedTopic, setSelectedTopic] = useState<TopicDossier | null>(null);
@@ -84,7 +87,12 @@ export default function KnowledgePage() {
           // §132: maxMeetings 30 -> 5 (每场 ≤ 30s, 5 场 ≤ 2.5 min, 30 场 = 15 min 等太久了)
           //       Ollama 不可用由后端 emit topic-recover-skipped 事件提示 (useEffect listener),
           //       不再在返回值里塞 sentinel (usize 不能是 -1).
-          const recover = (await invoke('api_topic_extract_missing', { maxMeetings: 5 })) as [number, number];
+          // §137.5: 传用户当前选的 LLM provider + model_name (不再硬编码 qwen3.5:2b)
+          const recover = (await invoke('api_topic_extract_missing', {
+            maxMeetings: 5,
+            provider: modelConfig.provider,
+            modelName: modelConfig.model,
+          })) as [number, number];
           if (recover[0] > 0) {
             console.info(`[§132] topic recover: processed=${recover[0]} total_topics=${recover[1]}`);
             list = (await invoke('api_topic_recent', { limit: 60 })) as TopicSearchHit[];
@@ -137,7 +145,12 @@ export default function KnowledgePage() {
     setRebuilding(true);
     setRebuildError(null);
     try {
-      await invoke('api_topic_rebuild_dossier', { topicId: selectedTopic.topic_id });
+      // §137.5: 传用户选的 provider + model (不再硬编码 qwen3.5:2b)
+      await invoke('api_topic_rebuild_dossier', {
+        topicId: selectedTopic.topic_id,
+        provider: modelConfig.provider,
+        modelName: modelConfig.model,
+      });
       const ds = (await invoke('api_topic_get_dossier', { topicId: selectedTopic.topic_id })) as TopicDossier | null;
       setSelectedTopic(ds);
     } catch (e) {
