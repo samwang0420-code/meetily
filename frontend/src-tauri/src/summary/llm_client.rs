@@ -229,8 +229,10 @@ pub async fn generate_summary_with_stream(
             let host = ollama_endpoint
                 .map(|s| s.to_string())
                 .unwrap_or_else(|| "http://localhost:11434".to_string());
+            // §111: 用 Ollama 原生 /api/chat + think:false. OpenAI-compat wrapper 对 qwen3.5 等
+            //       thinking 模型会返回空 content + 800 token thinking 耗时 30+s
             (
-                format!("{}/v1/chat/completions", host),
+                format!("{}/api/chat", host),
                 header::HeaderMap::new(),
             )
         }
@@ -281,7 +283,24 @@ pub async fn generate_summary_with_stream(
     );
 
     // Build request body based on provider
-    let request_body = if provider != &LLMProvider::Claude {
+    let request_body = if provider == &LLMProvider::Ollama {
+        // §111: Ollama 原生 /api/chat schema — 必加 think:false 关掉 qwen3.5 thinking mode
+        let mut ollama_messages = vec![];
+        if !system_prompt.is_empty() {
+            ollama_messages.push(serde_json::json!({"role": "system", "content": system_prompt}));
+        }
+        ollama_messages.push(serde_json::json!({"role": "user", "content": user_prompt}));
+        let mut body = serde_json::json!({
+            "model": model_name,
+            "messages": ollama_messages,
+            "stream": stream_sink.is_some(),
+            "think": false,  // 关掉 thinking mode (qwen3.5:2b 等 thinking 模型必需)
+        });
+        if let Some(mt) = max_tokens {
+            body["options"] = serde_json::json!({"num_predict": mt});
+        }
+        body
+    } else if provider != &LLMProvider::Claude {
         // For CustomOpenAI, apply optional parameters if provided
         let (max_tokens_val, temperature_val, top_p_val) = if provider == &LLMProvider::CustomOpenAI {
             (max_tokens, temperature, top_p)
@@ -334,7 +353,7 @@ pub async fn generate_summary_with_stream(
             result = request_future => {
                 result.map_err(|e| {
                     if e.is_timeout() {
-                        format!("LLM request timed out after 60 seconds")
+                        format!("LLM request timed out after {} seconds", REQUEST_TIMEOUT_DURATION.as_secs())
                     } else {
                         format!("Failed to send request to LLM: {}", e)
                     }
@@ -347,7 +366,7 @@ pub async fn generate_summary_with_stream(
     } else {
         request_future.await.map_err(|e| {
             if e.is_timeout() {
-                format!("LLM request timed out after 60 seconds")
+                format!("LLM request timed out after {} seconds", REQUEST_TIMEOUT_DURATION.as_secs())
             } else {
                 format!("Failed to send request to LLM: {}", e)
             }
@@ -363,7 +382,55 @@ pub async fn generate_summary_with_stream(
     }
 
     // Parse response based on provider
-    if provider == &LLMProvider::Ollama && stream_sink.is_some() {
+    if provider == &LLMProvider::Ollama {
+        // §111: Ollama 原生 /api/chat 返回 {message: {content, ...}, done, ...}
+        if stream_sink.is_some() {
+            // streaming path
+            let sink = stream_sink.expect("stream sink checked above");
+            let mut bytes_stream = response.bytes_stream();
+            let mut pending = String::new();
+            let mut output = String::new();
+            while let Some(next) = bytes_stream.next().await {
+                if cancellation_token.is_some_and(CancellationToken::is_cancelled) {
+                    return Err("Summary generation was cancelled".to_string());
+                }
+                let bytes = next.map_err(|e| format!("Failed to read streaming response: {}", e))?;
+                pending.push_str(&String::from_utf8_lossy(&bytes));
+                while let Some(newline) = pending.find('\n') {
+                    let line = pending[..newline].trim().to_string();
+                    pending.drain(..=newline);
+                    if let Some(content) = parse_ollama_stream_line(&line)? {
+                        if !content.is_empty() {
+                            output.push_str(&content);
+                            sink(&content);
+                        }
+                    }
+                }
+            }
+            if !pending.trim().is_empty() {
+                if let Some(content) = parse_ollama_stream_line(pending.trim())? {
+                    if !content.is_empty() {
+                        output.push_str(&content);
+                        sink(&content);
+                    }
+                }
+            }
+            return Ok(output.trim().to_string());
+        }
+        // non-streaming: Ollama 原生 schema
+        let ollama_response: serde_json::Value = response
+            .json()
+            .await
+            .map_err(|e| format!("Failed to parse Ollama response: {}", e))?;
+        info!("🐞 LLM Response received from Ollama");
+        let content = ollama_response
+            .get("message")
+            .and_then(|m| m.get("content"))
+            .and_then(|c| c.as_str())
+            .unwrap_or("")
+            .trim();
+        return Ok(content.to_string());
+    } else if provider == &LLMProvider::Ollama && stream_sink.is_some() {
         let sink = stream_sink.expect("stream sink checked above");
         let mut bytes_stream = response.bytes_stream();
         let mut pending = String::new();
@@ -433,6 +500,19 @@ fn parse_stream_line(line: &str) -> Result<Option<String>, String> {
     let response: StreamChatResponse = serde_json::from_str(payload)
         .map_err(|e| format!("Failed to parse streaming response: {}", e))?;
     Ok(response.choices.first().map(|choice| choice.delta.content.clone()).filter(|value| !value.is_empty()))
+}
+
+/// §111: Ollama 原生 /api/chat streaming 解析 (JSON Lines, 每行一个 {message:{content:"..."}, done})
+fn parse_ollama_stream_line(line: &str) -> Result<Option<String>, String> {
+    if line.is_empty() {
+        return Ok(None);
+    }
+    let value: serde_json::Value = serde_json::from_str(line)
+        .map_err(|e| format!("Failed to parse Ollama stream line: {}", e))?;
+    Ok(value.get("message")
+        .and_then(|m| m.get("content"))
+        .and_then(|c| c.as_str())
+        .map(|s| s.to_string()))
 }
 
 #[cfg(test)]

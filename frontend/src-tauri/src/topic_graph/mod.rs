@@ -390,8 +390,11 @@ pub async fn trigger_after_summary<R: Runtime>(
     // 4) Call BuiltInAI (best-effort). 失败仅 log warn, 不影响主流程.
     // §132: 120s 太长 — Ollama 不可用每场等 120s, 9 场 = 18 分钟一直转. 改 30s.
     //       Ollama connect refuse 通常 3s, qwen3.5:2b 推理 800 token ≤ 25s.
+    // §111: §132 推理时间低估 — qwen3.5:2b thinking mode 默认开 (实测 40s/800 token 空 content).
+    //       已加 think:false (§111 llm_client.rs), 实测 1.8s. 但冷启动 + 大摘要仍可能 30s+.
+    //       给到 90s 缓冲, 仍 fail 就走 topic-extract-failed emit, 不阻塞主流程.
     let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(30))
+        .timeout(std::time::Duration::from_secs(90))
         .build()
         .unwrap_or_else(|_| reqwest::Client::new());
     let response = match generate_summary(
