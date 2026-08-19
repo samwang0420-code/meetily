@@ -1701,6 +1701,70 @@ killall meetily && open binary
 
 ---
 
+## §139 模板提示词商业化精进 (2026-08-19 立)
+
+**触发**: 用户 8/19 原话 "针对各种模板的提示词, 你站在商业化的角度, 再次精进"
+
+**核心目标**: 10 个摘要模板从"可读"提升到"专业交付级",让客户拿到摘要可以直接转发给老板/律师/医生/合作伙伴,不需要二次加工。
+
+### 1. §139 通用商业化硬约束 (5 条)
+
+每个模板 timeline section instruction 末尾追加:
+
+```
+【§139 商业化硬约束 — 摘要必须达到专业交付级】
+1. 零废话: 严禁'本文将/接下来/首先/其次'等空话. 严禁'TBD/待定/...'. 直接给事实和结论.
+2. 零编造: 客户拿到摘要直接转发给老板/律师/医生/合作伙伴, 不能出 fact error. 不确定就写'信息不明确'.
+3. 可追溯: 每个关键事实带 [证据: mm:ss] 转录时间戳, 客户按时间戳能直接跳到原始录音核对.
+4. 专业语: 不用 LLM 风格 ('可能也许'/'总之'/'总的来说'). 用领域术语 (庭审用'法庭调查/举证质证', 医疗用'主诉/查体', 销售用'异议处理').
+5. 可对比归档: 同一项目/客户/案件的多次会议摘要, 命名/人名/数据口径要一致, 便于跨会议纵向对比.
+```
+
+### 2. 10 模板定制商业化可交付级块 (新增 sections)
+
+| 模板 | 新增/升级 sections |
+|---|---|
+| standard_meeting (8) | 新增 "会议出席与缺席"; 升级 "关键决议" item_format |
+| daily_standup (9) | 升级 "成员出席与状态"; 新增 "阻塞项与升级需求 (P0/P1/P2)" |
+| project_sync (12) | 升级 "里程碑与状态"; 新增 "里程碑详细状态表" + "决策日志" |
+| retrospective (8) | 升级 "改进行动项"; 新增 "行动项测量指标" |
+| legal_consultation (9) | 新增 "法律风险评级 (高/中/低)" + "证据清单 + 文件清单" |
+| court_hearing (10) | 升级 "关键证据"; 新增 "法条引用块" + "庭审阶段时间线" |
+| medical_consultation (11) | 升级 "治疗与处置计划"; 新增 "PHI 警告头"; 升级 "随访与预警事项" |
+| psychatric_session (14) | 升级 "安全与风险管理"; 新增 "PHI 严格脱敏警告" |
+| sales_marketing_client_call (12) | 升级 "客户需求与痛点"; 新增 "客户异议处理表" + "价格表" + "下次会议时间" |
+| cross_border_ecommerce (13) | 升级 "本周核心数据"; 新增 "平台/账号/达人 ID 清单" + "投放决策表" |
+
+### 3. 数据结构修复
+
+新加的 sections 必须有 `format` 字段, 只能是 `paragraph` / `list` / `string` 三种值 (不支持 `table`)。最初 8 个新 sections 误用 `table`, 修正为 `list`。
+
+### 4. 验证
+
+- **cargo test --lib summary::templates**: 16/16 PASS (含 12 个新增 sections 仍可加载)
+- **cargo build --release**: 73MB binary 15:32 编译完成
+- **check_historical_fixes.py**: **405/405 PASS** (379 → 405, +26 §139 anchors)
+  - 10 个 §139 通用商业化硬约束 anchors
+  - 16 个 §139 商业化可交付级块 anchors
+- **sync_app_bundle.sh**: §99.6 sync tauri bundle binary OK
+
+### 5. 已知边界 (按 §18 不主动改)
+
+- 1 个 §18 bun:test tsc 错误 (不动)
+- 37 cargo warnings (§18 不动)
+- next build 在 sandbox 内被 harness kill, 验证只能看 cargo build (主 binary 编译)
+- 模板 instruction 中的叙事示例仍是央视《庭审现场》节目内容 (历史, §37 已批准)
+- 模板不写 ICD 编码 / 药物剂量推导 / 胜诉概率预测 (医疗/法律硬约束, §18 不动)
+
+### 关联
+
+- §138.1 (fact_guard regex false positive + 法律模板硬约束) - 不重叠, §138 防 fact error, §139 提升专业交付级
+- §37 (硬闸门)
+- §56 (AGENTS.md §X 章节 ≠ 代码 commit, 写完必须 git log 验证)
+- §92 (决策迁移铁律, 代码 + AGENTS.md + outputs + Obsidian 四处同日落)
+- §28 (用户决策迁移铁律)
+- [[§139-模板提示词商业化精进-2026-08-19]] (Obsidian) / `outputs/§139-模板提示词商业化精进-2026-08-19.md` (Codex)
+
 ## §138 摘要质量根因修复 (2026-08-18 立, commit 9807c64)
 
 ## §137.1 nav_guard 模块级 singleton 修复 (2026-08-19 立, commit 即将)
