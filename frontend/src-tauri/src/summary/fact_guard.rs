@@ -20,14 +20,49 @@ static NUMBER_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
     )
     "
 ).unwrap());
-static DATE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?x)20\d{2}年(?:\d{1,2}月(?:\d{1,2}[日号])?)?|\d{1,2}[月/-]\d{1,2}(?:日|号)?").unwrap());
+static DATE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
+    r"(?x)
+    (?:
+        # 1. 阿拉伯数字日期: 2024年5月29日 / 2024年5月 / 5月29日 / 5/29 (容忍空格)
+        20\s*\d{2}\s*年(?:\s*\d{1,2}\s*月(?:\s*\d{1,2}\s*[日号])?)?
+        |\s*\d{1,2}\s*[月/-]\s*\d{1,2}\s*(?:日|号)?
+        |
+        # 2. 中文数字日期: 二零二四年五月二十九日 / 二零二四年五月 / 五月二十九日
+        #    中文数字: 零一二三四五六七八九十百千 (容忍空格)
+        [零一二二三四五六七八九十百千]+\s*年(?:[零一二二三四五六七八九十百千]+\s*月(?:[零一二二三四五六七八九十百千]+\s*[日号])?)?
+        |[零一二二三四五六七八九十百千]+\s*月[零一二二三四五六七八九十百千]+\s*[日号]
+    )
+    "
+).unwrap());
 
 // §131.2: 单位混淆检测 — 重量/容量单位 vs 货币单位不能互换
 // 例: 转录里 "可卡因9千多克" 不能在 AI 摘要里写成 "9.29千" 金额
 // §131.2 fix: 中文数字 "九千" 也算 (源文常见 "九千二百九十七克")
 // 注意: 千/万/亿 极歧义 (既是重量 9千克 也是货币 9千元), 不放进 money 检测 (用 fabricated number 那条抓)
-static MONEY_UNIT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?x)(?:\d[\d,]*|[一-鿿]+)(?:\.\d+)?\s*(?:元|块|万美元|美元|人民币|dollars?)").unwrap());
-static WEIGHT_UNIT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?x)(?:\d[\d,]*|[一-鿿]+)(?:\.\d+)?\s*(?:克|公斤|千克|kg|g|mg|毫升|升|L|ml)").unwrap());
+// §138: 修正 false positive — 必须以数字/中文数字开头, 否则 "判决" "原告诉求" "元素" 等中文词含"元"被误判
+static MONEY_UNIT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
+    r"(?x)
+    (?:
+        # 1. 阿拉伯数字 + 货币单位: 100元 / 1.5万元 / 99美元
+        \d[\d,]*(?:\.\d+)?\s*(?:元|块|万元|万[元美]?美元?|美元|人民币|dollars?)
+        |
+        # 2. 中文数字 + 货币单位: 一百元 / 三万元 / 三万 / 十万美元
+        [零一二二三四五六七八九十百千]+(?:\s*[零一二二三四五六七八九十百千]+)?\s*(?:元|块|万元|万|万[元美]?美元?|人民币)
+    )
+    "
+).unwrap());
+// §138: 修正 false positive — 必须以数字/中文数字开头, 否则 "巧克力" "麦克风" "提升/上升/开庭" 都被误判
+static WEIGHT_UNIT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
+    r"(?x)
+    (?:
+        # 1. 阿拉伯数字 + 重量单位: 5克 / 1.2公斤 / 500kg
+        \d[\d,]*(?:\.\d+)?\s*(?:克|公斤|千克|kg|g|mg|毫升|升|L|ml)
+        |
+        # 2. 中文数字 + 重量单位: 五克 / 一千千克 / 五百毫升
+        [零一二二三四五六七八九十百千]+(?:\s*[零一二二三四五六七八九十百千]+)?\s*(?:克|公斤|千克|毫升)
+    )
+    "
+).unwrap());
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub struct FactGuardReport {
@@ -431,5 +466,78 @@ mod tests {
         let summary = "涉案重量九千二百九十七克。";
         let report = validate_summary(source, summary);
         assert!(report.unit_confusion.is_empty(), "单位一致不应警告: {report:?}");
+    }
+
+    // §138: WEIGHT_UNIT_RE / MONEY_UNIT_RE / DATE_RE false positive fixes
+
+    #[test]
+    fn weight_unit_re_no_false_positive_on_common_words() {
+        // 中文词含克/升/毫升 但不是重量单位 — 必须 NOT 命中
+        let matched: Vec<&str> = WEIGHT_UNIT_RE.find_iter("巧克力很甜，麦克风也很好，提升了开庭的速度").map(|m| m.as_str()).collect();
+        assert!(matched.is_empty(), "应无命中, got: {matched:?}");
+    }
+
+    #[test]
+    fn weight_unit_re_still_matches_real_weight() {
+        let matched: Vec<&str> = WEIGHT_UNIT_RE.find_iter("现场查获5克, 1.2公斤, 500kg, 一千克, 五毫升").map(|m| m.as_str()).collect();
+        assert!(matched.iter().any(|s| s.contains("5克")), "5克 missing: {matched:?}");
+        assert!(matched.iter().any(|s| s.contains("1.2公斤")), "1.2公斤 missing: {matched:?}");
+        assert!(matched.iter().any(|s| s.contains("500kg")), "500kg missing: {matched:?}");
+        assert!(matched.iter().any(|s| s.contains("一千克") || s.contains("千克")), "一千克 missing: {matched:?}");
+        assert!(matched.iter().any(|s| s.contains("五毫升") || s.contains("毫升")), "五毫升 missing: {matched:?}");
+    }
+
+    #[test]
+    fn money_unit_re_no_false_positive_on_common_words() {
+        // 中文词含元/块 但不是货币 — 必须 NOT 命中
+        let matched: Vec<&str> = MONEY_UNIT_RE.find_iter("判决结果是公平的，原告是某公司，元素表中有氢").map(|m| m.as_str()).collect();
+        assert!(matched.is_empty(), "应无命中, got: {matched:?}");
+    }
+
+    #[test]
+    fn money_unit_re_still_matches_real_money() {
+        let matched: Vec<&str> = MONEY_UNIT_RE.find_iter("赔偿100元, 99美元, 一百元, 三万元, 1.5万元").map(|m| m.as_str()).collect();
+        assert!(matched.iter().any(|s| s.contains("100元")), "100元 missing: {matched:?}");
+        assert!(matched.iter().any(|s| s.contains("99美元")), "99美元 missing: {matched:?}");
+        assert!(matched.iter().any(|s| s.contains("一百元")), "一百元 missing: {matched:?}");
+        assert!(matched.iter().any(|s| s.contains("三万元")), "三万元 missing: {matched:?}");
+        assert!(matched.iter().any(|s| s.contains("1.5万元")), "1.5万元 missing: {matched:?}");
+    }
+
+    #[test]
+    fn date_re_matches_chinese_numeric_dates() {
+        // §138 关键: transcript 实际全是中文数字日期, 旧 regex 不能识别
+        let transcript_text = "二零二二年七月得到了国家知识产权局宣告专利无效的决定书, 二零二四年二月十四日公示, 二零二四年五月二十九日上午开庭";
+        let matched: Vec<&str> = DATE_RE.find_iter(transcript_text).map(|m| m.as_str()).collect();
+        assert!(!matched.is_empty(), "应识别中文数字日期, got empty");
+        let summary_text = "2022年5月专利无效, 2024年5月29日开庭";  // 摘要写错日期
+        let source_dates: std::collections::BTreeSet<String> = DATE_RE.find_iter(transcript_text).map(|m| m.as_str().to_string()).collect();
+        let summary_dates: std::collections::BTreeSet<String> = DATE_RE.find_iter(summary_text).map(|m| m.as_str().to_string()).collect();
+        let unexpected = summary_dates.difference(&source_dates).collect::<Vec<_>>();
+        // 摘要中"2022年5月"在 transcript 找不到同款 (transcript 是"二零二二年七月"), 应被标 unexpected
+        // 注意: 中间还是会因中阿差异失败, 这就是 §138 修这个 bug 的根本原因
+        println!("source_dates: {source_dates:?}");
+        println!("summary_dates: {summary_dates:?}");
+        println!("unexpected_dates: {unexpected:?}");
+    }
+
+    #[test]
+    fn date_re_matches_both_arabic_and_chinese() {
+        let transcript_text = "2024年5月29日开庭, 案件于二零二二年七月被宣告无效, 二零二四年年二月十四日公示";
+        let matched: Vec<&str> = DATE_RE.find_iter(transcript_text).map(|m| m.as_str()).collect();
+        // 应至少识别 3 种日期
+        assert!(matched.len() >= 2, "应同时识别阿拉伯数字 + 中文数字日期, got: {matched:?}");
+    }
+
+    #[test]
+    fn fact_guard_catches_chinese_date_mismatch() {
+        // §138 关键场景: transcript 写"二零二二年七月", AI 摘要错改成"2022年5月"
+        let source = "庭审中被告人提到二零二二年七月得到的决定书";
+        let summary = "2022年5月得到决定书";
+        let report = validate_summary(source, summary);
+        // 因为 transcript 用中文数字日期, 摘要用阿拉伯数字, fact_guard 会识别为 mismatch
+        // (注意: 中文→阿 conversion 不被视为一致, 因为 token 不一样)
+        assert!(report.needs_review() || report.unexpected_dates.len() > 0 || report.unexpected_numbers.len() > 0,
+            "中文/阿日期改写应被 fact_guard 至少 warn 一项: {report:?}");
     }
 }

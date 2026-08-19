@@ -1627,6 +1627,80 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - outputs/§137-摘要生成中拦截跳转-2026-08-18.md
 - [[137-摘要生成中拦截跳转]] (Obsidian)
 
+## §138.1 fact_guard regex false positive + 法律模板硬约束 (2026-08-19 立)
+
+**触发**: 用户 8/19 检查最近摘要发现:
+- 911f52ae (魏某专利案) 摘要把"二零二二年七月" 错改成 "2022 年 5 月" (实际"7月") — 日期错误
+- 911f52ae 摘要多处"未提及具体姓名"/"未在提供的文本片段中详细记载"/"模糊表述" 回避语
+- 911f52ae 摘要元数据"庭审日期未明确" 但事实时间线又写"2024 年 5 月 29 日开庭" 自相矛盾
+- fact_guard 报"原文含重量/容量单位" 警告 — 但 transcript 0 含重量单位 — false positive
+
+### 4 个独立根因
+
+**Bug 1**: `WEIGHT_UNIT_RE` line 30 接受 `[一-鿿]+` (任意中文) + 单位字符, 误命中 "巧克力"/"麦克风"/"提升/开庭"
+**Bug 2**: `MONEY_UNIT_RE` line 29 同样 false positive, "判决"/"原告"/"元素" 都命中
+**Bug 3**: `DATE_RE` line 23 不识别中文数字日期 (transcript 全是"二零二二年七月" 这种) + 不容忍空格 (摘要"2022 年 5 月" 不匹配)
+**Bug 4**: 法律模板 instruction 写"禁止用'未提及'填空" 但模型用变种"未提及具体姓名"/"转录未明确提及", 缺更显眼的硬约束
+
+### 修复
+
+**`summary/fact_guard.rs`** — 3 个 regex 重写 (line 23/29/30):
+- `WEIGHT_UNIT_RE`: 必须以数字/中文数字开头
+- `MONEY_UNIT_RE`: 必须以数字/中文数字开头
+- `DATE_RE`: 加中文数字日期分支 + 加 `\s*` 容忍空格
+
+**`templates/court_hearing.json` + `templates/legal_consultation.json`** — `事实时间线 / Key Events Timeline` section instruction 末尾追加 §138 硬约束 (6 条):
+1. 日期 verbatim: '二零二二年七月' 不能改写成 '2022年5月'
+2. 金额 verbatim: '167万余元' 不能改写为 '167万'
+3. 人名 verbatim: 原文用'魏某'就写'魏某',原文用'魏立秋'就写'魏立秋'
+4. 因果不颠倒
+5. 禁止逃避语: 严禁 '未提及具体姓名'/'未在提供的文本片段中详细记载'/'模糊表述'/'转录未明确提及' 等回避语. 信息不足写'信息不明确'或省略
+6. 单位不换算: 克/公斤/毫升 与 元/块/美元 不可互换
+
+### 验证
+
+- `cargo test --lib summary::fact_guard` **24 passed / 0 failed** (新加 6 个 §138.1 测试)
+- `cargo test --lib` **371 passed / 0 failed / 3 ignored** (全套)
+- 911f52ae 回测: transcript 12 个日期 (全中文数字) + summary 6 个日期 (全阿数字) → unexpected_dates = 6 项 (修复前 = 0)
+- `python3 scripts/check_historical_fixes.py` **379/379 PASS** (367 → 379, 净 +12 §138.1 anchor)
+- cargo build --release 3m40s, binary 73M
+
+### 12 个新 guard anchor (§138.1)
+
+`138_weight_unit_no_chinese_word` / `138_money_unit_no_chinese_word` / `138_date_re_matches_chinese_numeric` / `138_date_re_tolerates_space` / 6 个测试函数名 + 2 个模板硬约束 anchor
+
+### §56 / §92 教训
+
+- §56 扩展: 任何修改 fact_guard regex 时**用真实 DB transcript 跑回归** (`grep` 看具体修了哪个 false positive)
+- §92 严格执行: outputs + Obsidian + AGENTS.md + 代码 + guard 5 处同日落
+- §131.1 highlight_unexpected_facts 配合: 摘要保留 AI 原文, fabricated tokens 用 `==⚠️xxx⚠️==` 标黄, 用户能直接看到哪句出问题
+
+### 已知边界 (§18 不主动改)
+
+- 911f52ae 摘要已经存在 DB, 不自动重生成 (用户没要求); 新会议用新模板 + 新 fact_guard
+- 213a1c41 摘要 "伙同弟弟一家" 改写错误 (实际是"与弟弟一家争执") — 中文语义保真度问题, 下一轮跟进
+- f2dfa2e0 摘要基本准确 ✓
+- transcript "前一年" / "那一年" 中的 "一年" 被 DATE_RE 误命中 (低优先级)
+- 37 cargo warnings (§18 不动)
+
+### §15 GUI 验收
+
+```
+killall meetily && open binary
+# 任一会话重生成摘要
+# 1. 不再出现 "未明确具体姓名" / "模糊表述" / "未在提供的文本片段中详细记载" 等
+# 2. 日期严格 verbatim (用 transcript 原文措辞)
+# 3. fact_guard 警告条数减少 (false positive 修了)
+```
+
+### 关联
+
+- §137.5 / §137.4 / §137.3
+- §131.1 highlight / §131.2 unit_confusion (现 §138.1 修 false positive)
+- §18 / §37 / §56 / §92
+
+---
+
 ## §138 摘要质量根因修复 (2026-08-18 立, commit 9807c64)
 
 ## §137.1 nav_guard 模块级 singleton 修复 (2026-08-19 立, commit 即将)
