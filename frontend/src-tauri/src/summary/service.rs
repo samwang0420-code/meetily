@@ -8,7 +8,7 @@ use crate::summary::metadata::read_detected_summary_language_from_metadata;
 use crate::summary::processor::{
     extract_meeting_name_from_markdown, generate_meeting_summary, language_name_from_code,
 };
-use crate::summary::fact_guard::{highlight_unexpected_facts, validate_summary, FactGuardReport};
+use crate::summary::fact_guard::{highlight_unexpected_facts, normalize_name_drift, validate_summary, FactGuardReport};
 use crate::summary::commands::StructuredTranscriptEvidence;
 use crate::summary::templates::{self, Template};
 use crate::ollama::metadata::ModelMetadataCache;
@@ -195,6 +195,8 @@ fn build_summary_result_json_with_facts(
             map.insert("fact_guard_severe".into(), serde_json::Value::Bool(report.is_severe()));
             // §148: 法律模板 critical (人名漂移 / 角色混淆 / 判决编造) — 单独字段给前端区分
             map.insert("fact_guard_legal_critical".into(), serde_json::Value::Bool(report.is_legal_critical()));
+            map.insert("fact_guard_attribution_confusion".into(), serde_json::Value::Bool(!report.attribution_confusion.is_empty()));
+            map.insert("fact_guard_name_normalized".into(), serde_json::to_value(&report.name_normalized).unwrap_or(serde_json::Value::Null));
         }
     }
     payload
@@ -633,11 +635,30 @@ impl SummaryService {
         Self::cleanup_cancellation_token(&meeting_id);
 
         match result {
-            Ok((final_markdown, english_markdown, num_chunks)) => {
-                let fact_report = validate_summary(&evidence_text, &final_markdown);
+            Ok((mut final_markdown, english_markdown, num_chunks)) => {
+                let mut fact_report = validate_summary(&evidence_text, &final_markdown);
+                // §149 §1: 人名归一化 — 自动把变体名归一化为 transcript 中首次出现形式
+                let (normalized_md, name_normalized_ops) = normalize_name_drift(&evidence_text, &final_markdown);
+                if !name_normalized_ops.is_empty() {
+                    fact_report.name_normalized = name_normalized_ops.clone();
+                    final_markdown = normalized_md;
+                    info!(
+                        "§149 NAME_NORMALIZED for meeting_id={}: {} 个变体名归一化: {:?}",
+                        meeting_id,
+                        name_normalized_ops.len(),
+                        name_normalized_ops
+                    );
+                }
                 // §131.1: 始终保留 AI 原文 — fact_guard 只追加警告, 不再替换内容
                 // 用户能从警告中识别 fabricated 字段, 但仍可读到 AI 生成的 5 段摘要
-                let mut final_markdown = final_markdown;
+                // (但 §149 归一化例外: 用户明示要"人名做后处理校验, 杜绝同音错别字")
+                // §149 §4: 陈述归属混淆 (例: 把辩护人量刑建议安到被告人头上) 单独 warn
+                if !fact_report.attribution_confusion.is_empty() {
+                    warn!(
+                        "§149 ATTRIBUTION_CONFUSION for meeting_id={}: {:?}",
+                        meeting_id, fact_report.attribution_confusion
+                    );
+                }
                 if fact_report.needs_review() {
                     let severity = if fact_report.is_severe() { "SEVERE" } else { "MINOR" };
                     warn!(

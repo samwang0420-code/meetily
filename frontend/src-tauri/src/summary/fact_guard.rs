@@ -81,6 +81,12 @@ pub struct FactGuardReport {
     /// §148 §3: 判决编造 — 庭审未宣判, 但摘要出现 "判处/判决/一审/二审" 等判决词
     #[serde(default)]
     pub fabricated_verdict: Vec<String>,
+    /// §149 §4: 关键陈述归属混淆 — 摘要把 XX 说的话安到 YY 头上 (例: 辩护人量刑建议写成被告人诉求)
+    #[serde(default)]
+    pub attribution_confusion: Vec<String>,
+    /// §149 §1: 归一化操作记录 — 哪些变体名被自动归一化 (例: "李富强 → 李福强")
+    #[serde(default)]
+    pub name_normalized: Vec<String>,
 }
 
 impl FactGuardReport {
@@ -92,6 +98,7 @@ impl FactGuardReport {
             && self.name_drift.is_empty()
             && self.role_confusion.is_empty()
             && self.fabricated_verdict.is_empty()
+            && self.attribution_confusion.is_empty()
     }
     /// §131: severe 判定更严格 — 1 个无关 number 不再触发自动替换
     /// 真 severe 条件:
@@ -110,6 +117,7 @@ impl FactGuardReport {
             + self.name_drift.len()
             + self.role_confusion.len()
             + self.fabricated_verdict.len()
+            + self.attribution_confusion.len()
             + if self.overclaimed_decision { 1 } else { 0 }
     }
 
@@ -209,6 +217,9 @@ pub fn validate_summary(transcript: &str, summary: &str) -> FactGuardReport {
     // §148 §3: 判决编造检测 — 庭审未宣判, 摘要出现 "判处/判决/一审/二审"
     let fabricated_verdict = detect_fabricated_verdict(transcript, summary);
 
+    // §149 §4: 关键陈述归属混淆 (例: 把辩护人量刑建议"判处三年"安到被告人头上)
+    let attribution_confusion = detect_attribution_confusion(transcript, summary);
+
     FactGuardReport {
         unexpected_numbers: summary_numbers.difference(&source_numbers).cloned().collect(),
         unexpected_dates: summary_dates.difference(&source_dates).cloned().collect(),
@@ -217,6 +228,8 @@ pub fn validate_summary(transcript: &str, summary: &str) -> FactGuardReport {
         name_drift,
         role_confusion,
         fabricated_verdict,
+        attribution_confusion,
+        name_normalized: vec![],
     }
 }
 
@@ -569,6 +582,119 @@ pub fn detect_fabricated_verdict(transcript: &str, summary: &str) -> Vec<String>
 }
 
 
+/// §149 §1: 关键陈述归属校验 — 摘要把 XX 说的话安到 YY 头上
+/// 典型场景: 把辩护人的量刑建议 "请求判处三年" 安到被告人头上, 把公诉人的建议说成法院判决
+/// 检测思路:
+///   1. summary 中含 "建议/请求/认为" 等观点动词 + 量刑/判决数字
+///   2. 该句子前/后主语是 "辩护人/辩护律师" 但 transcript 同句主语是 "被告人/被告" → 归属错位
+///   3. 反之亦然
+pub fn detect_attribution_confusion(transcript: &str, summary: &str) -> Vec<String> {
+    let mut out = Vec::new();
+
+    // 模式 1: summary 说"被告人请求/希望/建议判处 X 年"
+    // transcript 应是"辩护人/辩护律师请求判处 X 年" — 量刑建议通常是辩护人或公诉人, 不是被告人本人
+    let defendant_self_claims = [
+        "被告人请求判处",
+        "被告人建议判处",
+        "被告人希望判处",
+        "被告请求判处",
+        "被告建议判处",
+    ];
+    for pattern in &defendant_self_claims {
+        if summary.contains(pattern) {
+            out.push(format!(
+                "陈述归属混淆: 摘要 \"{pattern} X 年\", 但量刑建议通常是辩护人或公诉人, 不是被告人本人诉求 (transcript: 被告人通常 \"请求从轻/认罪\")"
+            ));
+        }
+    }
+
+    // 模式 2: transcript 明确"被告人原话: 觉得三年都太长, 只想回家" 类
+    // 但 summary 说"被告人请求判处三年" — 张冠李戴
+    let defendant_negative_phrases = [
+        "觉得三年都太长",
+        "不想坐牢",
+        "只想回家",
+        "认罪悔罪",
+        "请求从轻",
+        "希望从轻",
+    ];
+    let transcript_has_defendant_plea = defendant_negative_phrases.iter().any(|p| transcript.contains(p));
+    if transcript_has_defendant_plea {
+        for claim in &[
+            "被告人请求判处",
+            "被告人希望判处",
+            "被告人建议判处",
+        ] {
+            if summary.contains(claim) {
+                out.push(format!(
+                    "陈述归属混淆: transcript 含被告人消极辩护原话 (如\"觉得三年都太长, 只想回家\"), 但 summary 写 \"{claim}\" — 把辩护人/公诉人意见安到被告人头上"
+                ));
+                break;
+            }
+        }
+    }
+
+    // 模式 3: summary 说"法院判决" 但 transcript 实际是"公诉人量刑建议"
+    let court_decision_fake = [
+        "法院判决",
+        "法院判处",
+        "法庭判决",
+        "法庭判处",
+    ];
+    for pattern in &court_decision_fake {
+        if summary.contains(pattern) {
+            // 看 transcript 是否含"量刑建议"或"建议"等
+            if transcript.contains("量刑建议") || transcript.contains("建议") {
+                // transcript 是建议, summary 是判决 — 错位 (但这由 detect_fabricated_verdict 处理)
+                // 这里不再重复, 避免冗余
+            }
+        }
+    }
+
+    out
+}
+
+
+/// §149 §2: 人名归一化 — 把 summary 中的变体名归一化为 transcript 中首次出现的形式
+/// 思路: 用 detect_name_drift 找到 drift pair (A → B), 选 transcript 中出现次数多的为 canonical
+/// 然后把 summary 中的变体名替换为 canonical
+/// 返回: (归一化后 summary, 归一化操作列表 ["李富强 → 李福强", ...])
+pub fn normalize_name_drift(transcript: &str, summary: &str) -> (String, Vec<String>) {
+    let drift_pairs = detect_name_drift(transcript, summary);
+    if drift_pairs.is_empty() {
+        return (summary.to_string(), vec![]);
+    }
+
+    let mut out = summary.to_string();
+    let mut normalized = Vec::new();
+
+    for entry in &drift_pairs {
+        // entry 形如 "李福强 → 李富强"
+        let parts: Vec<&str> = entry.split("→").map(str::trim).collect();
+        if parts.len() != 2 { continue; }
+        let a = parts[0];
+        let b = parts[1];
+
+        // 选 transcript 中出现次数多的为 canonical
+        let count_a = transcript.matches(a).count();
+        let count_b = transcript.matches(b).count();
+        let (variant, canonical) = if count_a >= count_b {
+            (b, a)
+        } else {
+            (a, b)
+        };
+
+        // 把 summary 中的 variant 替换为 canonical
+        if out.contains(variant) {
+            out = out.replace(variant, canonical);
+            normalized.push(format!("{} → {}", variant, canonical));
+        }
+    }
+
+    (out, normalized)
+}
+
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -619,6 +745,8 @@ mod tests {
             name_drift: vec![],
             role_confusion: vec![],
             fabricated_verdict: vec![],
+            attribution_confusion: vec![],
+            name_normalized: vec![],
         };
         let fallback = conservative_fallback(source, &empty);
         assert!(fallback.contains("未识别到具体错误字段"));
@@ -738,7 +866,9 @@ mod tests {
             unit_confusion: vec![],
             name_drift: vec![],
             role_confusion: vec![],
-            fabricated_verdict: vec![]
+            fabricated_verdict: vec![],
+            attribution_confusion: vec![],
+            name_normalized: vec![],
         };
         let summary = "实际佣金9.29千，案件背景清晰。";
         let marked = highlight_unexpected_facts(summary, &report);
@@ -755,7 +885,9 @@ mod tests {
             unit_confusion: vec![],
             name_drift: vec![],
             role_confusion: vec![],
-            fabricated_verdict: vec![]
+            fabricated_verdict: vec![],
+            attribution_confusion: vec![],
+            name_normalized: vec![],
         };
         let summary = "实际佣金3000元。";
         let marked = highlight_unexpected_facts(summary, &report);
@@ -939,4 +1071,83 @@ mod tests {
         // highlight 必须能标黄这些 fabricated token
         let highlighted = highlight_unexpected_facts(summary, &report);
         assert!(highlighted.contains("⚠️") || highlighted.contains("=="), "highlight 必须标注 fabricated tokens");
+}
+
+// ============================================================================
+// §149 测试 — 姓名归一化 + 关键陈述归属校验
+// ============================================================================
+
+#[test]
+fn test_149_attribution_defendant_self_claim_detected() {
+    // 场景: transcript 是辩护人提"判处三年", 但 summary 安到被告人头上
+    let transcript = "辩护人: 被告人李福强请求从轻处罚, 建议判处三年有期徒刑。本案择期宣判。";
+    let summary = "被告人请求判处三年有期徒刑, 一审宣判三年。";
+    let report = validate_summary(transcript, summary);
+    assert!(
+        !report.attribution_confusion.is_empty(),
+        "陈述归属混淆漏检: 摘要把辩护人量刑建议安到被告人头上, 应被检测出来。report={report:?}"
+    );
+}
+
+#[test]
+fn test_149_attribution_defendant_plea_overrides_self_claim() {
+    // 场景: transcript 是被告人消极辩护 ("觉得三年都太长, 只想回家")
+    // 但 summary 说"被告人请求判处三年" — 张冠李戴
+    let transcript = "被告人李福强当庭表示: 觉得三年都太长, 只想回家, 请求从轻处罚。辩护人建议判处三年。公诉人量刑建议三至五年。本案择期宣判。";
+    let summary = "被告人请求判处三年有期徒刑, 辩护人认同。";
+    let report = validate_summary(transcript, summary);
+    assert!(
+        !report.attribution_confusion.is_empty(),
+        "陈述归属混淆漏检: transcript 是消极辩护, summary 张冠李戴。report={report:?}"
+    );
+}
+
+#[test]
+fn test_149_normalize_name_drift_canonical_from_transcript() {
+    // 场景: transcript 一致用"李福强", summary 用了"李福强"和"李富强"
+    // normalize 后, summary 全部变成"李福强"
+    let transcript = "李福强持枪射击其父李金明, 致其死亡。辩护人建议判处三年。\n李福强当庭认罪悔罪, 请求从轻处罚。\n李福强姐姐作为证人出庭。";
+    let summary = "李福强持枪伤害其父。后续李富强被起诉。辩护人: 李福强的姐姐是证人。";
+    let (normalized, ops) = normalize_name_drift(transcript, summary);
+    // transcript 含 "李福强" 多次, "李富强" 0 次 → canonical = "李福强"
+    assert!(
+        !normalized.contains("李富强"),
+        "归一化失败, summary 仍含变体名 '李富强': {normalized}"
+    );
+    assert!(normalized.contains("李福强"), "归一化后 canonical 名应在: {normalized}");
+    assert!(!ops.is_empty(), "应至少 1 个归一化操作: {ops:?}");
+    assert!(
+        ops.iter().any(|op| op.contains("李富强") && op.contains("李福强")),
+        "应记录 '李富强 → 李福强' 操作: {ops:?}"
+    );
+}
+
+#[test]
+fn test_149_normalize_keeps_canonical_when_no_drift() {
+    // 场景: summary 已一致用 transcript 中的姓名, normalize 后无操作
+    let transcript = "李福强持枪射击, 致人死亡。辩护人建议从轻处罚。";
+    let summary = "李福强当庭认罪, 请求从轻处罚。";
+    let (normalized, ops) = normalize_name_drift(transcript, summary);
+    assert_eq!(normalized, summary, "无 drift 时 summary 不应被改");
+    assert!(ops.is_empty(), "无 drift 时 ops 应空: {ops:?}");
+}
+
+#[test]
+fn test_149_fact_guard_report_contains_new_fields() {
+    // 场景: 验证 FactGuardReport 序列化含 §149 新字段
+    let report = FactGuardReport {
+        unexpected_numbers: vec![],
+        unexpected_dates: vec![],
+        overclaimed_decision: false,
+        unit_confusion: vec![],
+        name_drift: vec![],
+        role_confusion: vec![],
+        fabricated_verdict: vec![],
+        attribution_confusion: vec!["测试归属混淆".to_string()],
+        name_normalized: vec!["李富强 → 李福强".to_string()],
+    };
+    let json = serde_json::to_value(&report).unwrap();
+    assert_eq!(json["attribution_confusion"][0], "测试归属混淆");
+    assert_eq!(json["name_normalized"][0], "李富强 → 李福强");
+    assert!(!report.is_safe(), "含 attribution_confusion 时 is_safe 应为 false");
 }
