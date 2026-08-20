@@ -10,9 +10,7 @@
 //! - 失败 non-fatal: 不抛给 Tauri 主线程, 仅 stderr 日志 + warn!
 //! - 成功回填后 emit `transcripts-updated` 事件, 前端 listen 后 reload 当前 meeting
 
-use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Duration;
 
 use serde::Serialize;
@@ -132,8 +130,10 @@ struct ApplyResult {
     #[serde(default)]
     updated_rows: i64,
     #[serde(default)]
+    #[allow(dead_code)] // §F: 历史字段
     matched_files: i64,
     #[serde(default)]
+    #[allow(dead_code)] // §F: 历史字段
     unmatched_files: i64,
 }
 

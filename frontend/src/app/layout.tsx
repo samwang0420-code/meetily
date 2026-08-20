@@ -258,10 +258,10 @@ export default function RootLayout({
       <I18nProvider>
         <body className={`${sourceSans3.variable} font-sans antialiased`}>
             <AuthProvider>
+              <ConfigProvider>
           <AnalyticsProvider>
           <RecordingStateProvider>
             <TranscriptProvider>
-              <ConfigProvider>
                 <OllamaDownloadProvider>
                   <OnboardingProvider>
                     <UpdateCheckProvider>
@@ -302,8 +302,7 @@ export default function RootLayout({
                   </OnboardingProvider>
 
                 </OllamaDownloadProvider>
-              </ConfigProvider>
-            </TranscriptProvider>
+              </TranscriptProvider>
           </RecordingStateProvider>
         </AnalyticsProvider>
 
@@ -311,6 +310,7 @@ export default function RootLayout({
           <SafeToastBinder />
 
           <Toaster position="bottom-center" richColors closeButton />
+              </ConfigProvider>
           </AuthProvider>
         </body>
       </I18nProvider>

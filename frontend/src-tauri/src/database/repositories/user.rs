@@ -1,7 +1,7 @@
 // 离线会记 v0.5.0: 用户账号 repository
 // 字段保持最小化, 与原 Meetily licensing 表语义对齐
 
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 
 fn map_row(r: sqlx::sqlite::SqliteRow) -> crate::database::models::UserModel {
     use sqlx::Row;
@@ -39,7 +39,7 @@ fn parse_dt_opt(s: &str) -> Option<crate::database::models::DateTimeUtc> {
 }
 
 use serde::{Deserialize, Serialize};
-use sqlx::{Error as SqlxError, Row, SqlitePool};
+use sqlx::{Error as SqlxError, SqlitePool};
 
 
 

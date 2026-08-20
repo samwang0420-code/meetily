@@ -246,6 +246,7 @@ impl SherpaDaemon {
     }
 
     /// 兼容旧 API: ensure_started(0) — callsite 零修改.
+    #[allow(dead_code)] // §F: 兼容 API,callsite 已全部用 ensure_started_slot
     fn ensure_started(&self) -> Result<()> {
         let slot = self.next_slot();
         self.ensure_started_slot(slot)

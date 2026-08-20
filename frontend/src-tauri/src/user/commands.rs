@@ -4,7 +4,6 @@
 use log::{error, info};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Manager, Runtime};
-use tauri::State;
 use crate::database::repositories::user::{UsersRepository, HotwordsRepository, UserPublic};
 use crate::database::repositories::user as user_repo;
 use crate::state::AppState;
@@ -13,7 +12,6 @@ use crate::user::membership::{activate_member_for_user, MEMBER_BUNDLE_KEY};
 use crate::user::machine_id::get_machine_id;
 use std::sync::Mutex;
 use std::collections::HashMap;
-use chrono::Utc;
 
 #[derive(Default)]
 pub struct SessionStore {

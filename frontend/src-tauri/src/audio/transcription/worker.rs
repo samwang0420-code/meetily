@@ -22,7 +22,9 @@ static SPEECH_DETECTED_EMITTED: AtomicBool = AtomicBool::new(false);
 
 // v0.6.12+: 实时识别 latency 滚动采样 (50 样本 ring buffer)
 // 用 Mutex<[i64; 50]> 因为 std::sync::atomic::AtomicI64 数组 const init 没稳定 API
+#[allow(dead_code)] // §F: timing instrumentation hook
 static TIMING_LAST_EMIT_MS: AtomicU64 = AtomicU64::new(0);
+#[allow(dead_code)] // §F: timing ring head
 static TIMING_RING_HEAD: AtomicU64 = AtomicU64::new(0);  // 0..50 滚动索引
 static TIMING_RING_FILLS: AtomicU64 = AtomicU64::new(0); // 总填充数
 static TIMING_RING_DECODE: Mutex<[i64; 50]> = Mutex::new([0i64; 50]);
@@ -464,7 +466,7 @@ pub fn start_transcription_task<R: Runtime>(
             for _ in 0..50 {
                 let count = Arc::strong_count(&sess_arc);
                 if count == 1 { unique = true; break; }
-                drop(count);
+                let _ = count; // §F: drop Copy 优化
                 tokio::time::sleep(std::time::Duration::from_millis(100)).await;
             }
             // 此时只有 sess_arc 一个持有者, 拿 session

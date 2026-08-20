@@ -75,6 +75,7 @@ pub struct FactGuardReport {
 }
 
 impl FactGuardReport {
+    #[cfg(test)]
     pub fn is_safe(&self) -> bool { self.unexpected_numbers.is_empty() && self.unexpected_dates.is_empty() && !self.overclaimed_decision }
     /// §131: severe 判定更严格 — 1 个无关 number 不再触发自动替换
     /// 真 severe 条件:
@@ -174,7 +175,8 @@ pub fn validate_summary(transcript: &str, summary: &str) -> FactGuardReport {
 /// evidence actually present in the source. Anything the AI summary claimed but the
 /// transcript does not support is surfaced as a "需要确认" bullet rather than
 /// being silently kept.
-pub fn conservative_fallback(transcript: &str, report: &FactGuardReport) -> String {
+#[cfg(test)]
+    pub fn conservative_fallback(transcript: &str, report: &FactGuardReport) -> String {
     let mut output = String::from("## ⚠️ 纪要质量复核（已自动降级）\n\n");
     output.push_str("> AI 生成的纪要包含未被原文证据支持的内容，系统已自动改为基于原文重建的安全版。请人工核对下方「确认项」。\n\n");
 
@@ -211,6 +213,7 @@ pub fn conservative_fallback(transcript: &str, report: &FactGuardReport) -> Stri
 /// Split the transcript into coarse sentences (Chinese full-width and English
 /// punctuation) and keep the ones that carry numbers, dates, or proposal / decision
 /// language. Keeps the user able to read the actual evidence in seconds.
+#[cfg(test)]
 fn extract_evidence_lines(transcript: &str, report: &FactGuardReport) -> String {
     let mut output = String::new();
     let mut kept = 0usize;
@@ -256,10 +259,12 @@ fn extract_evidence_lines(transcript: &str, report: &FactGuardReport) -> String 
     output
 }
 
+#[cfg(test)]
 fn split_sentences(transcript: &str) -> impl Iterator<Item = &str> {
     transcript.split(|c: char| matches!(c, '。' | '！' | '？' | '\n' | ';' | '；' | '.' | '!' | '?'))
 }
 
+#[cfg(test)]
 fn join_preview(items: &[String]) -> String {
     let head: Vec<&str> = items.iter().take(3).map(String::as_str).collect();
     let suffix = if items.len() > 3 { " ……" } else { "" };

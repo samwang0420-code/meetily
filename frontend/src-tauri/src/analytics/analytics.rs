@@ -10,6 +10,7 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[allow(dead_code)] // §F: legacy constant,功能未启用
 const SENSITIVE_KEYS: &[&str] = &[
     "meeting_title", "meetingTitle", "meeting_name", "meetingName",
     "file_name", "filename", "file_path", "folder_path", "path",

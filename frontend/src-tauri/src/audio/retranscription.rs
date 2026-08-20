@@ -2,7 +2,7 @@
 
 use crate::audio::decoder::decode_audio_file;
 use crate::audio::audio_processing::prepare_for_asr_16k;
-use crate::audio::industry_terms::{correct_industry_terms, correct_industry_terms_with_known, runtime_hotword_terms, L3Config};
+use crate::audio::industry_terms::{correct_industry_terms_with_known, runtime_hotword_terms, L3Config};
 use crate::audio::vad::get_speech_chunks_with_progress;
 use super::common::{create_transcript_segments, split_segment_at_silence, write_transcripts_json};
 use super::constants::AUDIO_EXTENSIONS;

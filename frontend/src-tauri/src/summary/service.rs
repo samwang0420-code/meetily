@@ -8,7 +8,7 @@ use crate::summary::metadata::read_detected_summary_language_from_metadata;
 use crate::summary::processor::{
     extract_meeting_name_from_markdown, generate_meeting_summary, language_name_from_code,
 };
-use crate::summary::fact_guard::{conservative_fallback, highlight_unexpected_facts, validate_summary, FactGuardReport};
+use crate::summary::fact_guard::{highlight_unexpected_facts, validate_summary, FactGuardReport};
 use crate::summary::commands::StructuredTranscriptEvidence;
 use crate::summary::templates::{self, Template};
 use crate::ollama::metadata::ModelMetadataCache;
@@ -163,6 +163,7 @@ fn normalise_summary_language_for_cache(summary_language: Option<&str>) -> Optio
     language_name_from_code(summary_language?.trim()).map(str::to_string)
 }
 
+#[cfg(test)]
 fn build_summary_result_json(
     final_markdown: &str,
     english_markdown: &str,

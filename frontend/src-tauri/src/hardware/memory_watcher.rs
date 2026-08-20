@@ -13,14 +13,12 @@
 //   memory_watcher_running() -> bool  --  测试用
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
-use std::sync::OnceLock;
 use std::time::Duration;
-use tauri::{AppHandle, Emitter, Manager, Runtime};
+use tauri::{AppHandle, Emitter, Runtime};
 
 use super::{
-    current_process_rss_mb, is_memory_pressure, MEMORY_PRESSURE_THRESHOLD_MB,
+    current_process_rss_mb, MEMORY_PRESSURE_THRESHOLD_MB,
 };
-use crate::state::AppState;
 
 const POLL_INTERVAL_MS: u64 = 60_000; // 60 seconds per §31 P0 spec
 

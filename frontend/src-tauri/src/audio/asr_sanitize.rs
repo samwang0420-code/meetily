@@ -98,7 +98,8 @@ pub fn collapse_repeated_chars(text: &str, threshold: usize) -> String {
 pub fn truncate_long_no_punct(text: &str, max_chars: usize) -> String {
     let mut out = String::new();
     let mut current_segment = String::new();
-    let mut current_segment_no_punct = true;
+    #[allow(dead_code)] // §F: 调试变量,保留以便观察
+    let mut _current_segment_no_punct = true;
 
     for ch in text.chars() {
         if matches!(ch, '。' | '！' | '？' | '.' | '!' | '?' | ';' | '；' | ',' | '，' | '\n' | '\r') {
@@ -113,7 +114,7 @@ pub fn truncate_long_no_punct(text: &str, max_chars: usize) -> String {
             }
             out.push(ch);
             current_segment.clear();
-            current_segment_no_punct = true;
+            _current_segment_no_punct = true;
         } else {
             current_segment.push(ch);
         }

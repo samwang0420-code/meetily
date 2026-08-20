@@ -33,7 +33,7 @@ impl ExtractPromptBuilder {
 /// §140: 宽容解析 — LLM (尤其 qwen3.5:2b) 经常字段名错 (topic_name vs canonical_name) 或
 ///       sentiment 返数字 (-1/0/1) 而非字符串. 我们容错: 别名映射 + 数字映射.
 pub fn parse_extract_response(response: &str) -> Vec<ExtractedTopic> {
-    use serde_json::Value;
+    
     // §140: 预处理 — 去 markdown 包装 ```json ... ```
     let stripped = strip_markdown_fence(response);
     let mut out = Vec::new();

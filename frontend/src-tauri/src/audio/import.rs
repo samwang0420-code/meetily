@@ -1,11 +1,12 @@
 // Audio file import module - allows importing external audio files as new meetings
 
 use crate::api::TranscriptSegment;
-use crate::audio::decoder::{decode_audio_file, decode_audio_file_with_ffmpeg_fallback, decode_audio_file_with_progress};
+use crate::audio::decoder::{decode_audio_file, decode_audio_file_with_ffmpeg_fallback};
 use crate::audio::vad::get_speech_chunks_with_progress;
 use crate::config::{DEFAULT_WHISPER_MODEL, DEFAULT_PARAKEET_MODEL};
 use crate::parakeet_engine::ParakeetEngine;
 use crate::state::AppState;
+#[allow(unused_imports)] // §F: 仅 get_or_init_whisper (cfg test) 使用
 use crate::whisper_engine::WhisperEngine;
 use base64::Engine;
 use anyhow::{anyhow, Result};
@@ -20,7 +21,7 @@ use uuid::Uuid;
 
 use super::audio_processing::create_meeting_folder;
 use super::audio_processing::prepare_for_asr_16k;
-use super::industry_terms::{correct_industry_terms, correct_industry_terms_with_known, runtime_hotword_terms, L3Config};
+use super::industry_terms::{correct_industry_terms_with_known, runtime_hotword_terms, L3Config};
 use super::common::{create_transcript_segments, split_segment_at_silence, write_transcripts_json};
 use super::constants::AUDIO_EXTENSIONS;
 use super::recording_preferences::get_default_recordings_folder;
@@ -843,6 +844,7 @@ async fn create_meeting_with_transcripts<R: tauri::Runtime>(
 }
 
 /// Get or initialize the Whisper engine
+#[cfg(test)]
 async fn get_or_init_whisper<R: Runtime>(
     app: &AppHandle<R>,
     requested_model: Option<&str>,

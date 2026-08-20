@@ -61,6 +61,7 @@ const FALSE_POSITIVE_BLACKLIST: &[&str] = &[
 ];
 
 /// 简化: 判断 char 是否在 CJK Unified Ideographs 范围
+#[cfg(test)]
 fn is_cjk_char(c: char) -> bool {
     matches!(c, '\u{4E00}'..='\u{9FFF}')
 }
