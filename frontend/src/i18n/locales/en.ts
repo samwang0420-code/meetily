@@ -246,6 +246,21 @@ export const en: Record<string, unknown> = {
     trial_expired: 'Free trial expired',
     trial_ends_on: 'Free trial until {date}',
   },
+
+  // §147 redesign: login 页面文本 (与 register 共用 brand 风格)
+  login_page: {
+    hero_title: 'Welcome back',
+    hero_highlight: 'Continue your meeting notes',
+    hero_desc: 'Local AI transcription · Fully offline · Nothing leaves your device',
+    feature_local: 'End-to-end local storage',
+    feature_resume: 'Resume + multi-device sync',
+    feature_buyout: '¥88 one-time · all v1.x upgrades free',
+    copyright: 'SpeakMirror · Local AI Meeting Transcription',
+    subtitle: 'Sign in to sync meetings and personal hotwords',
+    error_empty: 'Email and password are required',
+    logging_in: 'Signing in...',
+  },
+
   register_page: {
     strength_too_short: 'Too short', strength_weak: 'Weak', strength_fair: 'Fair', strength_good: 'Good', strength_strong: 'Strong', strength_very_strong: 'Very strong',
     required_error: 'Please complete all required fields', subtitle: 'Register for lifetime Pro eligibility at ¥88 · Activated on this device', optional: '(optional)', nickname: 'Display name',
@@ -837,6 +852,26 @@ export const en: Record<string, unknown> = {
     tier_free_price_sub: 'Free forever · 5 per month',
     tier_pro_price_sub: 'One-time buyout',
     recommended: 'Recommended',
+
+    // §145 redesign: hero
+    hero_eyebrow: '100% Offline · Chinese Meeting Notes',
+    hero_title: 'Your recordings. Your notes.',
+    hero_subtitle: 'No audio or text ever leaves your device. Qwen + FunASR-Nano run all AI locally.',
+    trust_local: '100% Local',
+    trust_open_source: 'MIT Open Source',
+    trust_github: 'GitHub',
+    trust_version: 'v0.9.0',
+    privacy_one_liner: 'Network optional · Pro codes verified locally',
+    why_local_title: 'Why local-first?',
+    why_local_1_title: 'Your recordings',
+    why_local_1_body: 'Never uploaded to any server. Safe for sensitive industries.',
+    why_local_2_title: 'Chinese accuracy',
+    why_local_2_body: 'Qwen 3.5 2B + FunASR-Nano outperform cloud models on Chinese.',
+    why_local_3_title: 'Buy once',
+    why_local_3_body: '¥88 one-time. All v1.x upgrades free. No subscription. No price hikes.',
+    compare_caption: 'Free tier is enough · Pro unlocks precision + advanced templates',
+    faq_caption: 'Still curious?',
+
     beta_title: 'Beta purchase flow (v0.9.0)',
     beta_step_1: 'Email lisangjie@icloudsend.com (USDT or WeChat Pay)',
     beta_step_2: 'We reply within 24 hours with an activation code (PROMO-XXXXXXXX-YYYY)',

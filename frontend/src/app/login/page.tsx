@@ -4,13 +4,13 @@ import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import {
-  ArrowLeft, Mail, Lock, Eye, EyeOff, Sparkles, Shield,
-  Headphones, Mic, ChevronRight, AlertCircle, Loader2
-} from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, AlertCircle, Loader2, ArrowLeft } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { STORAGE_LAST_EMAIL, useAuth } from '@/contexts/AuthContext';
 import { BrandShield } from '@/components/BrandShield';
+
+// §147: 言镜 AI 官网重做 — login 页 (与 register 视觉一致)
+// 13 → 4 icon · 颜色 token 化 · 极简错误提示 · 注册引导单行
 
 export default function LoginPage() {
   const { t } = useTranslation();
@@ -18,20 +18,19 @@ export default function LoginPage() {
   const { login, user, loading, lastEmail } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
-
-  // v0.7.0+: 上次登录邮箱预填 (写于 login 成功后, 读于 mount 时)
-  useEffect(() => {
-    if (typeof window === 'undefined') return;
-    const rememberedEmail = lastEmail || window.localStorage.getItem(STORAGE_LAST_EMAIL);
-    if (rememberedEmail) setEmail(current => current || rememberedEmail);
-  }, [lastEmail]);
   const [showPw, setShowPw] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [emailFocused, setEmailFocused] = useState(false);
   const [pwFocused, setPwFocused] = useState(false);
 
-  // 已登录自动跳转
+  // 上次登录邮箱预填
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const rememberedEmail = lastEmail || window.localStorage.getItem(STORAGE_LAST_EMAIL);
+    if (rememberedEmail) setEmail((cur) => cur || rememberedEmail);
+  }, [lastEmail]);
+
   useEffect(() => {
     if (!loading && user) router.replace('/');
   }, [user, loading, router]);
@@ -41,7 +40,7 @@ export default function LoginPage() {
     if (busy) return;
     setError(null);
     if (!email || !password) {
-      setError('请填写邮箱和密码');
+      setError(t('login_page.error_empty'));
       return;
     }
     setBusy(true);
@@ -52,226 +51,180 @@ export default function LoginPage() {
         window.localStorage.setItem(STORAGE_LAST_EMAIL, email.trim());
       } catch {}
       router.push('/');
+    } else {
+      setError(r.error ?? t('errors.generic'));
     }
-    else setError(r.error ?? t('errors.generic'));
   }
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-2 bg-white dark:bg-neutral-950">
-      {/* ─── Left brand panel ─────────────────────────────── */}
-      <BrandPanel />
+    <div className="min-h-screen bg-[var(--app-canvas)] text-[var(--app-ink)] grid lg:grid-cols-[1.1fr_1fr]">
+      {/* ─── 左: 品牌面板 ─── */}
+      <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden border-r border-[var(--app-hairline)] p-12">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-50"
+          style={{
+            background:
+              'radial-gradient(ellipse at 25% 15%, rgba(94,106,210,0.18) 0%, transparent 55%), radial-gradient(ellipse at 85% 90%, rgba(255,197,51,0.10) 0%, transparent 55%)',
+          }}
+        />
 
-      {/* ─── Right form panel ──────────────────────────────── */}
-      <div className="relative flex flex-col p-6 sm:p-10">
-        {/* Top-right: back to home + lang */}
-        <div className="flex items-center justify-between">
-          <Link
-            href="/"
-            className="group inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
-          >
-            <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
-            {t('account.back_to_home')}
-          </Link>
-        </div>
+        <Link href="/" className="relative inline-flex items-center gap-3 text-sm text-[var(--app-ink-muted)] hover:text-[var(--app-ink)] transition-colors w-fit">
+          <ArrowLeft className="w-4 h-4" />
+          {t('account.back_to_home')}
+        </Link>
 
-        <div className="flex flex-1 items-center justify-center">
+        <div className="relative">
           <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, ease: 'easeOut' }}
-            className="w-full max-w-[400px]"
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5 }}
+            className="mb-8"
           >
-            {/* Mobile-only brand */}
-            <div className="mb-8 flex items-center gap-2.5 lg:hidden">
-              <BrandShield size={32} />
-              <span className="text-[15px] font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">
-                言镜 AI
-              </span>
-            </div>
-
-            <h1 className="text-[28px] font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">
-              {t('account.login_title')}
-            </h1>
-            <p className="mt-1.5 text-[13.5px] text-neutral-500 dark:text-neutral-400">
-              登录以同步你的会议记录与个人热词库
-            </p>
-
-            <form onSubmit={handleSubmit} className="mt-8 space-y-4">
-              {/* Email */}
-              <div>
-                <label className="mb-1.5 block text-[12px] font-medium text-neutral-700 dark:text-neutral-300">
-                  {t('account.email')}
-                </label>
-                <div
-                  className={`group flex h-11 items-center gap-2.5 rounded-lg border bg-white px-3 transition-all dark:bg-neutral-900 ${
-                    emailFocused
-                      ? 'border-blue-500 ring-2 ring-blue-500/20 dark:border-blue-400'
-                      : 'border-neutral-300 dark:border-neutral-700'
-                  }`}
-                >
-                  <Mail className={`h-4 w-4 transition-colors ${emailFocused ? 'text-blue-500' : 'text-neutral-400'}`} />
-                  <input
-                    type="email"
-                    required
-                    autoComplete="email"
-                    placeholder="you@example.com"
-                    value={email}
-                    onFocus={() => setEmailFocused(true)}
-                    onBlur={() => setEmailFocused(false)}
-                    onChange={(e) => setEmail(e.target.value)}
-                    className="flex-1 bg-transparent text-[14px] text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
-                  />
-                </div>
-              </div>
-
-              {/* Password */}
-              <div>
-                <label className="mb-1.5 block text-[12px] font-medium text-neutral-700 dark:text-neutral-300">
-                  {t('account.password')}
-                </label>
-                <div
-                  className={`group flex h-11 items-center gap-2.5 rounded-lg border bg-white px-3 transition-all dark:bg-neutral-900 ${
-                    pwFocused
-                      ? 'border-blue-500 ring-2 ring-blue-500/20 dark:border-blue-400'
-                      : 'border-neutral-300 dark:border-neutral-700'
-                  }`}
-                >
-                  <Lock className={`h-4 w-4 transition-colors ${pwFocused ? 'text-blue-500' : 'text-neutral-400'}`} />
-                  <input
-                    type={showPw ? 'text' : 'password'}
-                    required
-                    autoComplete="current-password"
-                    placeholder="••••••••"
-                    value={password}
-                    onFocus={() => setPwFocused(true)}
-                    onBlur={() => setPwFocused(false)}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="flex-1 bg-transparent text-[14px] text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPw(!showPw)}
-                    aria-label={showPw ? '隐藏密码' : '显示密码'}
-                    className="text-neutral-400 hover:text-neutral-600"
-                  >
-                    {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                  </button>
-                </div>
-              </div>
-
-              {/* Error */}
-              {error && (
-                <motion.div
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12.5px] text-red-700 dark:border-red-800/60 dark:bg-red-900/30 dark:text-red-300"
-                >
-                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>{error}</span>
-                </motion.div>
-              )}
-
-              {/* Submit */}
-              <button
-                type="submit"
-                disabled={busy}
-                className="group flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 text-[14px] font-medium text-white transition-all hover:bg-blue-700 hover:shadow-md hover:shadow-blue-600/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {busy ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    正在登录...
-                  </>
-                ) : (
-                  <>
-                    {t('account.login')}
-                    <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                  </>
-                )}
-              </button>
-            </form>
-
-            {/* Switch to register */}
-            <div className="mt-6 rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 text-[13px] text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900/50 dark:text-neutral-300">
-              <div className="flex items-center justify-between gap-3">
-                <span>{t('account.no_account')}</span>
-                <Link
-                  href="/register"
-                  className="inline-flex items-center gap-1 rounded-md bg-white px-3 py-1 text-[12.5px] font-medium text-blue-600 shadow-sm transition-colors hover:bg-blue-50 dark:bg-neutral-800 dark:text-blue-400 dark:hover:bg-neutral-700"
-                >
-                  {t('account.register')}
-                  <ChevronRight className="h-3 w-3" />
-                </Link>
-              </div>
-            </div>
-
-            {/* Trust footer */}
-            <p className="mt-8 text-center text-[11px] text-neutral-400 dark:text-neutral-500">
-              登录即代表你同意本机的本地数据存储 · 不会上传云端
-            </p>
+            <BrandShield size={64} />
           </motion.div>
+          <h2 className="text-[clamp(1.8rem,3.2vw,2.6rem)] font-semibold leading-[1.15] tracking-tight mb-3">
+            {t('login_page.hero_title')}
+            <br />
+            <span className="bg-gradient-to-r from-[var(--app-transcript-hover)] to-[var(--app-summary)] bg-clip-text text-transparent">
+              {t('login_page.hero_highlight')}
+            </span>
+          </h2>
+          <p className="text-sm text-[var(--app-ink-muted)] max-w-sm leading-relaxed">
+            {t('login_page.hero_desc')}
+          </p>
+
+          <ul className="mt-10 space-y-3 max-w-sm">
+            <Bullet label={t('login_page.feature_local')} />
+            <Bullet label={t('login_page.feature_resume')} />
+            <Bullet label={t('login_page.feature_buyout')} />
+          </ul>
         </div>
-      </div>
-    </div>
-  );
-}
 
-function BrandPanel() {
-  return (
-    <div className="relative hidden flex-col justify-between overflow-hidden bg-neutral-950 p-10 text-white lg:flex">
-      {/* Background pattern: gentle radial gradient + grid */}
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(19,168,158,0.18),transparent_60%),radial-gradient(circle_at_80%_80%,rgba(11,37,69,0.6),transparent_70%)]" />
-      <div
-        className="pointer-events-none absolute inset-0 opacity-30"
-        style={{
-          backgroundImage:
-            'linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)',
-          backgroundSize: '32px 32px',
-        }}
-      />
-
-      <div className="relative flex items-center gap-3">
-        <BrandShield size={36} />
-        <div className="flex items-baseline gap-2">
-          <span className="text-[17px] font-semibold tracking-tight text-white">言镜 AI</span>
-          <span className="rounded border border-white/20 px-1.5 py-px font-mono text-[10px] uppercase tracking-wider text-white/60">
-            v0.6.10
-          </span>
-        </div>
-      </div>
-
-      <div className="relative">
-        <h2 className="text-[34px] font-semibold leading-tight tracking-tight">
-          欢迎回来
-          <br />
-          <span className="bg-gradient-to-r from-teal-300 via-cyan-300 to-emerald-300 bg-clip-text text-transparent">
-            继续你的会议纪要
-          </span>
-        </h2>
-        <p className="mt-4 max-w-md text-[14px] leading-relaxed text-white/70">
-          本地 AI 转录 · 全程离线 · 数据不上传云端
+        <p className="relative text-[11px] text-[var(--app-ink-subtle)]">
+          © {new Date().getFullYear()} {t('login_page.copyright')}
         </p>
+      </aside>
 
-        <div className="mt-8 grid grid-cols-2 gap-3 max-w-md">
-          <FeatureItem icon={<Shield className="h-3.5 w-3.5" />} label="端到端本地存储" />
-          <FeatureItem icon={<Mic className="h-3.5 w-3.5" />} label="实时转录 + AI 纪要" />
-          <FeatureItem icon={<Headphones className="h-3.5 w-3.5" />} label="多模型离线引擎" />
-          <FeatureItem icon={<Sparkles className="h-3.5 w-3.5" />} label="¥88 永久买断" />
-        </div>
-      </div>
+      {/* ─── 右: 表单 ─── */}
+      <main className="flex items-center justify-center p-6 sm:p-10">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, ease: 'easeOut' }}
+          className="w-full max-w-[420px]"
+        >
+          <div className="mb-8 flex items-center gap-2.5 lg:hidden">
+            <BrandShield size={28} />
+            <span className="text-[15px] font-semibold tracking-tight">{t('app.name')}</span>
+          </div>
 
-      <div className="relative text-[11px] text-white/40">
-        © {new Date().getFullYear()} 言镜 AI · 本地 AI 会议转录
-      </div>
+          <h1 className="text-[clamp(1.6rem,3vw,2rem)] font-semibold tracking-tight">
+            {t('account.login_title')}
+          </h1>
+          <p className="mt-1.5 text-sm text-[var(--app-ink-subtle)]">
+            {t('login_page.subtitle')}
+          </p>
+
+          <form onSubmit={handleSubmit} className="mt-7 space-y-3">
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-[var(--app-ink-muted)]">
+                {t('account.email')}
+              </label>
+              <div
+                className={`flex items-center gap-2.5 rounded-xl border bg-[var(--app-surface-1)] px-3.5 py-2.5 transition-colors ${
+                  emailFocused
+                    ? 'border-[var(--app-transcript)] shadow-[0_0_0_3px_rgba(94,106,210,0.18)]'
+                    : 'border-[var(--app-hairline)]'
+                }`}
+              >
+                <Mail className={`h-4 w-4 transition-colors ${emailFocused ? 'text-[var(--app-transcript)]' : 'text-[var(--app-ink-subtle)]'}`} />
+                <input
+                  type="email"
+                  required
+                  autoComplete="email"
+                  placeholder="you@example.com"
+                  value={email}
+                  onFocus={() => setEmailFocused(true)}
+                  onBlur={() => setEmailFocused(false)}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="flex-1 bg-transparent text-sm text-[var(--app-ink)] outline-none placeholder:text-[var(--app-ink-tertiary)]"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="mb-1.5 block text-xs font-medium text-[var(--app-ink-muted)]">
+                {t('account.password')}
+              </label>
+              <div
+                className={`flex items-center gap-2.5 rounded-xl border bg-[var(--app-surface-1)] px-3.5 py-2.5 transition-colors ${
+                  pwFocused
+                    ? 'border-[var(--app-transcript)] shadow-[0_0_0_3px_rgba(94,106,210,0.18)]'
+                    : 'border-[var(--app-hairline)]'
+                }`}
+              >
+                <Lock className={`h-4 w-4 transition-colors ${pwFocused ? 'text-[var(--app-transcript)]' : 'text-[var(--app-ink-subtle)]'}`} />
+                <input
+                  type={showPw ? 'text' : 'password'}
+                  required
+                  autoComplete="current-password"
+                  placeholder="••••••••"
+                  value={password}
+                  onFocus={() => setPwFocused(true)}
+                  onBlur={() => setPwFocused(false)}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="flex-1 bg-transparent text-sm text-[var(--app-ink)] outline-none placeholder:text-[var(--app-ink-tertiary)]"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPw(!showPw)}
+                  aria-label="toggle password visibility"
+                  className="text-[var(--app-ink-subtle)] hover:text-[var(--app-ink)] transition-colors"
+                >
+                  {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
+            </div>
+
+            {error && (
+              <motion.div
+                initial={{ opacity: 0, y: -4 }}
+                animate={{ opacity: 1, y: 0 }}
+                className="flex items-start gap-2 rounded-lg border border-[var(--app-error)]/40 bg-[var(--app-error)]/10 p-3 text-xs text-[var(--app-error)]"
+              >
+                <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                <span>{error}</span>
+              </motion.div>
+            )}
+
+            <button
+              type="submit"
+              disabled={busy}
+              className="mt-2 w-full rounded-xl bg-[var(--app-summary)] text-[var(--app-canvas)] py-2.5 text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+            >
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+              {busy ? t('login_page.logging_in') : t('account.login')}
+            </button>
+          </form>
+
+          <p className="mt-6 text-center text-sm text-[var(--app-ink-subtle)]">
+            {t('account.no_account')}{' '}
+            <Link href="/register" className="text-[var(--app-transcript-hover)] hover:underline">
+              {t('account.register')}
+            </Link>
+          </p>
+        </motion.div>
+      </main>
     </div>
   );
 }
 
-function FeatureItem({ icon, label }: { icon: React.ReactNode; label: string }) {
+function Bullet({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-3 py-2 backdrop-blur-sm">
-      <span className="text-teal-400">{icon}</span>
-      <span className="text-[12px] text-white/80">{label}</span>
-    </div>
+    <li className="flex items-start gap-2.5 text-sm text-[var(--app-ink-muted)]">
+      <span className="mt-1.5 inline-block w-1.5 h-1.5 rounded-full bg-[var(--app-summary)] flex-shrink-0" />
+      <span>{label}</span>
+    </li>
   );
 }

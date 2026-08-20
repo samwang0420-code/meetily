@@ -249,6 +249,21 @@ export const zh: Record<string, unknown> = {
     trial_expired: '免费试用已过期',
     trial_ends_on: '免费试用至 {date}',
   },
+
+  // §147 redesign: login 页面文本 (与 register 共用 brand 风格)
+  login_page: {
+    hero_title: '欢迎回来',
+    hero_highlight: '继续你的会议纪要',
+    hero_desc: '本地 AI 转录 · 全程离线 · 数据不上传云端',
+    feature_local: '端到端本地存储',
+    feature_resume: '断点续传 + 多设备同步',
+    feature_buyout: '¥88 永久买断 · v1.x 全部免费',
+    copyright: '言镜 AI · 本地 AI 会议转录',
+    subtitle: '登录以同步你的会议记录与个人热词库',
+    error_empty: '请填写邮箱和密码',
+    logging_in: '正在登录...',
+  },
+
   register_page: {
     strength_too_short: '太短', strength_weak: '较弱', strength_fair: '一般', strength_good: '良好', strength_strong: '强', strength_very_strong: '极强',
     required_error: '请完整填写所有必填项', subtitle: '注册即获 ¥88 永久买断资格 · 仅本机激活', optional: '(可选)', nickname: '昵称',
@@ -843,6 +858,26 @@ export const zh: Record<string, unknown> = {
     tier_free_price_sub: '永久免费 · 每月 5 次',
     tier_pro_price_sub: '买断制 · 不订阅',
     recommended: '推荐',
+
+    // §145 redesign: hero
+    hero_eyebrow: '100% 离线 · 中文会议纪要',
+    hero_title: '录音归你，纪要归你',
+    hero_subtitle: '不上传任何音频或文本。Qwen + FunASR-Nano 在你电脑上跑完所有 AI。',
+    trust_local: '100% 本地',
+    trust_open_source: 'MIT 开源',
+    trust_github: 'GitHub',
+    trust_version: 'v0.9.0',
+    privacy_one_liner: '联网非必需 · Pro 激活码本地校验',
+    why_local_title: '为什么坚持本地？',
+    why_local_1_title: '你的录音',
+    why_local_1_body: '不上传到任何服务器，敏感行业可放心使用。',
+    why_local_2_title: '中文准确率',
+    why_local_2_body: 'Qwen 3.5 2B + FunASR-Nano 中文识别优于云端通用模型。',
+    why_local_3_title: '永久买断',
+    why_local_3_body: '¥88 一次付费，v1.x 所有升级免费，不订阅、不涨价。',
+    compare_caption: '免费档够用，Pro 解锁精度 + 高级模板',
+    faq_caption: '还有疑问？',
+
     beta_title: '内测期购买流程 (v0.9.0)',
     beta_step_1: '邮件联系 lisangjie@icloudsend.com (USDT 或微信)',
     beta_step_2: '我们 24 小时内回复, 发送激活码 (形如 PROMO-XXXXXXXX-YYYY)',
