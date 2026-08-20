@@ -193,6 +193,8 @@ fn build_summary_result_json_with_facts(
             map.insert("fact_guard".into(), serde_json::to_value(report).unwrap_or(serde_json::Value::Null));
             map.insert("needs_review".into(), serde_json::Value::Bool(report.needs_review()));
             map.insert("fact_guard_severe".into(), serde_json::Value::Bool(report.is_severe()));
+            // §148: 法律模板 critical (人名漂移 / 角色混淆 / 判决编造) — 单独字段给前端区分
+            map.insert("fact_guard_legal_critical".into(), serde_json::Value::Bool(report.is_legal_critical()));
         }
     }
     payload
@@ -642,6 +644,13 @@ impl SummaryService {
                         "Summary fact guard {severity} for meeting_id={}: unexpected_numbers={:?}, unexpected_dates={:?}, overclaimed_decision={} — keeping AI summary with warning banner",
                         meeting_id, fact_report.unexpected_numbers, fact_report.unexpected_dates, fact_report.overclaimed_decision
                     );
+                    // §148: 法律 critical 检测 (人名漂移 / 角色混淆 / 判决编造) 单独 warn
+                    if fact_report.is_legal_critical() {
+                        warn!(
+                            "§148 LEGAL_CRITICAL for meeting_id={}: name_drift={:?}, role_confusion={:?}, fabricated_verdict={:?}",
+                            meeting_id, fact_report.name_drift, fact_report.role_confusion, fact_report.fabricated_verdict
+                        );
+                    }
                     // 在 AI 原文里 highlight fabricated tokens (用户直接看到问题位置)
                     final_markdown = highlight_unexpected_facts(&final_markdown, &fact_report);
                 }
