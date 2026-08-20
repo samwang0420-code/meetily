@@ -246,6 +246,21 @@ export const en: Record<string, unknown> = {
     trial_expired: 'Free trial expired',
     trial_ends_on: 'Free trial until {date}',
   },
+
+  // §147 redesign: login 页面文本 (与 register 共用 brand 风格)
+  login_page: {
+    hero_title: 'Welcome back',
+    hero_highlight: 'Continue your meeting notes',
+    hero_desc: 'Local AI transcription · Fully offline · Nothing leaves your device',
+    feature_local: 'End-to-end local storage',
+    feature_resume: 'Resume + multi-device sync',
+    feature_buyout: '¥88 one-time · all v1.x upgrades free',
+    copyright: 'SpeakMirror · Local AI Meeting Transcription',
+    subtitle: 'Sign in to sync meetings and personal hotwords',
+    error_empty: 'Email and password are required',
+    logging_in: 'Signing in...',
+  },
+
   register_page: {
     strength_too_short: 'Too short', strength_weak: 'Weak', strength_fair: 'Fair', strength_good: 'Good', strength_strong: 'Strong', strength_very_strong: 'Very strong',
     required_error: 'Please complete all required fields', subtitle: 'Register for lifetime Pro eligibility at ¥88 · Activated on this device', optional: '(optional)', nickname: 'Display name',

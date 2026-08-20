@@ -249,6 +249,21 @@ export const zh: Record<string, unknown> = {
     trial_expired: '免费试用已过期',
     trial_ends_on: '免费试用至 {date}',
   },
+
+  // §147 redesign: login 页面文本 (与 register 共用 brand 风格)
+  login_page: {
+    hero_title: '欢迎回来',
+    hero_highlight: '继续你的会议纪要',
+    hero_desc: '本地 AI 转录 · 全程离线 · 数据不上传云端',
+    feature_local: '端到端本地存储',
+    feature_resume: '断点续传 + 多设备同步',
+    feature_buyout: '¥88 永久买断 · v1.x 全部免费',
+    copyright: '言镜 AI · 本地 AI 会议转录',
+    subtitle: '登录以同步你的会议记录与个人热词库',
+    error_empty: '请填写邮箱和密码',
+    logging_in: '正在登录...',
+  },
+
   register_page: {
     strength_too_short: '太短', strength_weak: '较弱', strength_fair: '一般', strength_good: '良好', strength_strong: '强', strength_very_strong: '极强',
     required_error: '请完整填写所有必填项', subtitle: '注册即获 ¥88 永久买断资格 · 仅本机激活', optional: '(可选)', nickname: '昵称',
