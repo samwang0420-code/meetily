@@ -1,6 +1,7 @@
 pub mod whisper_engine;
 pub mod acceleration;
 pub mod commands;
+pub mod coreml_status;
 pub mod system_monitor;
 pub mod parallel_processor;
 pub mod parallel_commands;
@@ -8,6 +9,7 @@ pub mod parallel_commands;
 
 pub use whisper_engine::*;
 pub use acceleration::*;
+pub use coreml_status::*;
 pub use commands::*;
 pub use system_monitor::*;
 pub use parallel_processor::*;

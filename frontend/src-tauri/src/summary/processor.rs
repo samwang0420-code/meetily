@@ -464,13 +464,14 @@ pub fn chunk_text(text: &str, chunk_size_tokens: usize, overlap_tokens: usize) -
 
 /// v0.7.0+ Map-Reduce 摘要固定 wrapper: 1800 token 单块 + 50 token 重叠, 长会议长文本自动切片
 ///
-/// 默认参数针对 Qwen3.5-2B / 2B 量级 GGUF (context 2048): 1800 token 块内容
+/// 默认参数针对 Qwen3.5-2B / 2B 量级 GGUF (context 2048): 2400 token 块内容
 /// 加上 300 token 模板 prompt overhead 仍在 context 内; 50 token 重叠保证
 /// 跨块语义不断裂 (会议连续句子的承接关系不被切碎).
 ///
-/// 短文本 (≤1800 token) 自动复用原有单轮摘要逻辑, 不增加 Map-Reduce 开销.
+/// 短文本 (≤2400 token) 自动复用原有单轮摘要逻辑, 不增加 Map-Reduce 开销.
+/// §150: meetily/ §55 合并 (1800→2400) — 23K chars 切成 3-4 块 (vs 7-9 块)
 pub fn chunk_transcript_by_token(text: &str) -> Vec<String> {
-    const CHUNK_SIZE: usize = 1800;
+    const CHUNK_SIZE: usize = 2400;
     const OVERLAP: usize = 50;
     chunk_text(text, CHUNK_SIZE, OVERLAP)
 }
@@ -490,7 +491,8 @@ where
     F: Fn(Vec<String>, &str) -> Fut + Clone,
     Fut: std::future::Future<Output = Result<String, String>>,
 {
-    const CHUNK_SIZE: usize = 1800;
+    // §150: meetily/ §55 合并 (1800→6000) — 7 chunk × 800 < 6000 直接合并
+    const CHUNK_SIZE: usize = 6000;
     const OVERLAP: usize = 50;
 
     let combined = chunk_summaries.join("\n---\n");
@@ -1605,15 +1607,15 @@ mod map_reduce_tests {
     use super::*;
 
     #[test]
-    fn chunk_transcript_by_token_default_1800_50() {
-        // 10000 字中文 ≈ 3500 tokens, 应切出 >= 2 块, 每块 ≤ 1800 token
+    fn chunk_transcript_by_token_default_2400_50() {
+        // 10000 字中文 ≈ 3500 tokens, 应切出 >= 2 块, 每块 ≤ 2400 token
         let long_text: String = "今天我们讨论项目的商业化方案".repeat(500);  // 约 12000 字
         let chunks = chunk_transcript_by_token(&long_text);
         assert!(chunks.len() >= 2, "10000+ 字应切至少 2 块, 实际 {}", chunks.len());
         for (i, c) in chunks.iter().enumerate() {
             let tokens = rough_token_count(c);
-            // 块内容 ≤ 1800 token (允许 ±5% 因为 chunk_text 用 sentence boundary 修正)
-            assert!(tokens <= 1900, "chunk #{} 超 1900 tokens ({}), wrapper 没生效", i, tokens);
+            // 块内容 ≤ 2400 token (允许 ±5% 因为 chunk_text 用 sentence boundary 修正)
+            assert!(tokens <= 2500, "chunk #{} 超 2500 tokens ({}), wrapper 没生效", i, tokens);
         }
         // 拼接应覆盖原文 (允许 < CHUNK_BREAK> 边界小损耗)
         let reconstructed: String = chunks.join("");
@@ -1623,7 +1625,7 @@ mod map_reduce_tests {
 
     #[test]
     fn chunk_transcript_by_token_short_text_returns_single_chunk() {
-        // 短文本 (≤ 1800 token) 应原样返回, 不切
+        // 短文本 (≤ 2400 token) 应原样返回, 不切
         let short = "今天讨论预算 5000 美元, 张伟负责技术对接.";
         let chunks = chunk_transcript_by_token(short);
         assert_eq!(chunks.len(), 1);
@@ -1632,10 +1634,11 @@ mod map_reduce_tests {
 
     #[test]
     fn chunk_transcript_by_token_preserves_50_token_overlap() {
-        // 验证重叠: 切块后 chunk[0] 末尾 50 token 应在 chunk[1] 开头出现
-        let long_text: String = "测试重叠, 重要内容, 关键决策依据. ".repeat(300);
+        // §150: 验证重叠: 切块后 chunk[0] 末尾 50 token 应在 chunk[1] 开头出现 (CHUNK_SIZE 1800→2400)
+        // §150: 14 chars * 1000 = 14000 chars ≈ 4900 tokens, CHUNK_SIZE=2400, 应切 ≥ 2 块
+        let long_text: String = "测试重叠, 重要内容, 关键决策依据. ".repeat(1000);
         let chunks = chunk_transcript_by_token(&long_text);
-        assert!(chunks.len() >= 2);
+        assert!(chunks.len() >= 2, "CHUNK_SIZE=2400 下 4900 tokens 应切 ≥ 2 块, 实际 {} 块", chunks.len());
         // 拿 chunk[0] 末尾 ~50 token = ~150 char (UTF-8 中文 3 字节 + 标点)
         let chunk0_chars: Vec<char> = chunks[0].chars().collect();
         let tail_start = chunk0_chars.len().saturating_sub(150);

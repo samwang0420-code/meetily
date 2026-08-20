@@ -28,6 +28,7 @@ pub type ProgressCallback = Box<dyn Fn(u32, &str) + Send>;
 
 /// Decoded audio data from a file
 #[derive(Debug, Clone)]
+#[derive(serde::Serialize, serde::Deserialize)]
 pub struct DecodedAudio {
     /// Raw audio samples (interleaved if stereo)
     pub samples: Vec<f32>,

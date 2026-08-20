@@ -1,3 +1,4 @@
+use crate::whisper_engine::coreml_status::build_status_report;
 use crate::whisper_engine::{ModelInfo, WhisperEngine};
 use std::sync::{Arc, Mutex};
 use std::path::PathBuf;
@@ -571,4 +572,42 @@ pub async fn open_models_folder() -> Result<(), String> {
 
     log::info!("Opened models folder: {}", folder_path);
     Ok(())
+}
+
+// ============================================================================
+// §150.3: CoreML 真加速命令 (meetily/ §40 合并)
+// whisper_coreml_status: 扫描 models 目录, 报告每个模型是否 CoreML-ready
+// whisper_ensure_coreml_encoder: 调用 coreml_encoder_assets.py 下载 encoder 资产
+// ============================================================================
+
+#[command]
+pub async fn whisper_coreml_status() -> Result<crate::whisper_engine::CoreMLStatusReport, String> {
+    let models_dir = get_models_directory()
+        .ok_or_else(|| "models directory not initialised; call set_models_directory first".to_string())?;
+    Ok(build_status_report(&models_dir))
+}
+
+#[command]
+pub async fn whisper_ensure_coreml_encoder(_model_name: String) -> Result<String, String> {
+    use std::process::Command;
+    let models_dir = get_models_directory()
+        .ok_or_else(|| "models directory not initialised".to_string())?;
+    let script = std::env::current_dir()
+        .map_err(|e| format!("failed to read cwd: {e}"))?
+        .join("frontend/src-tauri/scripts/benchmark/coreml_encoder_assets.py");
+    let out = Command::new("python3")
+        .arg(&script)
+        .arg("--models-dir")
+        .arg(&models_dir)
+        .arg("--json")
+        .output()
+        .map_err(|e| format!("failed to spawn coreml encoder script: {e}"))?;
+    if !out.status.success() {
+        return Err(format!(
+            "coreml encoder script failed (exit {:?}): {}",
+            out.status.code(),
+            String::from_utf8_lossy(&out.stderr)
+        ));
+    }
+    Ok(String::from_utf8_lossy(&out.stdout).to_string())
 }

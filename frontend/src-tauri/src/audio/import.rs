@@ -1,7 +1,8 @@
 // Audio file import module - allows importing external audio files as new meetings
 
 use crate::api::TranscriptSegment;
-use crate::audio::decoder::{decode_audio_file, decode_audio_file_with_ffmpeg_fallback};
+use crate::audio::decode_cache::{cache_key_for_file, load_cached, save_cached};
+use crate::audio::decoder::{decode_audio_file, decode_audio_file_with_ffmpeg_fallback, DecodedAudio};
 use crate::audio::vad::get_speech_chunks_with_progress;
 use crate::config::{DEFAULT_WHISPER_MODEL, DEFAULT_PARAKEET_MODEL};
 use crate::parakeet_engine::ParakeetEngine;
@@ -427,12 +428,42 @@ async fn run_import<R: Runtime>(
         emit_progress(&app_for_decode, "decoding", overall_progress, msg);
     });
 
+    // §150.2: meetily/ §64 B 合并 — SHA1 decode cache, 重复导入 0 decode cost
+    // cache key 基于 dest_path (hardlink 后的实际解码文件, 用户的 hardlink 后 mtime 稳定)
     let path_for_decode = dest_path.clone();
-    let decoded = tokio::task::spawn_blocking(move || {
-        decode_audio_file_with_ffmpeg_fallback(&path_for_decode, Some(decode_progress))
-    })
-    .await
-    .map_err(|e| anyhow!("Decode task join error: {}", e))??;
+    let app_for_cache = app.clone();
+    let decoded: DecodedAudio = if let Some(key) = cache_key_for_file(&path_for_decode).ok() {
+        // 先查 cache
+        if let Ok(Some(cached)) = load_cached(&app_for_cache, &key) {
+            info!("§150.2 §64 B decode cache HIT for key={}", key);
+            cached
+        } else {
+            // cache miss: decode + save
+            let decoded_fut = tokio::task::spawn_blocking({
+                let path = path_for_decode.clone();
+                move || decode_audio_file_with_ffmpeg_fallback(&path, Some(decode_progress))
+            });
+            let decoded_inner = decoded_fut
+                .await
+                .map_err(|e| anyhow!("Decode task join error: {}", e))??;
+            // best-effort save
+            if let Err(e) = save_cached(&app_for_cache, &key, &decoded_inner) {
+                warn!("§150.2 §64 B save_cached failed (non-fatal): {}", e);
+            } else {
+                info!("§150.2 §64 B decode cache SAVED for key={}", key);
+            }
+            decoded_inner
+        }
+    } else {
+        // 拿不到 cache key, 直接 decode (跟旧行为一致)
+        let decoded_fut = tokio::task::spawn_blocking({
+            let path = path_for_decode.clone();
+            move || decode_audio_file_with_ffmpeg_fallback(&path, Some(decode_progress))
+        });
+        decoded_fut
+            .await
+            .map_err(|e| anyhow!("Decode task join error: {}", e))??
+    };
     let duration_seconds = decoded.duration_seconds;
 
     info!(

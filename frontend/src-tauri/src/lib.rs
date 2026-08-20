@@ -1009,6 +1009,9 @@ pub fn run() {
             database::commands::get_database_directory,
             database::commands::open_database_folder,
             whisper_engine::commands::open_models_folder,
+            // §150.3: CoreML 真加速命令 (meetily/ §40 合并)
+            whisper_engine::commands::whisper_coreml_status,
+            whisper_engine::commands::whisper_ensure_coreml_encoder,
             // Onboarding commands
             onboarding::get_onboarding_status,
             onboarding::save_onboarding_status_cmd,
