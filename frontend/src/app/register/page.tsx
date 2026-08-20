@@ -351,7 +351,7 @@ function BrandPanel() {
         <div className="flex items-baseline gap-2">
           <span className="text-[17px] font-semibold tracking-tight text-white">{t('app.name')}</span>
           <span className="rounded border border-white/20 px-1.5 py-px font-mono text-[10px] uppercase tracking-wider text-white/60">
-            v0.8.6
+            v0.9.0
           </span>
         </div>
       </div>

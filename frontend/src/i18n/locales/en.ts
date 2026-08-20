@@ -837,7 +837,7 @@ export const en: Record<string, unknown> = {
     tier_free_price_sub: 'Free forever · 5 per month',
     tier_pro_price_sub: 'One-time buyout',
     recommended: 'Recommended',
-    beta_title: 'Beta purchase flow (v0.8.6)',
+    beta_title: 'Beta purchase flow (v0.9.0)',
     beta_step_1: 'Email lisangjie@icloudsend.com (USDT or WeChat Pay)',
     beta_step_2: 'We reply within 24 hours with an activation code (PROMO-XXXXXXXX-YYYY)',
     beta_step_3: 'In the app, click “Upgrade Pro” → paste the code → activated immediately',
@@ -860,7 +860,7 @@ export const en: Record<string, unknown> = {
     footer_privacy: 'Privacy',
     footer_terms: 'Terms',
     footer_download: 'Download 言镜 AI',
-    footer_copyright: '© 2026 言镜 AI · v0.8.6',
+    footer_copyright: '© 2026 言镜 AI · v0.9.0',
   },
   admin: {
     th: {
@@ -923,7 +923,7 @@ export const en: Record<string, unknown> = {
     code_unused: 'Unused · valid {days}d · expires {date}',
     orders_title: 'Activated orders',
     success_revenue: '',
-    version_label: 'v0.8.6',
+    version_label: 'v0.9.0',
     obsidian: {
       title: 'Obsidian integration',
       description: 'After every meeting, a Markdown file is written to your Obsidian vault. See all your meetings connected in Obsidian Graph View.',

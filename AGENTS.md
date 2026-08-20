@@ -7,8 +7,8 @@
 - **产品名**: 言镜 AI / SpeakMirror (旧 Meetily)
 - **主仓库**: `/Users/wangwei/Documents/离线会记/`
 - **Obsidian Vault**: `~/Documents/Obsidian Vault/项目/3-离线会记/`
-- **当前版本**: v0.8.6 (commit ba7ee13, HEAD caad987)
-- **当前分支**: `perf/summary-map-concurrency`
+- **当前版本**: v0.9.0 (HEAD 4e76363)
+- **当前分支**: `main`
 
 ## 2. 双写规则 (§92 立, 2026-08-07)
 

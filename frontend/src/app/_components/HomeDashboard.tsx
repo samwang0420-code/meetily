@@ -235,7 +235,7 @@ export function HomeDashboard({
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
           <span>{t('dashboard.local_first')}</span>
           <span className="text-neutral-300">·</span>
-          <span className="font-mono">v0.8.6</span>
+          <span className="font-mono">v0.9.0</span>
         </motion.section>
       </div>
     </div>

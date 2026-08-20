@@ -341,13 +341,13 @@ ANCHORS = [
      "frontend/src/components/ImportAudio/ImportAudioDialog.tsx",
      r"导入音频.*stamp|friendly date title"),
 
-    # ===== UI 版本号同步 (2026-08-07 §92 P0) =====
-    ("ui_version_0_8_6_sidebar",
+    # ===== UI 版本号同步 (2026-08-07 §92 P0, 2026-08-20 §143 升级 0.9.0) =====
+    ("ui_version_0_9_0_sidebar",
      "frontend/src/components/Sidebar/index.tsx",
-     r"v0\.8\.6"),
-    ("ui_version_0_8_6_dashboard",
+     r"v0\.9\.0"),
+    ("ui_version_0_9_0_dashboard",
      "frontend/src/app/_components/HomeDashboard.tsx",
-     r"v0\.8\.6"),
+     r"v0\.9\.0"),
 
     # ===== §93: macOS .app bundle 同步 (2026-08-07) =====
     # §93 anchor: sync_app_bundle.sh 脚本存在
