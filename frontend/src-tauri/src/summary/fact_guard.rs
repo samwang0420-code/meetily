@@ -313,6 +313,8 @@ fn split_sentences(transcript: &str) -> impl Iterator<Item = &str> {
     transcript.split(|c: char| matches!(c, '。' | '！' | '？' | '\n' | ';' | '；' | '.' | '!' | '?'))
 }
 
+// §148: 仅为保守回退 (conservative_fallback) 保留,生产路径已移除 (见 §131.1)
+#[allow(dead_code)]
 fn join_preview(items: &[String]) -> String {
     const PREVIEW: usize = 5;
     if items.len() <= PREVIEW {
@@ -567,6 +569,7 @@ pub fn detect_fabricated_verdict(transcript: &str, summary: &str) -> Vec<String>
 }
 
 
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]
