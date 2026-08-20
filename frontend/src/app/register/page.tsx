@@ -4,14 +4,14 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import {
-  ArrowLeft, Mail, Lock, Eye, EyeOff, User as UserIcon,
-  Shield, Headphones, Mic, ChevronRight, AlertCircle,
-  CheckCircle2, Loader2, Sparkles
-} from 'lucide-react';
+import { Mail, Lock, Eye, EyeOff, User as UserIcon, AlertCircle, Loader2, ArrowLeft } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/contexts/AuthContext';
 import { BrandShield } from '@/components/BrandShield';
+
+// §146: 言镜 AI 官网重做 — register 页
+// 视觉与 pricing 一致: --app-canvas/surface/transcript/summary token
+// 表单逻辑保留 (useAuth.register),减 lucide icon 12→3,聚焦态 --app-transcript 蓝紫
 
 function pwStrength(pw: string): { score: number; labelKey: string; color: string } {
   let score = 0;
@@ -21,12 +21,12 @@ function pwStrength(pw: string): { score: number; labelKey: string; color: strin
   if (/[0-9]/.test(pw)) score++;
   if (/[^A-Za-z0-9]/.test(pw)) score++;
   const map = [
-    { labelKey: 'register_page.strength_too_short', color: 'bg-red-500' },
-    { labelKey: 'register_page.strength_weak', color: 'bg-orange-500' },
-    { labelKey: 'register_page.strength_fair', color: 'bg-yellow-500' },
-    { labelKey: 'register_page.strength_good', color: 'bg-blue-500' },
-    { labelKey: 'register_page.strength_strong', color: 'bg-emerald-500' },
-    { labelKey: 'register_page.strength_very_strong', color: 'bg-emerald-600' },
+    { labelKey: 'register_page.strength_too_short', color: 'bg-[var(--app-error)]' },
+    { labelKey: 'register_page.strength_weak', color: 'bg-[var(--app-warning)]' },
+    { labelKey: 'register_page.strength_fair', color: 'bg-[var(--app-summary)]' },
+    { labelKey: 'register_page.strength_good', color: 'bg-[var(--app-transcript)]' },
+    { labelKey: 'register_page.strength_strong', color: 'bg-[var(--app-success)]' },
+    { labelKey: 'register_page.strength_very_strong', color: 'bg-[var(--app-success)]' },
   ];
   const safe = Math.min(score, map.length - 1);
   return { score: safe, labelKey: map[safe].labelKey, color: map[safe].color };
@@ -58,336 +58,269 @@ export default function RegisterPage() {
     if (busy) return;
     setError(null);
     if (!email || !password || !confirm) {
-      setError(t('register_page.required_error'));
+      setError(t('register_page.error_empty'));
+      return;
+    }
+    if (pwTooShort) {
+      setError(t('register_page.error_pw_too_short'));
       return;
     }
     if (password !== confirm) {
-      setError(t('account.password_mismatch'));
-      return;
-    }
-    if (password.length < 6) {
-      setError(t('account.weak_password'));
+      setError(t('register_page.error_pw_mismatch'));
       return;
     }
     setBusy(true);
-    const r = await register(email.trim(), password, displayName.trim() || undefined);
-    setBusy(false);
-    if (r.ok) router.push('/');
-    else setError(r.error ?? t('errors.generic'));
+    try {
+      const ok = await register(email, password, displayName || undefined);
+      if (ok) {
+        router.replace('/');
+      } else {
+        setError(t('register_page.error_generic'));
+      }
+    } catch (e: any) {
+      setError(e?.message || t('register_page.error_generic'));
+    } finally {
+      setBusy(false);
+    }
   }
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-2 bg-white dark:bg-neutral-950">
-      <BrandPanel />
+    <div className="min-h-screen bg-[var(--app-canvas)] text-[var(--app-ink)] grid lg:grid-cols-[1.1fr_1fr]">
+      {/* ────── 左: 品牌面板 ────── */}
+      <aside className="relative hidden lg:flex flex-col justify-between overflow-hidden border-r border-[var(--app-hairline)] p-12">
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-0 opacity-50"
+          style={{
+            background:
+              'radial-gradient(ellipse at 25% 15%, rgba(94,106,210,0.18) 0%, transparent 55%), radial-gradient(ellipse at 85% 90%, rgba(255,197,51,0.10) 0%, transparent 55%)',
+          }}
+        />
 
-      <div className="relative flex flex-col p-6 sm:p-10">
-        <div className="flex items-center justify-between">
-          <Link
-            href="/"
-            className="group inline-flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-[13px] text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-900 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
-          >
-            <ArrowLeft className="h-3.5 w-3.5 transition-transform group-hover:-translate-x-0.5" />
-            {t('account.back_to_home')}
-          </Link>
-        </div>
+        <Link href="/" className="relative inline-flex items-center gap-3 text-sm text-[var(--app-ink-muted)] hover:text-[var(--app-ink)] transition-colors w-fit">
+          <ArrowLeft className="w-4 h-4" />
+          {t('account.back_to_home')}
+        </Link>
 
-        <div className="flex flex-1 items-center justify-center">
+        <div className="relative">
           <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.4, ease: 'easeOut' }}
-            className="w-full max-w-[440px]"
+            initial={{ opacity: 0, scale: 0.92 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.5 }}
+            className="mb-8"
           >
-            <div className="mb-8 flex items-center gap-2.5 lg:hidden">
-              <BrandShield size={32} />
-              <span className="text-[15px] font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">{t('app.name')}</span>
-            </div>
-
-            <h1 className="text-[28px] font-semibold tracking-tight text-neutral-900 dark:text-neutral-50">
-              {t('account.register_title')}
-            </h1>
-            <p className="mt-1.5 text-[13.5px] text-neutral-500 dark:text-neutral-400">
-              {t('register_page.subtitle')}
-            </p>
-
-            <form onSubmit={handleSubmit} className="mt-7 space-y-3.5">
-              {/* Email */}
-              <Field
-                label={t('account.email')}
-                focused={focusedField === 'email'}
-                icon={<Mail className="h-4 w-4" />}
-              >
-                <input
-                  type="email"
-                  required
-                  autoComplete="email"
-                  placeholder="you@example.com"
-                  value={email}
-                  onFocus={() => setFocusedField('email')}
-                  onBlur={() => setFocusedField(null)}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="flex-1 bg-transparent text-[14px] text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
-                />
-              </Field>
-
-              {/* Display Name (optional) */}
-              <Field
-                label={
-                  <span>
-                    {t('account.display_name')}{' '}
-                    <span className="text-neutral-400">{t('register_page.optional')}</span>
-                  </span>
-                }
-                focused={focusedField === 'name'}
-                icon={<UserIcon className="h-4 w-4" />}
-              >
-                <input
-                  type="text"
-                  placeholder={t('register_page.nickname')}
-                  value={displayName}
-                  onFocus={() => setFocusedField('name')}
-                  onBlur={() => setFocusedField(null)}
-                  onChange={(e) => setDisplayName(e.target.value)}
-                  className="flex-1 bg-transparent text-[14px] text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
-                />
-              </Field>
-
-              {/* Password */}
-              <div>
-                <Field
-                  label={t('account.password')}
-                  focused={focusedField === 'password'}
-                  icon={<Lock className="h-4 w-4" />}
-                  right={
-                    <button
-                      type="button"
-                      onClick={() => setShowPw(!showPw)}
-                      aria-label={showPw ? t('register_page.hide_password') : t('register_page.show_password')}
-                      className="text-neutral-400 hover:text-neutral-600"
-                    >
-                      {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </button>
-                  }
-                >
-                  <input
-                    type={showPw ? 'text' : 'password'}
-                    required
-                    minLength={6}
-                    autoComplete="new-password"
-                    placeholder={t('register_page.password_hint')}
-                    value={password}
-                    onFocus={() => setFocusedField('password')}
-                    onBlur={() => setFocusedField(null)}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="flex-1 bg-transparent text-[14px] text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
-                  />
-                </Field>
-
-                {/* Strength meter */}
-                {password.length > 0 && (
-                  <div className="mt-1.5 flex items-center gap-2">
-                    <div className="flex flex-1 gap-1">
-                      {[0, 1, 2, 3, 4].map((i) => (
-                        <div
-                          key={i}
-                          className={`h-1 flex-1 rounded-full transition-colors ${
-                            i <= strength.score ? strength.color : 'bg-neutral-200 dark:bg-neutral-800'
-                          }`}
-                        />
-                      ))}
-                    </div>
-                    <span className={`text-[10.5px] font-medium ${
-                      pwTooShort ? 'text-red-500' : 'text-neutral-500'
-                    }`}>
-                      {pwTooShort ? t('register_page.password_hint') : t(strength.labelKey)}
-                    </span>
-                  </div>
-                )}
-              </div>
-
-              {/* Confirm password */}
-              <Field
-                label={t('account.confirm_password')}
-                focused={focusedField === 'confirm'}
-                icon={<Lock className="h-4 w-4" />}
-                right={
-                  confirm.length > 0 && !matchError ? (
-                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                  ) : matchError ? (
-                    <AlertCircle className="h-4 w-4 text-red-500" />
-                  ) : null
-                }
-                hasError={!!matchError}
-              >
-                <input
-                  type={showPw ? 'text' : 'password'}
-                  required
-                  minLength={6}
-                  autoComplete="new-password"
-                  placeholder={t('register_page.confirm_hint')}
-                  value={confirm}
-                  onFocus={() => setFocusedField('confirm')}
-                  onBlur={() => setFocusedField(null)}
-                  onChange={(e) => setConfirm(e.target.value)}
-                  className="flex-1 bg-transparent text-[14px] text-neutral-900 outline-none placeholder:text-neutral-400 dark:text-neutral-100"
-                />
-              </Field>
-
-              {/* Error */}
-              {error && (
-                <motion.div
-                  initial={{ opacity: 0, y: -4 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  className="flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[12.5px] text-red-700 dark:border-red-800/60 dark:bg-red-900/30 dark:text-red-300"
-                >
-                  <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                  <span>{error}</span>
-                </motion.div>
-              )}
-
-              {/* Submit */}
-              <button
-                type="submit"
-                disabled={busy}
-                className="group mt-2 flex h-11 w-full items-center justify-center gap-2 rounded-lg bg-blue-600 text-[14px] font-medium text-white transition-all hover:bg-blue-700 hover:shadow-md hover:shadow-blue-600/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500/50 disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                {busy ? (
-                  <>
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                    {t('register_page.creating')}
-                  </>
-                ) : (
-                  <>
-                    {t('account.register')}
-                    <ChevronRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-                  </>
-                )}
-              </button>
-            </form>
-
-            {/* v0.6.10+: 注册即同意条款 (合规底线) */}
-            <p className="mt-3 text-[11px] text-neutral-500 text-center">
-              {t('register_page.consent_prefix')}{' '}
-              <Link href="/legal/terms" target="_blank" className="text-blue-600 hover:underline">{t('register_page.terms')}</Link>
-              {' '}{t('register_page.consent_and')}{' '}
-              <Link href="/legal/privacy" target="_blank" className="text-blue-600 hover:underline">{t('register_page.privacy')}</Link>
-            </p>
-
-            <div className="mt-6 rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 text-[13px] text-neutral-700 dark:border-neutral-800 dark:bg-neutral-900/50 dark:text-neutral-300">
-              <div className="flex items-center justify-between gap-3">
-                <span>{t('account.has_account')}</span>
-                <Link
-                  href="/login"
-                  className="inline-flex items-center gap-1 rounded-md bg-white px-3 py-1 text-[12.5px] font-medium text-blue-600 shadow-sm transition-colors hover:bg-blue-50 dark:bg-neutral-800 dark:text-blue-400 dark:hover:bg-neutral-700"
-                >
-                  {t('account.login')}
-                  <ChevronRight className="h-3 w-3" />
-                </Link>
-              </div>
-            </div>
-
-            <p className="mt-6 text-center text-[11px] text-neutral-400 dark:text-neutral-500">
-              {t('register_page.local_consent')}
-            </p>
+            <BrandShield size={64} />
           </motion.div>
+          <h2 className="text-[clamp(1.8rem,3.2vw,2.6rem)] font-semibold leading-[1.15] tracking-tight mb-3">
+            {t('register_page.hero_title')}
+            <br />
+            <span className="bg-gradient-to-r from-[var(--app-transcript-hover)] to-[var(--app-summary)] bg-clip-text text-transparent">
+              {t('register_page.hero_highlight')}
+            </span>
+          </h2>
+          <p className="text-sm text-[var(--app-ink-muted)] max-w-sm leading-relaxed">
+            {t('register_page.hero_desc')}
+          </p>
+
+          {/* 3 bullet 而非 2x2 grid */}
+          <ul className="mt-10 space-y-3 max-w-sm">
+            <Bullet label={t('register_page.feature_local')} />
+            <Bullet label={t('register_page.feature_models')} />
+            <Bullet label={t('register_page.feature_buyout')} />
+          </ul>
         </div>
-      </div>
+
+        <p className="relative text-[11px] text-[var(--app-ink-subtle)]">
+          © {new Date().getFullYear()} {t('register_page.copyright')}
+        </p>
+      </aside>
+
+      {/* ────── 右: 表单 ────── */}
+      <main className="flex items-center justify-center p-6 sm:p-10">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, ease: 'easeOut' }}
+          className="w-full max-w-[420px]"
+        >
+          {/* mobile-only logo */}
+          <div className="mb-8 flex items-center gap-2.5 lg:hidden">
+            <BrandShield size={28} />
+            <span className="text-[15px] font-semibold tracking-tight">{t('app.name')}</span>
+          </div>
+
+          <h1 className="text-[clamp(1.6rem,3vw,2rem)] font-semibold tracking-tight">
+            {t('account.register_title')}
+          </h1>
+          <p className="mt-1.5 text-sm text-[var(--app-ink-subtle)]">
+            {t('register_page.subtitle')}
+          </p>
+
+          <form onSubmit={handleSubmit} className="mt-7 space-y-3">
+            {/* Email */}
+            <Field label={t('account.email')} focused={focusedField === 'email'} icon={<Mail className="h-4 w-4" />}>
+              <input
+                type="email"
+                required
+                autoComplete="email"
+                placeholder="you@example.com"
+                value={email}
+                onFocus={() => setFocusedField('email')}
+                onBlur={() => setFocusedField(null)}
+                onChange={(e) => setEmail(e.target.value)}
+                className="flex-1 bg-transparent text-sm text-[var(--app-ink)] outline-none placeholder:text-[var(--app-ink-tertiary)]"
+              />
+            </Field>
+
+            {/* Display name (optional) */}
+            <Field
+              label={
+                <span>
+                  {t('account.display_name')}{' '}
+                  <span className="text-[var(--app-ink-tertiary)] text-xs">{t('register_page.optional')}</span>
+                </span>
+              }
+              focused={focusedField === 'name'}
+              icon={<UserIcon className="h-4 w-4" />}
+            >
+              <input
+                type="text"
+                placeholder={t('register_page.nickname')}
+                value={displayName}
+                onFocus={() => setFocusedField('name')}
+                onBlur={() => setFocusedField(null)}
+                onChange={(e) => setDisplayName(e.target.value)}
+                className="flex-1 bg-transparent text-sm text-[var(--app-ink)] outline-none placeholder:text-[var(--app-ink-tertiary)]"
+              />
+            </Field>
+
+            {/* Password */}
+            <Field label={t('account.password')} focused={focusedField === 'password'} icon={<Lock className="h-4 w-4" />}>
+              <input
+                type={showPw ? 'text' : 'password'}
+                required
+                autoComplete="new-password"
+                placeholder="••••••••"
+                value={password}
+                onFocus={() => setFocusedField('password')}
+                onBlur={() => setFocusedField(null)}
+                onChange={(e) => setPassword(e.target.value)}
+                className="flex-1 bg-transparent text-sm text-[var(--app-ink)] outline-none placeholder:text-[var(--app-ink-tertiary)]"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPw(!showPw)}
+                className="text-[var(--app-ink-subtle)] hover:text-[var(--app-ink)] transition-colors"
+                aria-label="toggle password visibility"
+              >
+                {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+              </button>
+            </Field>
+
+            {/* Password strength meter */}
+            {password.length > 0 && (
+              <div className="flex items-center gap-2 pt-1">
+                <div className="flex flex-1 gap-1">
+                  {[0, 1, 2, 3, 4].map((i) => (
+                    <div
+                      key={i}
+                      className={`h-1 flex-1 rounded-full transition-colors ${
+                        i <= strength.score ? strength.color : 'bg-[var(--app-surface-3)]'
+                      }`}
+                    />
+                  ))}
+                </div>
+                <span className="text-[11px] text-[var(--app-ink-subtle)]">{t(strength.labelKey)}</span>
+              </div>
+            )}
+
+            {/* Confirm password */}
+            <Field
+              label={t('register_page.confirm_password')}
+              focused={focusedField === 'confirm'}
+              icon={<Lock className="h-4 w-4" />}
+              error={matchError ? t('register_page.error_pw_mismatch') : null}
+            >
+              <input
+                type={showPw ? 'text' : 'password'}
+                required
+                autoComplete="new-password"
+                placeholder="••••••••"
+                value={confirm}
+                onFocus={() => setFocusedField('confirm')}
+                onBlur={() => setFocusedField(null)}
+                onChange={(e) => setConfirm(e.target.value)}
+                className="flex-1 bg-transparent text-sm text-[var(--app-ink)] outline-none placeholder:text-[var(--app-ink-tertiary)]"
+              />
+            </Field>
+
+            {error && (
+              <div className="flex items-start gap-2 rounded-lg border border-[var(--app-error)]/40 bg-[var(--app-error)]/10 p-3 text-xs text-[var(--app-error)]">
+                <AlertCircle className="h-3.5 w-3.5 mt-0.5 flex-shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={busy || pwTooShort || matchError}
+              className="mt-2 w-full rounded-xl bg-[var(--app-summary)] text-[var(--app-canvas)] py-2.5 text-sm font-medium hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed inline-flex items-center justify-center gap-2"
+            >
+              {busy && <Loader2 className="h-4 w-4 animate-spin" />}
+              {busy ? t('account.registering') : t('account.register_button')}
+            </button>
+          </form>
+
+          <p className="mt-6 text-center text-sm text-[var(--app-ink-subtle)]">
+            {t('register_page.have_account')}{' '}
+            <Link href="/login" className="text-[var(--app-transcript-hover)] hover:underline">
+              {t('account.login')}
+            </Link>
+          </p>
+        </motion.div>
+      </main>
     </div>
   );
 }
 
 function Field({
-  label, focused, icon, children, right, hasError
+  label,
+  icon,
+  focused,
+  error,
+  children,
 }: {
-  label: React.ReactNode
-  focused: boolean
-  icon: React.ReactNode
-  children: React.ReactNode
-  right?: React.ReactNode
-  hasError?: boolean
+  label: React.ReactNode;
+  icon?: React.ReactNode;
+  focused?: boolean;
+  error?: string | null;
+  children: React.ReactNode;
 }) {
   return (
     <div>
-      <label className="mb-1.5 block text-[12px] font-medium text-neutral-700 dark:text-neutral-300">
-        {label}
-      </label>
+      <label className="mb-1.5 block text-xs font-medium text-[var(--app-ink-muted)]">{label}</label>
       <div
-        className={`flex h-11 items-center gap-2.5 rounded-lg border bg-white px-3 transition-all dark:bg-neutral-900 ${
-          hasError
-            ? 'border-red-400 ring-2 ring-red-400/20'
-            : focused
-              ? 'border-blue-500 ring-2 ring-blue-500/20 dark:border-blue-400'
-              : 'border-neutral-300 dark:border-neutral-700'
+        className={`flex items-center gap-2.5 rounded-xl border bg-[var(--app-surface-1)] px-3.5 py-2.5 transition-colors ${
+          focused
+            ? 'border-[var(--app-transcript)] shadow-[0_0_0_3px_rgba(94,106,210,0.18)]'
+            : error
+            ? 'border-[var(--app-error)]/60'
+            : 'border-[var(--app-hairline)]'
         }`}
       >
-        <span className={`transition-colors ${
-          hasError ? 'text-red-500' : focused ? 'text-blue-500' : 'text-neutral-400'
-        }`}>
-          {icon}
-        </span>
+        {icon && <span className="text-[var(--app-ink-subtle)]">{icon}</span>}
         {children}
-        {right}
       </div>
-    </div>
-  )
-}
-
-function BrandPanel() {
-  const { t } = useTranslation();
-  return (
-    <div className="relative hidden flex-col justify-between overflow-hidden bg-neutral-950 p-10 text-white lg:flex">
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_30%_20%,rgba(19,168,158,0.18),transparent_60%),radial-gradient(circle_at_80%_80%,rgba(11,37,69,0.6),transparent_70%)]" />
-      <div
-        className="pointer-events-none absolute inset-0 opacity-30"
-        style={{
-          backgroundImage:
-            'linear-gradient(rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.04) 1px, transparent 1px)',
-          backgroundSize: '32px 32px',
-        }}
-      />
-
-      <div className="relative flex items-center gap-3">
-        <BrandShield size={36} />
-        <div className="flex items-baseline gap-2">
-          <span className="text-[17px] font-semibold tracking-tight text-white">{t('app.name')}</span>
-          <span className="rounded border border-white/20 px-1.5 py-px font-mono text-[10px] uppercase tracking-wider text-white/60">
-            v0.9.0
-          </span>
-        </div>
-      </div>
-
-      <div className="relative">
-        <h2 className="text-[34px] font-semibold leading-tight tracking-tight">
-          {t('register_page.hero_title')}
-          <br />
-          <span className="bg-gradient-to-r from-teal-300 via-cyan-300 to-emerald-300 bg-clip-text text-transparent">
-            {t('register_page.hero_highlight')}
-          </span>
-        </h2>
-        <p className="mt-4 max-w-md text-[14px] leading-relaxed text-white/70">
-          {t('register_page.hero_desc')}
-        </p>
-
-        <div className="mt-8 grid grid-cols-2 gap-3 max-w-md">
-          <FeatureItem icon={<Shield className="h-3.5 w-3.5" />} label={t('register_page.feature_local')} />
-          <FeatureItem icon={<Mic className="h-3.5 w-3.5" />} label={t('register_page.feature_minutes')} />
-          <FeatureItem icon={<Headphones className="h-3.5 w-3.5" />} label={t('register_page.feature_models')} />
-          <FeatureItem icon={<Sparkles className="h-3.5 w-3.5" />} label={t('register_page.feature_buyout')} />
-        </div>
-      </div>
-
-      <div className="relative text-[11px] text-white/40">
-        © {new Date().getFullYear()} {t('register_page.copyright')}
-      </div>
+      {error && <p className="mt-1 text-[11px] text-[var(--app-error)]">{error}</p>}
     </div>
   );
 }
 
-function FeatureItem({ icon, label }: { icon: React.ReactNode; label: string }) {
+function Bullet({ label }: { label: string }) {
   return (
-    <div className="flex items-center gap-2 rounded-md border border-white/10 bg-white/5 px-3 py-2 backdrop-blur-sm">
-      <span className="text-teal-400">{icon}</span>
-      <span className="text-[12px] text-white/80">{label}</span>
-    </div>
+    <li className="flex items-start gap-2.5 text-sm text-[var(--app-ink-muted)]">
+      <span className="mt-1.5 inline-block w-1.5 h-1.5 rounded-full bg-[var(--app-summary)] flex-shrink-0" />
+      <span>{label}</span>
+    </li>
   );
 }
