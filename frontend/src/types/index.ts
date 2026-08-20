@@ -84,6 +84,13 @@ export interface FactGuardReport {
   unexpected_numbers?: string[];
   unexpected_dates?: string[];
   overclaimed_decision?: boolean;
+  unit_confusion?: string[];
+  /// §148 §1: 人名漂移 (例: "李福强 → 李富强")
+  name_drift?: string[];
+  /// §148 §2: 角色混淆 (例: 把证人写成辩护人)
+  role_confusion?: string[];
+  /// §148 §3: 判决编造 (庭审未宣判, 摘要生成"一审判处"等)
+  fabricated_verdict?: string[];
 }
 
 export interface SummaryDataResponse {
@@ -93,6 +100,8 @@ export interface SummaryDataResponse {
   fact_guard?: FactGuardReport;
   needs_review?: boolean;
   fact_guard_severe?: boolean;
+  /// §148: 法律模板 critical 标记 (人名漂移 / 角色混淆 / 判决编造 任一命中)
+  fact_guard_legal_critical?: boolean;
   // Legacy format fields
   MeetingName?: string;
   _section_order?: string[];

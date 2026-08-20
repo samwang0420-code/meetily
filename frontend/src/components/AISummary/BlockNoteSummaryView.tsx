@@ -274,6 +274,13 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
     console.log('🎨 Rendering BLOCKNOTE format (direct)');
     return (
       <div className="flex flex-col w-full">
+        {/* §148: 法律 critical (人名漂移/角色混淆/判决编造) — 显式警告,避免直接转发 */}
+        {data?.fact_guard_legal_critical && (
+          <FactGuardBanner
+            report={data.fact_guard}
+            legalCritical={true}
+          />
+        )}
         {/* §141.7: 隐藏 banner — 用户 8/20 反馈"华而不实",只保留 D 方案黄底高亮 (highlightUnexpectedFacts) */}
         {/* 恢复: git log -p 取回这一行 + i18n banner_* keys 都保留在 zh.ts/en.ts */}
         <div className="w-full">
@@ -295,6 +302,13 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
     console.log('🎨 Rendering MARKDOWN format (parsed to BlockNote)');
     return (
       <div className="flex flex-col w-full">
+        {/* §148: 法律 critical 警告 (markdown 路径) */}
+        {data?.fact_guard_legal_critical && (
+          <FactGuardBanner
+            report={data.fact_guard}
+            legalCritical={true}
+          />
+        )}
         {/* §141.7: 同上 — 隐藏 banner,只保留黄底高亮 D 方案 */}
         <div className="w-full">
           <BlockNoteView

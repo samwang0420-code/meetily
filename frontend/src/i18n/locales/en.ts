@@ -535,6 +535,16 @@ export const en: Record<string, unknown> = {
       issues_decision: 'Transcript only contains proposals or open questions; do not state a final decision',
       view_evidence: 'View transcript evidence',
     },
+
+    // §148: Legal template critical (name drift / role confusion / verdict fabrication)
+    fact_guard_148: {
+      banner_title: '⛔ Summary contains legal fact errors — do not forward as-is',
+      name_drift_label: 'Name drift',
+      role_confusion_label: 'Role confusion',
+      fabricated_verdict_label: 'Fabricated verdict',
+      banner_hint: 'Hard errors in court minutes: same party written 2 ways / witness mislabeled as defense counsel / verdict generated despite no verdict read. Regenerate or manually verify each flagged field before export.',
+    },
+
     save_failed: 'Save failed',
     template_selected: 'Template selected',
     loading_templates: 'Loading templates…',

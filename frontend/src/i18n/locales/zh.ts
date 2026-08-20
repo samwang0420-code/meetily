@@ -538,6 +538,16 @@ export const zh: Record<string, unknown> = {
       issues_decision: '原文为提案/未决, 纪要不得表述为最终决定',
       view_evidence: '查看原文证据',
     },
+
+    // §148: 法律模板 critical (人名漂移 / 角色混淆 / 判决编造) 警告横幅
+    fact_guard_148: {
+      banner_title: '⛔ 摘要含法律事实错误, 请勿直接转发 (fact_guard)',
+      name_drift_label: '人名漂移',
+      role_confusion_label: '角色混淆',
+      fabricated_verdict_label: '判决编造',
+      banner_hint: '这是法庭纪要硬伤: 同一主体用 2 种写法 / 证人写成辩护人 / 庭审未宣判但 AI 生成了判决结果。建议重新生成, 或在导出前人工核对每个错误字段。',
+    },
+
     save_failed: '保存失败',
     template_selected: '已选择模板',
     loading_templates: '正在加载模板…',

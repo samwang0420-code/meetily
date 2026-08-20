@@ -7,6 +7,8 @@ import type { FactGuardReport } from '@/types';
 interface FactGuardBannerProps {
   report?: FactGuardReport;
   severe?: boolean;
+  /// §148: 法律模板 critical 标记 — 任一命中 (人名漂移 / 角色混淆 / 判决编造) 即显示
+  legalCritical?: boolean;
 }
 
 function joinItems(items?: string[]): string {
@@ -15,65 +17,61 @@ function joinItems(items?: string[]): string {
   return items.length > 3 ? `${head} …` : head;
 }
 
-export const FactGuardBanner: React.FC<FactGuardBannerProps> = ({ report, severe }) => {
+export const FactGuardBanner: React.FC<FactGuardBannerProps> = ({ report, severe, legalCritical }) => {
   const { t } = useTranslation();
-
   if (!report) return null;
-  const hasIssues =
-    (report.unexpected_numbers && report.unexpected_numbers.length > 0) ||
-    (report.unexpected_dates && report.unexpected_dates.length > 0) ||
-    report.overclaimed_decision;
-  if (!hasIssues && !severe) return null;
 
-  const issueCount =
-    (report.unexpected_numbers?.length ?? 0) +
-    (report.unexpected_dates?.length ?? 0) +
-    (report.overclaimed_decision ? 1 : 0);
+  // §148: 法律 critical 横幅 — 仅在 legal_critical=true 时显示, 不堆砌
+  const nameDrift = report.name_drift ?? [];
+  const roleConfusion = report.role_confusion ?? [];
+  const fabricatedVerdict = report.fabricated_verdict ?? [];
+  const hasLegalIssue =
+    nameDrift.length > 0 || roleConfusion.length > 0 || fabricatedVerdict.length > 0;
+  const showLegalCritical = legalCritical ?? hasLegalIssue;
 
-  const containerStyle: React.CSSProperties = {
-    margin: '12px 0',
-    padding: '12px 16px',
-    borderRadius: 8,
-    border: severe ? '1px solid #dc2626' : '1px solid #f59e0b',
-    background: severe ? '#fef2f2' : '#fffbeb',
-    color: severe ? '#7f1d1d' : '#78350f',
-    fontSize: 13,
-    lineHeight: 1.6,
-  };
-
-  const titleStyle: React.CSSProperties = {
-    fontWeight: 600,
-    marginBottom: 6,
-  };
+  if (!showLegalCritical) return null;
 
   return (
-    <div role="alert" style={containerStyle} data-testid="fact-guard-banner">
-      <div style={titleStyle}>
-        {severe ? t('summary.fact_guard.banner_severe') : t('summary.fact_guard.banner_title')}
-        {' · '}
-        {issueCount === 1
-          ? t('summary.fact_guard.review_one')
-          : t('summary.fact_guard.review_other', { count: issueCount })}
+    <div
+      role="alert"
+      data-testid="fact-guard-legal-critical"
+      style={{
+        margin: '12px 0',
+        padding: '14px 16px',
+        borderRadius: 8,
+        border: '1px solid #dc2626',
+        background: '#fef2f2',
+        color: '#7f1d1d',
+        fontSize: 13,
+        lineHeight: 1.6,
+      }}
+    >
+      <div style={{ fontWeight: 600, marginBottom: 8 }}>
+        {t('summary.fact_guard_148.banner_title')}
       </div>
       <ul style={{ margin: 0, paddingLeft: 18 }}>
-        {report.unexpected_numbers && report.unexpected_numbers.length > 0 && (
+        {nameDrift.length > 0 && (
           <li>
-            {t('summary.fact_guard.issues_numbers', {
-              items: joinItems(report.unexpected_numbers),
-            })}
+            <strong>{t('summary.fact_guard_148.name_drift_label')}:</strong>{' '}
+            {joinItems(nameDrift)}
           </li>
         )}
-        {report.unexpected_dates && report.unexpected_dates.length > 0 && (
+        {roleConfusion.length > 0 && (
           <li>
-            {t('summary.fact_guard.issues_dates', {
-              items: joinItems(report.unexpected_dates),
-            })}
+            <strong>{t('summary.fact_guard_148.role_confusion_label')}:</strong>{' '}
+            {joinItems(roleConfusion)}
           </li>
         )}
-        {report.overclaimed_decision && (
-          <li>{t('summary.fact_guard.issues_decision')}</li>
+        {fabricatedVerdict.length > 0 && (
+          <li>
+            <strong>{t('summary.fact_guard_148.fabricated_verdict_label')}:</strong>{' '}
+            {joinItems(fabricatedVerdict)}
+          </li>
         )}
       </ul>
+      <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
+        {t('summary.fact_guard_148.banner_hint')}
+      </div>
     </div>
   );
 };
