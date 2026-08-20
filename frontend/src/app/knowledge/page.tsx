@@ -58,6 +58,10 @@ const FILTERS: Array<{ key: string; label_zh: string; label_en: string }> = [
   { key: 'general',  label_zh: '话题', label_en: 'Topics' },
 ];
 
+// §141.7: 用户 8/20 反馈"会议脉络看不懂" — 整个页面 UI 隐藏,代码保留便于恢复
+// 恢复: 把 DISABLED 改 false 即可
+const KNOWLEDGE_DISABLED = true;
+
 export default function KnowledgePage() {
   const router = useRouter();
   const { t, locale } = useTranslation();
@@ -173,6 +177,39 @@ export default function KnowledgePage() {
   const projectCount  = topics.filter(tp => tp.topic_type === 'project').length;
   const personCount   = topics.filter(tp => tp.topic_type === 'person').length;
   const totalEpisodes = topics.reduce((s, tp) => s + (tp.mention_count || 0), 0);
+
+  if (KNOWLEDGE_DISABLED) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-neutral-50 via-white to-violet-50/30">
+        <div className="mx-auto max-w-3xl px-10 py-20">
+          <button
+            onClick={() => router.push('/')}
+            className="mb-8 inline-flex items-center gap-2 rounded-lg px-3 py-1.5 text-[13px] text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700"
+            data-testid="knowledge-disabled-back"
+          >
+            <ArrowLeft className="h-4 w-4" />
+            {isZh ? '返回工作台' : 'Back to dashboard'}
+          </button>
+          <div className="rounded-2xl border border-neutral-200/80 bg-white/60 p-10">
+            <div className="mx-auto mb-5 flex h-12 w-12 items-center justify-center rounded-xl bg-neutral-100">
+              <Network className="h-6 w-6 text-neutral-400" strokeWidth={1.5} />
+            </div>
+            <h2 className="text-[20px] font-semibold text-neutral-900">
+              {isZh ? '会议脉络已停用' : 'Meeting timeline disabled'}
+            </h2>
+            <p className="mt-3 text-[14px] leading-[1.7] text-neutral-600">
+              {isZh
+                ? '此功能已隐藏 — 当前的 6 主题 / 2 决议 / 1 项目 / 2 人物 数据未删除,后续如需恢复,把 src/app/knowledge/page.tsx 顶部 KNOWLEDGE_DISABLED 改为 false 即可。'
+                : 'This feature is hidden. Existing topic/decision/project/person data is preserved. To restore, set KNOWLEDGE_DISABLED to false in src/app/knowledge/page.tsx.'}
+            </p>
+            <p className="mt-2 text-[12px] leading-[1.6] text-neutral-400">
+              §141.7 · {isZh ? '用户反馈: 会议脉络看不懂' : 'user feedback: cannot understand the timeline'}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-neutral-50 via-white to-violet-50/30">

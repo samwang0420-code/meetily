@@ -779,8 +779,8 @@ const Sidebar: React.FC = () => {
           );
         })()}
 
-        {/* §104 Meeting Timeline — renamed from Knowledge Graph (P0-A) */}
-        {(() => {
+        {/* §141.7: 隐藏"会议脉络"入口 — 用户 8/20 反馈"看不懂,不知道在做什么",P0-A 知识图谱/Sidebar nav 都隐藏,代码保留便于恢复 */}
+        {false && (() => {
           const active = pathname.startsWith('/knowledge');
           return (
             <button onClick={() => router.push('/knowledge')} title={isCollapsed ? t('nav.knowledge') : undefined}
