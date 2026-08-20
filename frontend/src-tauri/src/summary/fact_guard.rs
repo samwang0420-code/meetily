@@ -72,11 +72,27 @@ pub struct FactGuardReport {
     /// §131.2: 单位混淆 (source=克, summary=元 等)
     #[serde(default)]
     pub unit_confusion: Vec<String>,
+    /// §148 §1: 人名漂移 — 同一主体在摘要里出现 ≥2 种同音近形写法 (李福强 vs 李富强)
+    #[serde(default)]
+    pub name_drift: Vec<String>,
+    /// §148 §2: 角色混淆 — 摘要把证人写成辩护人, 或亲属辩护误写等
+    #[serde(default)]
+    pub role_confusion: Vec<String>,
+    /// §148 §3: 判决编造 — 庭审未宣判, 但摘要出现 "判处/判决/一审/二审" 等判决词
+    #[serde(default)]
+    pub fabricated_verdict: Vec<String>,
 }
 
 impl FactGuardReport {
     #[cfg(test)]
-    pub fn is_safe(&self) -> bool { self.unexpected_numbers.is_empty() && self.unexpected_dates.is_empty() && !self.overclaimed_decision }
+    pub fn is_safe(&self) -> bool {
+        self.unexpected_numbers.is_empty()
+            && self.unexpected_dates.is_empty()
+            && !self.overclaimed_decision
+            && self.name_drift.is_empty()
+            && self.role_confusion.is_empty()
+            && self.fabricated_verdict.is_empty()
+    }
     /// §131: severe 判定更严格 — 1 个无关 number 不再触发自动替换
     /// 真 severe 条件:
     ///   1. overclaimed_decision (AI 把"提案"说成"最终决定" — 法律风险高)
@@ -91,7 +107,16 @@ impl FactGuardReport {
         self.unexpected_numbers.len()
             + self.unexpected_dates.len()
             + self.unit_confusion.len()
+            + self.name_drift.len()
+            + self.role_confusion.len()
+            + self.fabricated_verdict.len()
             + if self.overclaimed_decision { 1 } else { 0 }
+    }
+
+    /// §148: 法律模板 critical 判定 — 出现 1 项角色混淆或判决编造即为 SEVERE
+    /// (这些是法庭纪要硬伤, 单条也要降级让用户看到, 不能隐藏在 needs_review 横幅里)
+    pub fn is_legal_critical(&self) -> bool {
+        !self.role_confusion.is_empty() || !self.fabricated_verdict.is_empty()
     }
 
     /// True when the report has issues worth a UI banner, even if not severe enough to replace the summary.
@@ -117,6 +142,20 @@ pub fn highlight_unexpected_facts(summary: &str, report: &FactGuardReport) -> St
         // 转义 markdown 特殊字符最小化, 直接 replace 即可
         let marked = format!("==⚠️{}⚠️==", token);
         out = out.replace(token, &marked);
+    }
+    // §148: 人名漂移标黄
+    for entry in &report.name_drift {
+        for name in entry.split("→").map(str::trim).filter(|s| !s.is_empty()) {
+            if !name.is_empty() && out.contains(name) {
+                out = out.replace(name, &format!("==⚠️{}⚠️==", name));
+            }
+        }
+    }
+    // §148: 判决编造标黄
+    for token in &report.fabricated_verdict {
+        if !token.is_empty() && out.contains(token) {
+            out = out.replace(token, &format!("==⚠️{}⚠️==", token));
+        }
     }
     out
 }
@@ -163,11 +202,21 @@ pub fn validate_summary(transcript: &str, summary: &str) -> FactGuardReport {
             unit_confusion.push("原文含重量 (克/公斤), AI 摘要出现歧义大单位 (千/万/亿) — 可能把重量当金额, 请核对 (例: 9千克 vs 9千元)".to_string());
         }
     }
+    // §148 §1: 人名漂移检测 — 在 summary 里查找 "李福强/李富强" 等同音近形 pair
+    let name_drift = detect_name_drift(transcript, summary);
+    // §148 §2: 角色混淆检测 — 摘要把证人当辩护人, 或亲属变律师
+    let role_confusion = detect_role_confusion(transcript, summary);
+    // §148 §3: 判决编造检测 — 庭审未宣判, 摘要出现 "判处/判决/一审/二审"
+    let fabricated_verdict = detect_fabricated_verdict(transcript, summary);
+
     FactGuardReport {
         unexpected_numbers: summary_numbers.difference(&source_numbers).cloned().collect(),
         unexpected_dates: summary_dates.difference(&source_dates).cloned().collect(),
         overclaimed_decision: proposal_language && decision_language,
         unit_confusion,
+        name_drift,
+        role_confusion,
+        fabricated_verdict,
     }
 }
 
@@ -264,14 +313,260 @@ fn split_sentences(transcript: &str) -> impl Iterator<Item = &str> {
     transcript.split(|c: char| matches!(c, '。' | '！' | '？' | '\n' | ';' | '；' | '.' | '!' | '?'))
 }
 
-#[cfg(test)]
 fn join_preview(items: &[String]) -> String {
-    let head: Vec<&str> = items.iter().take(3).map(String::as_str).collect();
-    let suffix = if items.len() > 3 { " ……" } else { "" };
-    format!("{}{}", head.join("、"), suffix)
+    const PREVIEW: usize = 5;
+    if items.len() <= PREVIEW {
+        items.join(", ")
+    } else {
+        let head = items[..PREVIEW].join(", ");
+        format!("{} 等 {} 项", head, items.len())
+    }
 }
 
-#[cfg(test)]
+// ============================================================================
+// §148: 法律模板三项 critical 检测 (人名漂移 / 角色混淆 / 判决编造)
+// 任何一项命中 → is_legal_critical() = true → 触发降级 + 警告横幅
+// ============================================================================
+
+/// §148 §1: 人名漂移 — 同一主体在 summary 里出现 ≥2 种同音近形写法
+///
+/// 实现策略:
+///   1. 从 transcript 抽取 中文姓名 token (regex: 李福强 / 欧阳明 等 2-4 字)
+///   2. 在 summary 里以相同 token 集匹配
+///   3. 对每个 transcript 中出现的姓名 N, 检查 summary 里是否有同根近形变体
+///      (N 与 M 共用前缀但末字不同, 且末字是同音/近形: 福/富, 强/墙, 伟/炜, 刚/钢)
+///   4. 命中时记录 "原名 → 变体" pair
+pub fn detect_name_drift(transcript: &str, summary: &str) -> Vec<String> {
+    use std::collections::HashSet;
+
+    // 中文姓名 regex: 2-4 个汉字 (但只考虑 ≥3 字的姓氏常见组合, 2 字易误命中"智力"/"迟缓"等)
+    // 例外: 单姓+双字名 仍是 3 字, 不需 2 字覆盖
+    // 中文姓名扫描 (手动 char-level, 避免 regex greedy 4-char 截到 "李福强持")
+    // 策略: 在每段连续中文里, 找以常见姓氏开头的 3-4 字 spans, 优先 3 字 (单姓双字名最常见)
+    // 不再用 NAME_RE — 改用 char 索引手动判断
+
+    // 常见中文姓氏 (单字姓, 100+ 主流) — 用于过滤人名 vs 普通中文词
+    // 不做 NER 完整模型, 仅靠"首字是姓"过滤
+    static SURNAMES: &[char] = &[
+        '李', '王', '张', '刘', '陈', '杨', '黄', '赵', '周', '吴',
+        '徐', '孙', '朱', '马', '胡', '郭', '何', '高', '林', '罗',
+        '郑', '梁', '谢', '宋', '唐', '许', '韩', '冯', '邓', '曹',
+        '彭', '曾', '田', '董', '袁', '潘', '于', '蒋', '蔡', '余',
+        '杜', '叶', '程', '苏', '魏', '吕', '丁', '任', '沈', '姚',
+        '卢', '姜', '崔', '钟', '谭', '陆', '汪', '范', '金', '石',
+        '廖', '贾', '夏', '韦', '付', '方', '白', '邹', '孟', '熊',
+        '秦', '邱', '江', '尹', '薛', '闫', '段', '雷', '侯', '龙',
+        '史', '陶', '黎', '贺', '顾', '毛', '郝', '龚', '邵', '万',
+        '钱', '严', '覃', '武', '戴', '莫', '孔', '向', '汤', '于',
+    ];
+
+    // 提取"独立词": 先按标点/数字切分, 再在每段内找 3-4 字 spans
+    // 中文文本的特点是连续中文无空格 — 仅靠 regex 边界无法精准定位姓名边界
+    // 用"首字是姓"过滤: 中文姓名 99% 概率以常见姓氏开头
+    fn extract_words(text: &str) -> HashSet<String> {
+        let mut seen = HashSet::new();
+        // 按标点切
+        static SPLIT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
+            r"[\p{P}\p{Z}\p{N}]+"
+        ).unwrap());
+        for segment in SPLIT_RE.split(text) {
+            if segment.is_empty() { continue; }
+            let chars: Vec<char> = segment.chars().collect();
+            let mut i = 0;
+            while i + 3 <= chars.len() {
+                // 起始字是姓?
+                if SURNAMES.contains(&chars[i]) {
+                    // 优先 3 字 (单姓 + 双字名), 若 3 字后是中文字 → 取 3 字
+                    let three: String = chars[i..i+3].iter().collect();
+                    if i + 3 >= chars.len() || !is_chinese_char(chars[i+3]) {
+                        // 3 字就到段尾 或 后跟非中文 → 取 3 字
+                        seen.insert(three);
+                        i += 3;
+                    } else {
+                        // 后跟中文, 仍取 3 字 (单姓双字名主流)
+                        seen.insert(three);
+                        i += 3;
+                    }
+                } else {
+                    i += 1; // 非姓氏起始, 跳过这字
+                }
+            }
+        }
+        seen
+    }
+
+    fn is_chinese_char(c: char) -> bool {
+        matches!(c, '\u{4e00}'..='\u{9fff}')
+    }
+
+    // 同音近形字对 (用于在姓名的任意位置替换 1 个字)
+    static CONFUSABLE_PAIRS: &[(&str, &str)] = &[
+        ("福", "富"), ("福", "复"), ("福", "付"),
+        ("富", "福"), ("富", "复"), ("富", "付"),
+        ("强", "墙"), ("强", "抢"), ("强", "疆"),
+        ("伟", "炜"), ("伟", "苇"), ("伟", "卫"),
+        ("刚", "钢"), ("刚", "岗"), ("刚", "纲"),
+        ("明", "铭"), ("明", "鸣"), ("明", "名"),
+        ("国", "果"), ("国", "过"), ("国", "郭"),
+        ("平", "苹"), ("平", "评"), ("平", "坪"),
+        ("建", "健"), ("建", "键"), ("建", "坚"),
+        ("林", "霖"), ("林", "琳"), ("林", "临"),
+        ("涛", "滔"), ("涛", "焘"), ("涛", "陶"),
+    ];
+
+    // 收集 summary 中所有 3-4 字姓名 token
+    let summary_names: HashSet<String> = extract_words(summary);
+
+    // 收集 transcript 中的姓名 (避免误报)
+    let transcript_names: HashSet<String> = extract_words(transcript);
+
+    if summary_names.len() < 2 {
+        return vec![];
+    }
+
+    // 对每个 (a, b) pair, 对每个 name, 在每个位置 i 替换 name[i]=a 为 b 生成 variant, 看 variant 是否在 summary 里
+    let mut drift_pairs: std::collections::HashSet<(String, String)> = std::collections::HashSet::new();
+    for name in &summary_names {
+        let chars: Vec<char> = name.chars().collect();
+        for i in 0..chars.len() {
+            for (a, b) in CONFUSABLE_PAIRS {
+                if chars[i].to_string() == *a {
+                    let mut new_chars = chars.clone();
+                    new_chars[i] = b.chars().next().unwrap();
+                    let variant: String = new_chars.iter().collect();
+                    if variant != *name && summary_names.contains(&variant) {
+                        let mut pair = (name.clone(), variant);
+                        if pair.0 > pair.1 { std::mem::swap(&mut pair.0, &mut pair.1); }
+                        drift_pairs.insert(pair);
+                    }
+                } else if chars[i].to_string() == *b {
+                    let mut new_chars = chars.clone();
+                    new_chars[i] = a.chars().next().unwrap();
+                    let variant: String = new_chars.iter().collect();
+                    if variant != *name && summary_names.contains(&variant) {
+                        let mut pair = (name.clone(), variant);
+                        if pair.0 > pair.1 { std::mem::swap(&mut pair.0, &mut pair.1); }
+                        drift_pairs.insert(pair);
+                    }
+                }
+            }
+        }
+    }
+
+    // transcript 必须至少含其中之一 — 否则视为 summary 自我编造, 不算 drift
+    let mut out = Vec::new();
+    for (a, b) in drift_pairs {
+        if transcript_names.contains(&a) || transcript_names.contains(&b) {
+            out.push(format!("{} → {}", a, b));
+        }
+    }
+    out
+}
+
+/// §148 §2: 角色混淆 — 摘要把证人当辩护人 / 公诉人当辩护人 / 亲属辩护误写等
+pub fn detect_role_confusion(transcript: &str, summary: &str) -> Vec<String> {
+    let mut out = Vec::new();
+
+    // 模式 1: 摘要把 "证人" 当 "辩护人"
+    // 例: "辩护人: 李富强的姐姐 (证人)" — 显式标记为证人但角色字段是辩护人
+    static ROLE_MISLABEL_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
+        r"辩护[人律师][：:][^。\n]{0,40}?[(（]\s*证人\s*[)）]"
+    ).unwrap());
+    for m in ROLE_MISLABEL_RE.find_iter(summary) {
+        out.push(format!(
+            "角色误标: '{}' — 字段标'辩护人'但同句括号标注'证人', 证人 ≠ 辩护人 (§148 §2)",
+            m.as_str().trim()
+        ));
+    }
+
+    // 模式 2: "辩护人" 紧跟亲属称谓 (XX姐姐/XX父亲/XX母亲/XX妻子/XX丈夫/XX弟弟/XX妹妹/XX女儿/XX儿子/XX哥哥)
+    static KINSHIP_DEFENSE_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
+        r"辩护[人律师][：:][^。\n]{0,40}?(姐姐|父亲|母亲|妻子|丈夫|弟弟|妹妹|女儿|儿子|哥哥)"
+    ).unwrap());
+    for m in KINSHIP_DEFENSE_RE.find_iter(summary) {
+        let matched = m.as_str();
+        // 若 transcript 含 "证人证言" / "证人:" / "的姐姐" / "的弟弟" 等, 就报
+        let mut reported = false;
+        for kw in ["证人证言", "证人:", "证人：", "的姐姐", "的弟弟", "的妹妹"] {
+            if transcript.contains(kw) {
+                out.push(format!(
+                    "亲属辩护误写: '{}' — 中国刑事案件亲属不能作辩护人, 亲属出庭通常身份是证人 (§148 §2)",
+                    matched.trim()
+                ));
+                reported = true;
+                break;
+            }
+        }
+        if reported { continue; }
+    }
+
+    // 模式 3: 辩护人段标题下紧跟证人亲属描述
+    static DEFENSE_HEADER_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
+        r"[*#][^。\n]{0,15}辩护[人律师][^。\n]{0,5}[*#]"
+    ).unwrap());
+    static WITNESS_KIN_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
+        r"证人[^。\n]{0,20}?(姐姐|父亲|母亲|弟弟|妹妹|妻子|丈夫)"
+    ).unwrap());
+    for dm in DEFENSE_HEADER_RE.find_iter(summary) {
+        let window_end = std::cmp::min(dm.end() + 200, summary.len());
+        let after = &summary[dm.end()..window_end];
+        if let Some(wm) = WITNESS_KIN_RE.find(after) {
+            out.push(format!(
+                "辩护人段误标证人: '辩护人' 段标题下 200 字内出现证人亲属描述 '{}' (§148 §2)",
+                wm.as_str().trim()
+            ));
+        }
+    }
+
+    out
+}
+
+/// §148 §3: 判决编造 — 庭审 transcript 没宣判, summary 出现 "判处/判决/一审/二审" 等判决结果
+pub fn detect_fabricated_verdict(transcript: &str, summary: &str) -> Vec<String> {
+    // 是否已宣判 (transcript 含明确判决动作, 但"择期宣判"不算)
+    // 区分: "现在宣判/宣读判决/判处X年/本院判决如下" = 已宣判; "择期宣判/将择期宣判" = 尚未宣判
+    static VERDICT_KEYWORDS: &[&str] = &[
+        "宣判", "判决书", "判处", "本院认为", "判决如下", "判决主文", "作出判决",
+    ];
+    // 排除短语: 含这些的"宣判"不算已宣判 (择期宣判 = 还没宣判)
+    static PENDING_PHRASES: &[&str] = &[
+        "择期宣判", "将择期宣判", "未宣判", "尚未宣判", "今日未宣判",
+    ];
+
+    let transcript_has_verdict = VERDICT_KEYWORDS.iter().any(|k| {
+        // 先排除"择期宣判"等 pending 表述
+        transcript.contains(k) && !PENDING_PHRASES.iter().any(|p| transcript.contains(p))
+    });
+
+    if transcript_has_verdict {
+        return vec![]; // 已宣判, 摘要可写判决
+    }
+
+    // 未宣判 → 检查 summary 是否有判决表述
+    static FABRICATED_PATTERNS: &[(&str, &str)] = &[
+        (r"一审判处[^。\n]{0,40}", "一审判处"),
+        (r"二审(?:维持|驳回|改判)[^。\n]{0,40}", "二审裁判"),
+        (r"(?:判处|判)[^。\n]{0,20}有期徒刑[^。\n]{0,20}", "判处+刑期"),
+        (r"判决结果[：:][^。\n]{0,40}", "判决结果"),
+        (r"维持原判[^。\n]{0,40}", "维持原判"),
+        (r"驳回(?:上诉|起诉)[^。\n]{0,40}", "驳回裁判"),
+        (r"判[处决][^。\n]{0,8}(?:有期徒刑|无期|死刑|拘役|管制|罚金)", "判+具体刑罚"),
+    ];
+
+    let mut out = Vec::new();
+    for (pattern, label) in FABRICATED_PATTERNS {
+        let re = Regex::new(pattern).unwrap();
+        if re.is_match(summary) {
+            out.push(format!(
+                "判决编造: 庭审 transcript 未出现'宣判/判处/判决书'等判决词, 但摘要含 '{}' 表述 (§148 §3)",
+                label
+            ));
+        }
+    }
+    out
+}
+
+
 mod tests {
     use super::*;
     #[test]
@@ -318,6 +613,9 @@ mod tests {
             unexpected_dates: vec![],
             overclaimed_decision: false,
             unit_confusion: vec![],
+            name_drift: vec![],
+            role_confusion: vec![],
+            fabricated_verdict: vec![],
         };
         let fallback = conservative_fallback(source, &empty);
         assert!(fallback.contains("未识别到具体错误字段"));
@@ -435,6 +733,9 @@ mod tests {
             unexpected_dates: vec![],
             overclaimed_decision: false,
             unit_confusion: vec![],
+            name_drift: vec![],
+            role_confusion: vec![],
+            fabricated_verdict: vec![]
         };
         let summary = "实际佣金9.29千，案件背景清晰。";
         let marked = highlight_unexpected_facts(summary, &report);
@@ -449,6 +750,9 @@ mod tests {
             unexpected_dates: vec![],
             overclaimed_decision: false,
             unit_confusion: vec![],
+            name_drift: vec![],
+            role_confusion: vec![],
+            fabricated_verdict: vec![]
         };
         let summary = "实际佣金3000元。";
         let marked = highlight_unexpected_facts(summary, &report);
@@ -545,4 +849,91 @@ mod tests {
         assert!(report.needs_review() || report.unexpected_dates.len() > 0 || report.unexpected_numbers.len() > 0,
             "中文/阿日期改写应被 fact_guard 至少 warn 一项: {report:?}");
     }
+}
+
+    // ============================================================================
+    // §148: 法律模板 critical 检测单元测试
+    // ============================================================================
+
+    #[test]
+    fn section_148_name_drift_detects_li_fuqiang_variants() {
+        // 用户截图实际场景: 庭审 transcript 写李福强, AI 摘要混用 李福强/李富强/李富国强
+        let transcript = "被告人李福强持枪伤害其父李金明。福强智力发育迟缓。";
+        let summary = "李福强持枪, 但后续叙述改用李富强。李富国强供述其将枪放置。";
+        let drift = detect_name_drift(transcript, summary);
+        assert!(
+            drift.iter().any(|e| e.contains("李福强") || e.contains("李富强") || e.contains("李富国强")),
+            "应检测到人名漂移, 实际: {drift:?}"
+        );
+    }
+
+    #[test]
+    fn section_148_name_drift_ignores_clean_summary() {
+        let transcript = "被告人李福强持枪伤害其父李金明。";
+        let summary = "李福强持枪射击李金明, 致其死亡。李福强被诉故意伤害罪。";
+        let drift = detect_name_drift(transcript, summary);
+        assert!(drift.is_empty(), "统一使用李福强, 不应触发漂移: {drift:?}");
+    }
+
+    #[test]
+    fn section_148_role_confusion_witness_as_defense() {
+        // 用户截图场景: 摘要把"证人 (XX姐姐)" 写成"辩护人 XX姐姐"
+        let transcript = "公诉人出示了李福强姐姐的证人证言, 证实两人系姐弟关系。";
+        let summary = "辩护人: 李福强姐姐。";
+        let confusion = detect_role_confusion(transcript, summary);
+        assert!(
+            !confusion.is_empty(),
+            "应检测到角色混淆 (把证人当辩护人), 实际: {confusion:?}"
+        );
+    }
+
+    #[test]
+    fn section_148_role_confusion_kinship_defense() {
+        // 中国刑事案件亲属不能作辩护人, 亲属出庭是证人
+        let transcript = "李福强姐姐作为证人出庭提供证言。证人证言证实其弟智力发育迟缓。";
+        let summary = "辩护人: 李福强的姐姐 (证人)。";
+        let confusion = detect_role_confusion(transcript, summary);
+        assert!(
+            !confusion.is_empty(),
+            "应检测到亲属辩护误写, 实际: {confusion:?}"
+        );
+    }
+
+    #[test]
+    fn section_148_fabricated_verdict_detects_ai_hallucinated_sentence() {
+        // 用户截图场景: 庭审只到休庭, 但 AI 编造"一审判处三年"
+        let transcript = "本案择期宣判, 现在休庭。辩护人作最后陈述。";
+        let summary = "一审判处三年有期徒刑。被告人请求从轻。";
+        let verdict = detect_fabricated_verdict(transcript, summary);
+        assert!(
+            !verdict.is_empty(),
+            "应检测到判决编造, 实际: {verdict:?}"
+        );
+    }
+
+    #[test]
+    fn section_148_fabricated_verdict_allows_actual_verdict() {
+        // transcript 含"宣判" → 摘要可写判决 (合法)
+        let transcript = "现在宣读判决: 被告人李福强犯故意伤害罪, 判处有期徒刑三年, 缓刑四年。";
+        let summary = "判处李福强有期徒刑三年, 缓刑四年。";
+        let verdict = detect_fabricated_verdict(transcript, summary);
+        assert!(
+            verdict.is_empty(),
+            "transcript 已宣判, 不应触发 fabricated_verdict, 实际: {verdict:?}"
+        );
+    }
+
+    #[test]
+    fn section_148_full_validate_catches_all_three_lifuqiang_failures() {
+        // 用户截图综合场景: 李福强庭审摘要, 3 类问题并发
+        let transcript = "李福强持枪射击其父李金明, 致其死亡。本案择期宣判, 现在休庭。\n李福强姐姐作为证人出庭, 提供证人证言, 证实其弟智力发育迟缓。\n鉴定意见认定被告人属于限定刑事责任能力。";
+        let summary = "李福强持枪伤害其父。但后续改用李富强。辩护人: 李福强的姐姐 (证人)。一审判处三年有期徒刑, 二审维持原判。是否属于限定刑事责任能力人待查明。";
+        let report = validate_summary(transcript, summary);
+        assert!(!report.name_drift.is_empty(), "人名漂移漏检: {report:?}");
+        assert!(!report.role_confusion.is_empty(), "角色混淆漏检: {report:?}");
+        assert!(!report.fabricated_verdict.is_empty(), "判决编造漏检: {report:?}");
+        assert!(report.is_legal_critical(), "法律 critical 应为 true: {report:?}");
+        // highlight 必须能标黄这些 fabricated token
+        let highlighted = highlight_unexpected_facts(summary, &report);
+        assert!(highlighted.contains("⚠️") || highlighted.contains("=="), "highlight 必须标注 fabricated tokens");
 }
