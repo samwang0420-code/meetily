@@ -743,7 +743,7 @@ const Sidebar: React.FC = () => {
                 言镜 AI
               </span>
               <span className="shrink-0 rounded border border-neutral-200 px-1 py-px font-mono text-[9.5px] uppercase tracking-wider text-neutral-500 dark:border-neutral-700 dark:text-neutral-500">
-                v0.9.0
+                v0.9.1
               </span>
             </div>
           </div>
@@ -880,18 +880,18 @@ const Sidebar: React.FC = () => {
         <div className="flex items-center justify-between">
           {!isCollapsed ? (
             <>
-              <span>v0.9.0 · MIT</span>
+              <span>v0.9.1 · MIT</span>
               <span className="inline-flex items-center gap-1 text-emerald-600">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />offline
               </span>
             </>
           ) : (
-            <span className="mx-auto">v0.9.0</span>
+            <span className="mx-auto">v0.9.1</span>
           )}
         </div>
         {!isCollapsed && (
           <a
-            href="mailto:sam.wang01@icloud.com?subject=言镜 AI - 反馈&body=版本 v0.9.0 · macOS"
+            href="mailto:sam.wang01@icloud.com?subject=言镜 AI - 反馈&body=版本 v0.9.1 · macOS"
             className="mt-1.5 flex items-center gap-1 text-[10px] text-neutral-500 hover:text-blue-600 transition-colors truncate"
             title="联系客服: sam.wang01@icloud.com"
           >
