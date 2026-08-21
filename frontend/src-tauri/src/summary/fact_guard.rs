@@ -12,11 +12,17 @@ static NUMBER_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
         # 1. Currency-prefixed: ¥12800, ￥12800, $99, USD99
         (?:¥|￥|\$|USD)\s*\d[\d,]*(?:\.\d+)?
         |
-        # 2. Unit-suffixed: 3000元, 12800元, 99块, 5万, 1.2千
-        \d[\d,]*(?:\.\d+)?\s*(?:元|块|万美元|美元|人民币|dollars?)
+        # 2. Unit-suffixed: 3000元, 12800元, 99块, 5万, 1.2千, 300 多万元, 1000 多元
+        \d[\d,]*(?:\.\d+)?\s*(?:多)?\s*(?:元|块|万|亿|千|百万|千万|美元|人民币|dollars?)
         |
         # 3. Chinese large units: 3000万, 1.2亿, 99百万
         \d[\d,]*(?:\.\d+)?\s*(?:万|亿|百万|千)
+    )
+    |
+    (?:
+        # §152 P1-3: 中文数字 + 单位, 让 hallucinate 的 300 多万元 跟 transcript 三千余万元 一样被识别
+        # 覆盖: 三千余万 / 一千五百万 / 五千万元 / 三百多万 / 三千万 / 七百万 / 五万元 / 十块
+        [零一二三四五六七八九十百千余几]+(?:[零一二三四五六七八九十百千余几 ]*)?\s*(?:余)?\s*(?:万|亿|百万|千万|千|万元|亿元|元人民币|美元|块|人民币)
     )
     "
 ).unwrap());
@@ -1318,4 +1324,43 @@ fn test_149_fact_guard_report_contains_new_fields() {
     assert_eq!(json["attribution_confusion"][0], "测试归属混淆");
     assert_eq!(json["name_normalized"][0], "李富强 → 李福强");
     assert!(!report.is_safe(), "含 attribution_confusion 时 is_safe 应为 false");
+}
+
+
+#[test]
+fn test_152_p1_3_chinese_numbers_detected() {
+    // §152 P1-3: NUMBER_RE 必须覆盖中文数字单位, 否则 hallucinate "300 多万元" 跟 transcript "三千余万元" 一起过
+    let source = "借款三千余万元,被执行人分文未还,失信被执行人名单三千余万";
+    let summary = "300 多万元租金被拖欠,小红指使转移财产 → 300 多万元";
+    let report = validate_summary(source, summary);
+    // 摘要 "300 多万元" 既不在 source 里, 也不应和 source 等价
+    assert!(
+        !report.unexpected_numbers.is_empty(),
+        "中文数字 300 多万元 应被识别为 unexpected, 实际: {:?}",
+        report.unexpected_numbers
+    );
+}
+
+#[test]
+fn test_152_p1_3_chinese_numbers_accepted() {
+    // 守门: transcript 已经有 "三千余万元" 摘要 verbatim 复用, 不应误报
+    let source = "借款三千余万元,被执行人分文未还";
+    let summary = "借款三千余万元,分文未还";
+    let report = validate_summary(source, summary);
+    assert!(
+        report.unexpected_numbers.is_empty(),
+        "verbatim 中文数字复用不应误报, 实际: {:?}",
+        report.unexpected_numbers
+    );
+}
+
+#[test]
+fn test_152_p1_3_chinese_units_extracted() {
+    // 守门: NUMBER_RE 必须能提取 "三千万元" / "七百万" / "五万元" 等中文+单位
+    let source = "三千余万元 七百万 五万元 一千五百万 三千万";
+    let nums = normalized_tokens(&NUMBER_RE, source);
+    assert!(nums.len() >= 5, "应至少 5 个数字, 实际 {} 个: {:?}", nums.len(), nums);
+    assert!(nums.iter().any(|n| n.contains("三千")), "三千余 应被识别");
+    assert!(nums.iter().any(|n| n.contains("七百")), "七百万 应被识别");
+    assert!(nums.iter().any(|n| n.contains("五万")), "五万元 应被识别");
 }

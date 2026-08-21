@@ -315,13 +315,13 @@ fn translation_system_prompt(target_language: &str) -> String {
 
 fn build_chunk_summary_user_prompt(chunk: &str, output_language: &str) -> String {
     format!(
-        "{ENGLISH_BASE_SUMMARY_INSTRUCTION}\nWrite the ledger in {output_language}.{EVIDENCE_GROUNDED_SUMMARY_RULES}{P1_PRECISION_RULES}\nProvide a concise evidence ledger for the following transcript chunk. Capture only supported facts, decisions, proposals, open questions, and action items. Keep source timestamps.\n\n<transcript_chunk>\n{chunk}\n</transcript_chunk>"
+        "{ENGLISH_BASE_SUMMARY_INSTRUCTION}\nWrite the ledger in {output_language}.{EVIDENCE_GROUNDED_SUMMARY_RULES}{P1_PRECISION_RULES}{P141_VERBATIM_FACT_CHECK}\nProvide a concise evidence ledger for the following transcript chunk. Capture only supported facts, decisions, proposals, open questions, and action items. Keep source timestamps.\n\n<transcript_chunk>\n{chunk}\n</transcript_chunk>"
     )
 }
 
 fn build_combine_summary_user_prompt(combined_text: &str, output_language: &str) -> String {
     format!(
-        "{ENGLISH_BASE_SUMMARY_INSTRUCTION}\nWrite the combined ledger in {output_language}.{EVIDENCE_GROUNDED_SUMMARY_RULES}{P1_PRECISION_RULES}\nCombine the following consecutive evidence ledgers without adding facts. Preserve timestamps and distinguish decisions from proposals and open questions.\n\n<summaries>\n{combined_text}\n</summaries>"
+        "{ENGLISH_BASE_SUMMARY_INSTRUCTION}\nWrite the combined ledger in {output_language}.{EVIDENCE_GROUNDED_SUMMARY_RULES}{P1_PRECISION_RULES}{P141_VERBATIM_FACT_CHECK}\nCombine the following consecutive evidence ledgers without adding facts. Preserve timestamps and distinguish decisions from proposals and open questions.\n\n<summaries>\n{combined_text}\n</summaries>"
     )
 }
 

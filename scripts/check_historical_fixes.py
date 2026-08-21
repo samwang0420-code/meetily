@@ -766,7 +766,7 @@ ANCHORS = [
     # §124: SummaryPanel 顶部工具栏统一 — 首次生成 / 重新生成 / 加载中 共享同一套 4 元素按钮 (2026-08-16)
     ("124_unified_toolbar_condition",
      "frontend/src/components/MeetingDetails/SummaryPanel.tsx",
-     r"\{!isSummaryLoading && \("),
+     r"\{isSummaryLoading \? \("),
     ("124_main_button_state_machine",
      "frontend/src/components/MeetingDetails/SummaryPanel.tsx",
      r"主操作.*按状态切换"),
@@ -1716,6 +1716,17 @@ ANCHORS = [
     ("147_login_page_i18n_en",
      "frontend/src/i18n/locales/en.ts",
      r"login_page: \{"),
+
+    # §152 P1-3: NUMBER_RE 覆盖中文数字 (事实校验盲点修复 — c1299582 hallucination 教训)
+    ("152_number_re_chinese_digit_unit",
+     "frontend/src-tauri/src/summary/fact_guard.rs",
+     r"三|七|九|十|百|千|余|万|亿|元|块"),
+    ("152_chunk_prompt_has_p141",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"P141_VERBATIM_FACT_CHECK"),
+    ("152_combine_prompt_has_p141",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"(?s)build_combine_summary_user_prompt.{0,500}P141"),
 ]
 
 
