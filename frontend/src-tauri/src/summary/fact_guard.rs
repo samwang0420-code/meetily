@@ -1364,3 +1364,31 @@ fn test_152_p1_3_chinese_units_extracted() {
     assert!(nums.iter().any(|n| n.contains("七百")), "七百万 应被识别");
     assert!(nums.iter().any(|n| n.contains("五万")), "五万元 应被识别");
 }
+
+#[test]
+fn test_152_p1_3_c1299582_real_hallucination_caught() {
+    // c1299582 真实 transcript (28h前生成的摘要 hallucinated)
+    let source = "洪某因经营资金周转出现问题以其本人及妻子诸暨是大唐小百货公司法人代表小红的名义向陈某一家提出借款三千余万元的请求 | 在涉嫌拒不执行判决裁定罪的事实与理由一项中这样记录本院在对被执行人名下房产和土地采取查封措施后诸暨市大唐小百货有限公司法定代表人小红不仅没有向本院申报该公司的租金收益情况也没有将租户租金收益上缴至本院而是指使串通大唐小百货工作人员和其配偶张某将巨额的租金收益偷偷转移到张某的银行账号中";
+
+    // 实际生成的 hallucinated 摘要 (从用户截图)
+    let hallucinated = "被告人小红以诸暨市大唐小百货有限公司法定代表人身份, 于 2016 年 7 月 11 日向被害人陈某一家借款 300 多万元, 在公司经营中私自转移财产。";
+
+    let report = validate_summary(source, hallucinated);
+
+    // 期望: "300 多万元" (不在 source "三千余万元") 必须被识别为 unexpected_number
+    assert!(
+        !report.unexpected_numbers.is_empty() || !report.is_safe(),
+        "c1299582 hallucinated 摘要必须被拦截 (300 多万元 != 三千余万元), 实际 is_safe={} unexpected={:?}",
+        report.is_safe(), report.unexpected_numbers
+    );
+
+    // 守门: verbatim 复用的摘要应通过
+    let verbatim = "被告人以诸暨是大唐小百货公司法人代表身份向陈某一家借款三千余万元";
+    let report_v = validate_summary(source, verbatim);
+    assert!(
+        report_v.is_safe(),
+        "verbatim 复用 '三千余万元' 应通过 fact_guard, 实际 is_safe={}",
+        report_v.is_safe()
+    );
+}
+
