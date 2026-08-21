@@ -2246,3 +2246,58 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - §15 §37 §56 §92 — 硬闸门 + AGENTS.md 双校
 - outputs/§137.2-open_meeting_folder-SQL漏template_id修复-2026-08-19.md
 - [[137.2-open_meeting_folder-SQL漏template_id修复]] (Obsidian)
+
+## §152 P1-3 中文数字 fact_guard 盲点 + c1299582 真实回归 (2026-08-21)
+
+**触发**: c1299582 摘要 4 类严重 hallucination（"300 多万元"/"2016 年"/"诸暨市大唐小百货有限公司"/飞机事件错位）。用户 28h 前生成的摘要完全没被 fact_guard 拦截。
+
+**根因 (2 跳)**:
+1. `NUMBER_RE` 只匹配阿拉伯数字 + 单位，"三千余万元" 完全 miss → `unexpected_numbers` 永远为空 → 摘要通过 fact_guard
+2. `build_chunk_summary_user_prompt` / `build_combine_summary_user_prompt` 只用 ENGLISH_BASE + EVIDENCE_GROUNDED + P1_PRECISION，**没 P141_VERBATIM_FACT_CHECK**，LLM 在 map 阶段自由改写数字
+
+**修复**:
+- `fact_guard.rs:9-30` NUMBER_RE 加 2 条:
+  - 第 2 条容忍 "多": `\d[\d,]*(?:\.\d+)?\s*(?:多)?\s*(?:元|块|万|亿|千|百万|千万|美元|人民币|dollars?)`
+  - 第 4 条中文数字: `[零一二三四五六七八九十百千余几]+(?:[零一二三四五六七八九十百千余几 ]*)?\s*(?:余)?\s*(?:万|亿|百万|千万|千|万元|亿元|元人民币|美元|块|人民币)`
+  - **关键陷阱**: raw string 注释里不能有 `"` (会截断字符串)
+- `processor.rs:316-330` chunk + combine prompt 都加 `{P141_VERBATIM_FACT_CHECK}`
+- 5 个新单测 (含 c1299582 真实 transcript 回归)
+- guard 加 3 个 §152 anchor + 修正 §124 regex 适配 ternary
+
+**commit**: `f41110f` fix + `4d4d4c6` test (c1299582 真实回归) + `4e45a8d` docs
+
+**验证**:
+- `cargo test --lib`: **411 passed / 0 failed / 3 ignored** (前 410 + 1 真实回归)
+- `python3 scripts/check_historical_fixes.py`: **495/495 PASS**
+- `audit_codebase.py`: 0 errors / 0 warns / 63 info
+- `sync_app_bundle.sh`: 3 binary 全部 sync + codesign OK
+- binary mtime: 2026-08-21 17:01
+
+**铁律 (任何 v0.X 演进适用)**:
+1. **NUMBER_RE 必须覆盖中英文数字 + 单位** — 数字表达不只阿拉伯一种
+2. **chunk/combine prompt 必须含 P141** — P1 / P2 之后仍允许 LLM 改写 = 事实早失守
+3. **真实 transcript 回归测试必须留** — 单元 mock 测不出 LLM 幻觉模式
+4. **raw string 注释不能用 `"`** — 即使在 `r"(?x)"` 里也会截断
+5. **§124 ternary 改写 anchor regex 必须同步** — 实现 ternary 化后 anchor regex `&&` 不再命中
+
+**§15 GUI 验收 (用户必做)**:
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# 重新生成 c1299582 摘要
+sqlite3 "$HOME/Library/Application Support/tech.yanjingai.app/meeting_minutes.sqlite" \
+  "SELECT chunk_count, ROUND(processing_time,1), status FROM summary_processes 
+   WHERE meeting_id='meeting-c1299582-d80c-4d7d-972f-27e2ee3027d7' 
+   ORDER BY updated_at DESC LIMIT 1"
+# 期望: chunk_count ≤ 5, processing_time < 300s, status='completed'
+
+# 验证 fact_guard 拦截: 摘要出现 "300 多万元"/"2016 年 7 月 11 日" → 标黄 ==⚠️xxx⚠️==
+# 验证 verbatim: 摘要出现 "三千余万元"/"诸暨是大唐小百货公司"
+```
+
+**关联**:
+- §148 (court_hearing 模板硬约束) — §132 模型行为没到位，P141 是更直接修复
+- §149 (人名归一化 + 关键陈述归属校验)
+- §92 (防代码漏) + §56 (AGENTS.md 双校) + §37 (硬闸门) + §18 (不主动改无关 bug)
+- [[152-P1-3-中文数字fact_guard盲点+c1299582真实回归]] (Obsidian)
+- outputs/§152-P1-3-...md (Codex)
