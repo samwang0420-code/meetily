@@ -98,6 +98,19 @@ python3 scripts/audit_codebase.py --strict
 2. **每次 release 前必跑 pre_release_check.sh** (§94 §6.2)
 3. **commit 完整性 CI** — `git log --grep §X` 看主线真在
 4. **§94 audit 每月跑一次** — `python3 scripts/audit_codebase.py --strict`
+5. **版本号 bump SOP** (2026-08-21 立, 由 pricing 页 footer v0.9.0 残留触发的教训):
+   - 任何 `vX.Y.Z → vX.Y.Z'` 版本号变更, **必须**先全量 grep 残留:
+     ```bash
+     grep -rn 'vX\.Y\.Z' frontend/src frontend/src-tauri \
+                  frontend/package.json frontend/src-tauri/tauri.conf.json \
+                  --include='*.ts' --include='*.tsx' --include='*.json' \
+                  --include='*.toml' --include='*.css'
+     ```
+   - 修完所有命中后, 再 grep `vX\.Y\.Z` 应输出 0 行
+   - guard 锚点 regex (如 `ui_version_0_9_0_sidebar`) 也必须同步更新到新版本号
+   - 然后 §37 6 步闸门全过 (cargo check / cargo test --lib / next build / check_historical_fixes / cargo build --release / GUI 端到端)
+   - **不能**只改 5-6 个已知位置就完事, 必须全文搜
+   - 教训: 2026-08-21 v0.9.0 → v0.9.1 时漏改 `frontend/src/app/pricing/page.tsx:361` footer, 用户截图右下角显示 v0.9.0 才补 commit `dda51aa`
 
 ## 4. 文件结构
 
