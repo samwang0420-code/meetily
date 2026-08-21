@@ -1014,6 +1014,48 @@ bash scripts/cleanup_old_branches.sh --force
 - §18 (不主动改无关 bug)
 - [[115-Git-workflow主分支发版+24h自动清理]] (Obsidian) / `outputs/§115-...` (Codex)
 
+## §151 禁止并行多分支 — 同一时间只允许 1 个未合并 codex/* 分支 (2026-08-21 立)
+
+**触发**: 用户 8/21 质问"你为什么要同时存在两个分支呢"。8/20 当天我开了两个并行分支：
+- `codex/remove-topic-recall-popup` (11:17) — §144 删除 TopicRecallPopup
+- `codex/legal-summary-fix` (11:58) — §145~§150 法律摘要 + 合并漏 commit
+
+reflog 显示当天 checkout 来回切换，§115 已立规则"合并后自动删除"但**未明文禁止并行开分支**。
+
+**铁律**:
+1. **同一时间只允许 1 个未合并的 `codex/*` 分支存在** — 检 `git branch -a | grep 'codex/' | wc -l` 必须 ≤ 1（不含已合并未删 / cleanup-recommended-tag 的）
+2. **新需求发现时**:
+   - (a) 当前分支已 commit 但未合并 → **在当前分支继续加 commit**（优先）
+   - (b) 当前分支已 push 等合并 → **等当前 PR 合并后再开新分支**
+   - (c) 紧急独立主题（不阻塞当前 release）→ 开新分支前**必须显式告诉用户"我会再开一个分支"**
+3. **违反处理**:
+   - 立即把新分支 merge --no-ff 到当前分支（或反之）
+   - 删除已合并的源分支（本地 + 远端）
+   - 在 commit message 注明"按 §115 + §120 清理分支"
+4. **新章节/新决策 SOP**:
+   - 任何 commit message 含"§X" → 必须当日同时落地: 代码 + Obsidian + AGENTS.md §X
+   - §115 / §120 是合并/分支相关, 单独 check 一次
+
+**今日已落地清理**:
+- `codex/remove-topic-recall-popup` 1 个 commit (`1eb62b0 §144`) merge --no-ff 进 `codex/legal-summary-fix`
+- 新 merge commit: `b43bae2 merge(codex/remove-topic-recall-popup): §144 TopicRecallPopup 删除 — 合并到 legal-summary-fix (按 §115 规则清理分支)`
+- 删除本地 + 远端 `codex/remove-topic-recall-popup`
+- 远端 `codex/legal-summary-fix` 推到 origin (5d0a1c5..b43bae2)
+
+**未来规避检查 (每次 commit 前必跑)**:
+```bash
+git branch -a | grep -E '^\s+codex/' | grep -v 'remotes/' | wc -l
+# 期望输出 1 (或 0, 如果当前 checkout 在 main)
+# 如果 ≥ 2 → 停止 commit, 先按 §120 处理
+```
+
+**§120 关联**:
+- §115 (主分支发版 + 24h 自动清理)
+- §92 (决策迁移铁律, outputs + Obsidian + AGENTS.md 三处同步)
+- §56 (AGENTS.md §X 描述 ≠ 代码 commit)
+
+**关联**: [[151-禁止并行多分支-2026-08-21]] (Obsidian) / `outputs/§151-...md` (Codex)
+
 ## §121 P0-A / P2-C LLM trigger 必须用 Ollama 不 BuiltInAI (2026-08-15 立)
 
 **触发**: 用户 8/14 导入 566fe7a9 (1h49m 音频) → 转录 OK → topic_node / topic_dossier 全部 0 行, 知识图谱从未触发.
