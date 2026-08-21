@@ -269,7 +269,7 @@ impl SummaryService {
     }
 
     /// Cleans up the cancellation token after processing completes
-    fn cleanup_cancellation_token(meeting_id: &str) {
+    pub fn cleanup_cancellation_token(meeting_id: &str) {
         if let Ok(mut registry) = CANCELLATION_REGISTRY.lock() {
             if registry.remove(meeting_id).is_some() {
                 info!("Cleaned up cancellation token for meeting: {}", meeting_id);

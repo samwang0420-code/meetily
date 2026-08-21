@@ -18,6 +18,7 @@ import { toast } from 'sonner';
 import { safeToast } from '@/lib/safeToast';
 import { Languages, ChevronDown, Users, History } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { FactGuardBanner } from '@/components/AISummary/FactGuardBanner';
 import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import {
   DropdownMenu,
@@ -134,6 +135,8 @@ export function SummaryPanel({
   const [streamedMarkdown, setStreamedMarkdown] = useState('');
   // v0.7.0+ P0-1: Map-Reduce 阶段显示
   const [summaryPhase, setSummaryPhase] = useState<'idle'|'single'|'map'|'reduce'|'final'>('idle');
+  // §152 P1-1: 进度 (0-100), summary-phase event 同时 phase + progress
+  const [summaryProgress, setSummaryProgress] = useState(0);
   // §135: 历史摘要弹窗
   const [historyOpen, setHistoryOpen] = useState(false);
   // §128: 让"摘要设置 → AI 模型" 真正打开 ModelSettingsModal 对话框 (而不是空回调)
@@ -161,6 +164,9 @@ export function SummaryPanel({
     void listen<{ meeting_id: string; phase: 'single'|'map'|'reduce'|'final'; progress: number }>('summary-phase', (event) => {
       if (event.payload.meeting_id !== meeting.id) return;
       setSummaryPhase(event.payload.phase);
+      // §152 P1-1: progress 0.0-1.0 -> 0-100 整数
+      const pct = Math.max(0, Math.min(100, Math.round((event.payload.progress || 0) * 100)));
+      setSummaryProgress(pct);
     }).then((dispose) => {
       unlisten = dispose;
     });
@@ -176,8 +182,12 @@ export function SummaryPanel({
   useEffect(() => {
     if (summaryStatus === 'processing' || summaryStatus === 'regenerating') {
       setSummaryPhase('single');
+      setSummaryProgress(0);
     } else if (summaryStatus === 'idle' || summaryStatus === 'completed') {
       setSummaryPhase('idle');
+      setSummaryProgress(100);
+    } else if (summaryStatus === 'error' || summaryStatus === null) {
+      setSummaryProgress(0);
     }
   }, [summaryStatus]);
   const latestLanguageSaveRequestRef = useRef<{
@@ -345,6 +355,25 @@ export function SummaryPanel({
         {/* §110: 9 按钮 → 4 元素 (说话人/重新生成/⚙️ 设置下拉/📤 导出下拉) */}
         {!isSummaryLoading && (
           <div className="flex items-center justify-center w-full pt-0 gap-2">
+            {/* §152 P0-3-B: 兜底 stop 按钮 — 在 !isSummaryLoading 块内只判断 summaryError
+                (LLM panic 后 status 卡 error, 此时 loading 已结束, 但用户还能停).
+                正常的 processing/regenerating/summarizing 在 isSummaryLoading 块内已显示 stop. */}
+            {summaryError !== null && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="bg-gradient-to-r from-red-50 to-orange-50 hover:from-red-100 hover:to-orange-100 border-red-200 xl:px-4"
+                onClick={() => {
+                  Analytics.trackButtonClick('stop_summary_generation_fallback', 'meeting_details');
+                  onStopGeneration();
+                }}
+                title={t('summary.stop_generation')}
+                data-testid="stop-summary-fallback"
+              >
+                <Square className="w-4 h-4" fill="currentColor" />
+                <span className="hidden lg:inline">{t('summary.stop')}</span>
+              </Button>
+            )}
             {/* 1. 说话人名单 — 仅在已有摘要时显示 (没摘要就没对话过说话人) */}
             {aiSummary && (
               <Button
@@ -544,14 +573,40 @@ export function SummaryPanel({
         )}
       </div>
 
+        {/* §152 P1-1-B: §148 法律 critical banner — 在主区顶部常驻, 让用户立即看到 LLM 幻觉警告
+            注: aiSummary 类型是 Summary dict, 但后端 result_json 实际含 fact_guard 字段,
+            这里 cast any 取该字段 (与 BlockNoteSummaryView L278 用法一致). */}
+        {(aiSummary as any)?.fact_guard && (aiSummary as any).fact_guard.needs_review && (
+          <div className="px-6 pt-3">
+            <FactGuardBanner
+              report={(aiSummary as any).fact_guard}
+              severe={(aiSummary as any).fact_guard_severe || false}
+              legalCritical={(aiSummary as any).fact_guard_legal_critical || false}
+            />
+          </div>
+        )}
       {isSummaryLoading ? (
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-6">
           {/* §124: Loading 状态下, 主区只显示 streaming markdown / spinner (按钮已统一在顶部) */}
             {streamedMarkdown ? (
               <div className="mx-auto max-w-4xl rounded-xl border border-blue-100 bg-blue-50/40 p-5">
-                <div className="mb-3 flex items-center gap-2 text-xs font-medium text-blue-700">
-                  <span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />
-                  {locale === 'zh' ? '本地模型正在生成' : 'Local model is generating'}
+                {/* §152 P1-1: 进度条 + 阶段文字 */}
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2 text-xs font-medium text-blue-700">
+                    <span className="h-2 w-2 animate-pulse rounded-full bg-blue-500" />
+                    {summaryPhase === 'map' ? (locale === 'zh' ? '分块总结处理中…' : 'Summarizing chunks…')
+                      : summaryPhase === 'reduce' ? (locale === 'zh' ? '合并分块结果中…' : 'Combining chunk summaries…')
+                      : summaryPhase === 'final' ? (locale === 'zh' ? '生成全局结构化纪要…' : 'Building structured meeting minutes…')
+                      : (locale === 'zh' ? '本地模型正在生成' : 'Local model is generating')}
+                  </div>
+                  <span className="text-xs tabular-nums font-mono text-blue-700" data-testid="summary-progress-text">{summaryProgress}%</span>
+                </div>
+                <div className="mb-3 h-1.5 w-full overflow-hidden rounded-full bg-blue-100">
+                  <div
+                    className="h-full bg-blue-500 transition-all duration-300"
+                    style={{ width: `${summaryProgress}%` }}
+                    data-testid="summary-progress"
+                  />
                 </div>
                 <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-gray-800">{streamedMarkdown}</pre>
               </div>
@@ -560,6 +615,17 @@ export function SummaryPanel({
             <div className="text-center">
               <div className="inline-block animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500 mb-4"></div>
               <p className="text-gray-600">{t('summary.generating')}</p>
+              {/* §152 P1-1: 即使还没 streaming 也显示进度条 */}
+              <div className="mt-4 mx-auto max-w-xs">
+                <div className="h-1.5 w-full overflow-hidden rounded-full bg-blue-100">
+                  <div
+                    className="h-full bg-blue-500 transition-all duration-300"
+                    style={{ width: `${summaryProgress}%` }}
+                    data-testid="summary-progress"
+                  />
+                </div>
+                <p className="mt-2 text-xs tabular-nums text-gray-500">{summaryProgress}%</p>
+              </div>
             </div>
             </div>
             )}

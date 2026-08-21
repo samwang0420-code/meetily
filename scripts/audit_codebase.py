@@ -35,9 +35,9 @@ FRONTEND_SRC = REPO / "frontend" / "src"
 LIB_RS = SRC_TAURI / "src" / "lib.rs"
 
 # 当前版本 (期望所有 version 字段对齐)
-EXPECTED_VERSION = "0.8.6"
+EXPECTED_VERSION = "0.9.1"
 # 期望 identifier (P1 跟进, 当前还是 cn.lixianhuiji.app)
-EXPECTED_IDENTIFIER = "cn.lixianhuiji.app"
+EXPECTED_IDENTIFIER = "tech.yanjingai.app"
 
 # 类目
 class Finding:

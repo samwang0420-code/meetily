@@ -410,24 +410,73 @@ pub async fn api_process_transcript<R: Runtime>(
     log_info!("✓ Transcript chunks saved for meeting_id: {}", &m_id);
 
     // Spawn background task for actual processing
+    // §152 P0-1: panic 防护 — background task panic 必须 update_process_failed,
+    // 否则 DB 永远卡 PENDING, 用户无错误提示也无法取消
     let meeting_id_clone = m_id.clone();
     tauri::async_runtime::spawn(async move {
-        SummaryService::process_transcript_background(
-            app,
-            pool,
-            meeting_id_clone.clone(),
-            text,
-            model,
-            model_name,
-            final_prompt,
-            final_template_id,
-            summary_language,
-            structured_evidence,
+        use futures_util::FutureExt;
+        use std::panic::AssertUnwindSafe;
+
+        let panic_result = AssertUnwindSafe(
+            SummaryService::process_transcript_background(
+                app.clone(),
+                pool.clone(),
+                meeting_id_clone.clone(),
+                text,
+                model,
+                model_name,
+                final_prompt,
+                final_template_id,
+                summary_language,
+                structured_evidence,
+            ),
         )
+        .catch_unwind()
         .await;
+
+        match panic_result {
+            Ok(()) => {
+                log_info!(
+                    "✓ Background task finished cleanly for meeting_id: {}",
+                    &meeting_id_clone
+                );
+            }
+            Err(panic_payload) => {
+                // panic 时: 把错误写进 DB + 清理 CANCELLATION_REGISTRY
+                let panic_msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
+                    s.to_string()
+                } else if let Some(s) = panic_payload.downcast_ref::<String>() {
+                    s.clone()
+                } else if let Some(s) = panic_payload.downcast_ref::<&'static str>() {
+                    s.to_string()
+                } else {
+                    "unknown panic in process_transcript_background".to_string()
+                };
+                log_error!(
+                    "§152 P0-1 Background task PANICKED for meeting_id={}: {}",
+                    &meeting_id_clone,
+                    &panic_msg
+                );
+                if let Err(e) = SummaryProcessesRepository::update_process_failed(
+                    &pool,
+                    &meeting_id_clone,
+                    &format!("Background task panicked: {}", panic_msg),
+                )
+                .await
+                {
+                    log_error!(
+                        "§152 P0-1 Failed to write panic error to DB for {}: {}",
+                        &meeting_id_clone,
+                        e
+                    );
+                }
+                // cleanup CANCELLATION_REGISTRY 让后续 cancel_summary 不再误以为还在跑
+                SummaryService::cleanup_cancellation_token(&meeting_id_clone);
+            }
+        }
     });
 
-    log_info!("🚀 Background task spawned for meeting_id: {}", &m_id);
+    log_info!("🚀 Background task spawned (with §152 P0-1 panic guard) for meeting_id: {}", &m_id);
 
     Ok(ProcessTranscriptResponse {
         message: "Summary generation started".to_string(),
@@ -447,26 +496,38 @@ pub async fn api_cancel_summary<R: Runtime>(
 ) -> Result<serde_json::Value, String> {
     log_info!("api_cancel_summary called for meeting_id: {}", meeting_id);
 
-    // Trigger cancellation via the service
+    // §152 P0-3-A: 即使 token 不在 CANCELLATION_REGISTRY (panic / 已完成 / 已退出),
+    // 用户主动点 stop 必须让 DB status 真改为 cancelled.
+    // 否则 PANIC 后永远卡 PENDING, 用户无错误提示, 也不能 stop.
     let cancelled = SummaryService::cancel_summary(&meeting_id);
 
-    if cancelled {
-        // Update database status to cancelled
-        let pool = state.db_manager.pool();
-        if let Err(e) = SummaryProcessesRepository::update_process_cancelled(pool, &meeting_id).await {
-            log_error!("Failed to update DB status to cancelled for {}: {}", meeting_id, e);
-            return Err(format!("Failed to update cancellation status: {}", e));
-        }
+    let pool = state.db_manager.pool();
+    if let Err(e) = SummaryProcessesRepository::update_process_cancelled(pool, &meeting_id).await {
+        log_error!(
+            "Failed to update DB status to cancelled for {}: {}",
+            meeting_id,
+            e
+        );
+        return Err(format!("Failed to update cancellation status: {}", e));
+    }
 
-        log_info!("Successfully cancelled summary generation for meeting_id: {}", meeting_id);
+    if cancelled {
+        log_info!(
+            "Successfully cancelled summary generation for meeting_id: {}",
+            meeting_id
+        );
         Ok(serde_json::json!({
             "message": "Summary generation cancelled successfully",
             "meeting_id": meeting_id,
         }))
     } else {
-        log_warn!("No active summary generation found for meeting_id: {}", meeting_id);
+        // §152 P0-3-A: token 没找到 (可能 panic 后 cleanup 了 / 已完成), 但 DB 已强制 update
+        log_warn!(
+            "No active token found for {}, but DB status forced to cancelled",
+            meeting_id
+        );
         Ok(serde_json::json!({
-            "message": "No active summary generation to cancel",
+            "message": "Summary status forced to cancelled",
             "meeting_id": meeting_id,
         }))
     }

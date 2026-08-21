@@ -105,6 +105,9 @@ impl SummaryProcessesRepository {
                 result_backup_timestamp = excluded.updated_at,
                 result = result,
                 error = NULL
+            -- §152 P0-2 idempotent guard: 只有 status 不是 completed 才覆盖
+            -- 已 completed 的会议再点 "重新生成" 应走显式 regenerate 路径, 不在 reset 时清空
+            WHERE summary_processes.status != 'completed'
             "#
         )
         .bind(meeting_id)

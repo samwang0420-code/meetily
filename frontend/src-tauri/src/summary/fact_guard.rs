@@ -655,45 +655,213 @@ pub fn detect_attribution_confusion(transcript: &str, summary: &str) -> Vec<Stri
 }
 
 
-/// §149 §2: 人名归一化 — 把 summary 中的变体名归一化为 transcript 中首次出现的形式
-/// 思路: 用 detect_name_drift 找到 drift pair (A → B), 选 transcript 中出现次数多的为 canonical
-/// 然后把 summary 中的变体名替换为 canonical
-/// 返回: (归一化后 summary, 归一化操作列表 ["李富强 → 李福强", ...])
+/// §149 §2: 人名归一化 — 把 summary 中的变体名归一化为 transcript 中出现的形式
+///
+/// §152 P1-2 加强: 之前只处理 detect_name_drift 显式找到的 drift pair, 但 LLM 可能输出
+/// transcript 完全没出现过的变体 (例如 transcript 只有 "李福强", LLM 输出 "李富国强"),
+/// 原版因为 pair 不在 drift 集合里 → 不归一化. 加强后扫所有 LLM 输出的人名 token,
+/// 任何不在 transcript 的都用 CONFUSABLE_PAIRS 生成所有变体, 找 transcript 里存在的 canonical 替换.
+///
+/// 思路:
+/// 1. 提取 transcript canonical 人名集合 (3-4 字姓氏开头, transcript 实际出现)
+/// 2. 扫 summary 所有人名 token
+/// 3. 对每个非 canonical token: 用 CONFUSABLE_PAIRS 替换每个字符, 看哪个变体在 transcript
+/// 4. 替换为 canonical
+///
+/// 返回: (归一化后 summary, 归一化操作列表 ["李富国 → 李福强", ...])
 pub fn normalize_name_drift(transcript: &str, summary: &str) -> (String, Vec<String>) {
-    let drift_pairs = detect_name_drift(transcript, summary);
-    if drift_pairs.is_empty() {
+    use std::collections::HashSet;
+
+    // §152 P1-2: 提取 transcript canonical 人名 (复用 detect_name_drift 的 surname + 3-4 字规则)
+    let canonical_names: HashSet<String> = extract_canonical_names(transcript);
+    if canonical_names.is_empty() {
         return (summary.to_string(), vec![]);
     }
 
     let mut out = summary.to_string();
-    let mut normalized = Vec::new();
+    let mut normalized: Vec<String> = Vec::new();
+    let mut already_replaced: HashSet<String> = HashSet::new();
 
-    for entry in &drift_pairs {
-        // entry 形如 "李福强 → 李富强"
-        let parts: Vec<&str> = entry.split("→").map(str::trim).collect();
-        if parts.len() != 2 { continue; }
-        let a = parts[0];
-        let b = parts[1];
+    // 同音近形字对 (用于生成变体)
+    static CONFUSABLE_PAIRS: &[(&str, &str)] = &[
+        ("福", "富"), ("福", "复"), ("福", "付"),
+        ("富", "福"), ("富", "复"), ("富", "付"),
+        ("强", "墙"), ("强", "抢"), ("强", "疆"),
+        ("伟", "炜"), ("伟", "苇"), ("伟", "卫"),
+        ("刚", "钢"), ("刚", "岗"), ("刚", "纲"),
+        ("明", "铭"), ("明", "鸣"), ("明", "名"),
+        ("国", "果"), ("国", "过"), ("国", "郭"),
+        ("平", "苹"), ("平", "评"), ("平", "坪"),
+        ("建", "健"), ("建", "键"), ("建", "坚"),
+        ("林", "霖"), ("林", "琳"), ("林", "临"),
+        ("涛", "滔"), ("涛", "焘"), ("涛", "陶"),
+        ("明", "鸣"), ("明", "名"), ("铭", "明"), ("铭", "鸣"),
+        ("勇", "永"), ("勇", "泳"), ("永", "勇"), ("永", "泳"),
+        ("军", "君"), ("军", "均"), ("君", "军"), ("君", "均"),
+        ("华", "桦"), ("华", "画"), ("桦", "华"), ("桦", "画"),
+        ("杰", "洁"), ("杰", "捷"), ("洁", "杰"), ("洁", "捷"),
+    ];
 
-        // 选 transcript 中出现次数多的为 canonical
-        let count_a = transcript.matches(a).count();
-        let count_b = transcript.matches(b).count();
-        let (variant, canonical) = if count_a >= count_b {
-            (b, a)
-        } else {
-            (a, b)
-        };
+    // §152 P1-2: 扫描 summary 所有人名 token
+    let summary_names: HashSet<String> = extract_canonical_names(summary);
 
-        // 把 summary 中的 variant 替换为 canonical
-        if out.contains(variant) {
-            out = out.replace(variant, canonical);
-            normalized.push(format!("{} → {}", variant, canonical));
+    for name in &summary_names {
+        // 已在 transcript? 跳过 (canonical)
+        if canonical_names.contains(name) {
+            continue;
+        }
+        // 避免重复归一化 (A → canonical1, A 又被尝试 → canonical2)
+        if already_replaced.contains(name) {
+            continue;
+        }
+
+        let chars: Vec<char> = name.chars().collect();
+        let len = chars.len();
+        if len < 3 || len > 4 {
+            continue;
+        }
+
+        // 对每个位置 i, 尝试 CONFUSABLE_PAIRS 替换, 看变体是否在 transcript canonical 里
+        // §152 P1-2 加强: 不依赖 detect_name_drift 的 pair 集合, 直接算每个 summary name
+        // 与所有 transcript canonical 的"漂移字符数" (≤ 2 才归一化, 且必须共享姓氏).
+        let mut found_canonical: Option<String> = None;
+        let surname = chars[0];
+        let mut best_drift: usize = 99;
+        for candidate in canonical_names.iter() {
+            let cand_chars: Vec<char> = candidate.chars().collect();
+            if cand_chars.is_empty() || cand_chars[0] != surname { continue; }
+            if cand_chars.len() != len { continue; }
+            // §152 P1-2: 计算 drift 字符数 + 至少 1 个在 CONFUSABLE_PAIRS 里
+            let mut drift = 0usize;
+            let mut in_pair_count = 0usize;
+            for i in 0..len {
+                if chars[i] == cand_chars[i] { continue; }
+                let cs = chars[i].to_string();
+                let cd = cand_chars[i].to_string();
+                let in_pair = CONFUSABLE_PAIRS.iter().any(|(a, b)| {
+                    (*a == cs && *b == cd)
+                        || (*b == cs && *a == cd)
+                });
+                if in_pair {
+                    in_pair_count += 1;
+                }
+                drift += 1;
+            }
+            // 漂移 ≤ 2 字符, 且至少 1 个字符在同音近形对里
+            if drift <= 2 && in_pair_count >= 1 && drift < best_drift {
+                best_drift = drift;
+                found_canonical = Some(candidate.clone());
+            }
+        }
+
+        if let Some(canonical) = found_canonical {
+            // 全局替换 summary 里的 variant → canonical
+            // 用字面替换而不是 regex (避免 regex 转义)
+            if out.contains(name) {
+                out = out.replace(name, &canonical);
+                normalized.push(format!("{} → {}", name, canonical));
+                already_replaced.insert(name.clone());
+            }
         }
     }
 
     (out, normalized)
 }
 
+/// §152 P1-2: 提取文本中所有"以常见姓氏开头的 3-4 字人名" token 集合.
+/// 复用 detect_name_drift 的 SURNAMES + 字符级判断逻辑.
+fn extract_canonical_names(text: &str) -> std::collections::HashSet<String> {
+    use once_cell::sync::Lazy;
+    use regex::Regex;
+    use std::collections::HashSet;
+
+    static SURNAMES: &[char] = &[
+        '李', '王', '张', '刘', '陈', '杨', '黄', '赵', '周', '吴',
+        '徐', '孙', '朱', '马', '胡', '郭', '何', '高', '林', '罗',
+        '郑', '梁', '谢', '宋', '唐', '许', '韩', '冯', '邓', '曹',
+        '彭', '曾', '田', '董', '袁', '潘', '于', '蒋', '蔡', '余',
+        '杜', '叶', '程', '苏', '魏', '吕', '丁', '任', '沈', '姚',
+        '卢', '姜', '崔', '钟', '谭', '陆', '汪', '范', '金', '石',
+        '廖', '贾', '夏', '韦', '付', '方', '白', '邹', '孟', '熊',
+        '秦', '邱', '江', '尹', '薛', '闫', '段', '雷', '侯', '龙',
+        '史', '陶', '黎', '贺', '顾', '毛', '郝', '龚', '邵', '万',
+        '钱', '严', '覃', '武', '戴', '莫', '孔', '向', '汤', '于',
+    ];
+
+    static SPLIT_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"[\p{P}\p{Z}\p{N}]+").unwrap()
+    });
+
+    fn is_chinese_char(c: char) -> bool {
+        matches!(c, '\u{4e00}'..='\u{9fff}')
+    }
+
+    let mut seen = HashSet::new();
+    for segment in SPLIT_RE.split(text) {
+        if segment.is_empty() { continue; }
+        let chars: Vec<char> = segment.chars().collect();
+        let mut i = 0;
+        while i + 3 <= chars.len() {
+            if SURNAMES.contains(&chars[i]) {
+                let three: String = chars[i..i+3].iter().collect();
+                seen.insert(three);
+                i += 3;
+            } else {
+                i += 1;
+            }
+        }
+    }
+    seen
+}
+
+
+
+#[cfg(test)]
+mod p1_2_normalize_tests {
+    use super::*;
+
+    /// §152 P1-2: 真实场景测试 — b0297a12 transcript 3 字 "李福强",
+    /// LLM 输出 3 字 "李富国" (LLM 自作主张改成"李富国"). 加强版应替换为"李福强".
+    /// (4 字 "李富国强" 是另一类问题: 长度变化, 不能直接归一化, 由 fact_guard 单独 warn)
+    #[test]
+    fn normalize_3char_drift_to_canonical() {
+        let transcript = "李福强做陈述. 李福强认罪. 李福强承认开枪.";
+        let summary = "李富国做陈述. 李富国认罪. 李富国承认开枪.";
+        let (out, ops) = normalize_name_drift(transcript, summary);
+        assert!(!ops.is_empty(), "should detect drift: {:?}", ops);
+        assert!(ops.iter().any(|o| o.contains("李富国")), "op should mention 李富国: {:?}", ops);
+        assert!(!out.contains("李富国"), "李富国 should be normalized out: {}", out);
+        assert!(out.contains("李福强"), "李福强 should appear: {}", out);
+    }
+
+    /// §152 P1-2: 不同姓氏不算漂移 — "李富贵" (姓李) vs "张福贵" (姓张) 不是同一人.
+    #[test]
+    fn do_not_normalize_different_surname() {
+        let transcript = "李富贵做陈述.";
+        let summary = "张福贵做陈述.";
+        let (out, ops) = normalize_name_drift(transcript, summary);
+        assert!(ops.is_empty(), "different surname should NOT normalize: {:?}", ops);
+        assert!(out.contains("张福贵"), "张福贵 should remain: {}", out);
+    }
+
+    #[test]
+    fn normalize_3char_drift_with_single_char_substitution() {
+        let transcript = "李福强开枪. 李福强承认. 再次见李福强.";
+        let summary = "李富强认罪. 李富强是被告人. 李富强请求从轻.";
+        let (out, ops) = normalize_name_drift(transcript, summary);
+        assert!(!ops.is_empty(), "should detect at least one drift");
+        assert!(!out.contains("李富强"), "李富强 should be normalized to 李福强: {}", out);
+        assert!(out.contains("李福强"), "李福强 should appear: {}", out);
+    }
+
+    #[test]
+    fn no_normalize_when_canonical_only() {
+        let transcript = "李福强做陈述.";
+        let summary = "李福强认罪. 李福强是被告人.";
+        let (_out, ops) = normalize_name_drift(transcript, summary);
+        assert!(ops.is_empty(), "no drift expected: {:?}", ops);
+    }
+}
 
 #[cfg(test)]
 mod tests {

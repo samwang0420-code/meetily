@@ -1014,6 +1014,13 @@ pub async fn generate_meeting_summary(
             "<transcript_chunks>\n{content_to_summarize}\n</transcript_chunks>\n"
         );
 
+        // §152 P2: 把 hotwords (用户偏好的领域术语) 注入 LLM prompt.
+        // 让 LLM 输出使用统一的术语 (例: 法院/庭审/辩护人 等法律术语按 pack 风格统一).
+        let hotwords_context = build_hotwords_context_for_prompt();
+        if !hotwords_context.is_empty() {
+            final_user_prompt.push_str(&hotwords_context);
+        }
+
         if !custom_prompt.is_empty() {
             final_user_prompt.push_str("\n\nUser Provided Context:\n\n<user_context>\n");
             final_user_prompt.push_str(custom_prompt);
@@ -1238,6 +1245,108 @@ async fn normalize_markdown_to_english(
         cancellation_token,
     )
     .await
+}
+
+
+/// §152 P2: 把 hotwords globals 注入 LLM prompt.
+/// 设计:
+/// - pack name (例: "legal" / "medical" / "general") → 提示 LLM 用户偏好该领域术语
+/// - custom words → LLM 输出应优先使用这些词形
+/// - pack 实际词表太多, 不直接注入, 避免 token 爆; 只取 pack 名 + 前 30 词 (按需)
+fn build_hotwords_context_for_prompt() -> String {
+    use crate::audio::hotwords_globals;
+    let pack = hotwords_globals::current_pack();
+    let custom = hotwords_globals::current_custom();
+
+    if pack == "none" && custom.trim().is_empty() {
+        return String::new();
+    }
+
+    let mut ctx = String::from("\n\n<hotwords_preferences>\n用户当前偏好以下术语 (LLM 输出请尽量使用这些词形):\n");
+
+    // pack 提示
+    let pack_hint = match pack {
+        "general" => Some("通用 (general) — 适用于日常会议"),
+        "legal" => Some("法律 (legal) — 使用法律专业术语 (法院/辩护人/公诉人/庭审/量刑建议 等)"),
+        "medical" => Some("医学 (medical) — 使用医学专业术语 (诊断/症状/治疗方案/既往史 等)"),
+        "it" => Some("IT 技术 (it) — 使用技术术语 (API/数据库/部署/架构 等)"),
+        "caijing" | "finance" => Some("金融 (caijing) — 使用金融术语 (估值/利率/投资 等)"),
+        _ => None,
+    };
+    if let Some(hint) = pack_hint {
+        ctx.push_str(&format!("- Pack 主题: {}\n", hint));
+    } else if pack != "none" {
+        ctx.push_str(&format!("- Pack: {}\n", pack));
+    }
+
+    // custom 词表 (限制 30 个避免 token 爆)
+    let custom_words: Vec<&str> = custom
+        .split(|c: char| c == ',' || c == '，' || c == ';' || c == '；' || c.is_whitespace())
+        .filter(|s| !s.is_empty())
+        .take(30)
+        .collect();
+    if !custom_words.is_empty() {
+        ctx.push_str(&format!("- 用户自定义术语: {}\n", custom_words.join(", ")));
+    }
+
+    ctx.push_str("</hotwords_preferences>\n");
+    ctx
+}
+
+#[cfg(test)]
+mod p2_hotwords_tests {
+    use super::*;
+    use crate::audio::hotwords_globals;
+    use serial_test::serial;
+
+    #[test]
+    #[serial]
+    fn empty_when_pack_none_and_no_custom() {
+        hotwords_globals::set("none".to_string(), "".to_string());
+        let ctx = build_hotwords_context_for_prompt();
+        assert!(ctx.is_empty(), "should return empty: got [{}]", ctx);
+    }
+
+    #[test]
+    #[serial]
+    fn legal_pack_produces_hint() {
+        hotwords_globals::set("legal".to_string(), "".to_string());
+        let ctx = build_hotwords_context_for_prompt();
+        assert!(ctx.contains("法律"), "legal pack should produce 法律 hint: {}", ctx);
+        assert!(ctx.contains("hotwords_preferences"), "should wrap in <hotwords_preferences>: {}", ctx);
+    }
+
+    #[test]
+    #[serial]
+    fn medical_pack_produces_hint() {
+        hotwords_globals::set("medical".to_string(), "".to_string());
+        let ctx = build_hotwords_context_for_prompt();
+        assert!(ctx.contains("医学"), "medical pack should produce 医学 hint: {}", ctx);
+    }
+
+    #[test]
+    #[serial]
+    fn custom_words_included() {
+        hotwords_globals::set("none".to_string(), "公司法,合同法,仲裁".to_string());
+        let ctx = build_hotwords_context_for_prompt();
+        assert!(ctx.contains("公司法"), "should include custom word 公司法: {}", ctx);
+        assert!(ctx.contains("合同法"), "should include custom word 合同法: {}", ctx);
+    }
+
+    #[test]
+    #[serial]
+    fn limit_to_30_words() {
+        let mut custom = String::new();
+        for i in 0..50 {
+            if !custom.is_empty() { custom.push(','); }
+            custom.push_str(&format!("词{}", i));
+        }
+        hotwords_globals::set("none".to_string(), custom);
+        let ctx = build_hotwords_context_for_prompt();
+        assert!(ctx.contains("词0"));
+        assert!(ctx.contains("词29"));
+        assert!(!ctx.contains("词49"), "should NOT include 词49 (limit 30): {}", ctx);
+    }
 }
 
 #[cfg(test)]
