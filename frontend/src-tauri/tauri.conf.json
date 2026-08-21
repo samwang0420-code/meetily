@@ -68,7 +68,9 @@
                                     "path": "$APPDATA/*"
                                 }
                             ]
-                        }
+                        },
+                        "opener:default",
+                        "opener:allow-open-url"
                     ]
                 }
             ]

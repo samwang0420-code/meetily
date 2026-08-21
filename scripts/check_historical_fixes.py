@@ -1727,6 +1727,21 @@ ANCHORS = [
     ("152_combine_prompt_has_p141",
      "frontend/src-tauri/src/summary/processor.rs",
      r"(?s)build_combine_summary_user_prompt.{0,500}P141"),
+
+
+    # §156: tauri-plugin-opener 处理 mailto: / http:// 外部协议 (account 页 联系客服 + 用户协议/隐私政策)
+    ("156_opener_plugin_registered",
+     "frontend/src-tauri/src/lib.rs",
+     r"tauri_plugin_opener::init"),
+    ("156_opener_capability_added",
+     "frontend/src-tauri/tauri.conf.json",
+     r'opener:default'),
+    ("156_account_mailto_uses_openUrl",
+     "frontend/src/app/account/page.tsx",
+     r"openUrl\(`mailto:"),
+    ("156_legal_links_no_target_blank",
+     "frontend/src/app/account/page.tsx",
+     r'href="/legal/terms"'),
 ]
 
 

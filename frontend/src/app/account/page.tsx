@@ -3,6 +3,7 @@ import React, { useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
@@ -11,6 +12,23 @@ import { ArrowLeft } from 'lucide-react';
 
 export default function AccountPage() {
   const { t, locale } = useTranslation();
+
+  // §156: mailto: 在 Tauri webview 默认拦截, 必须用 plugin-opener 调系统邮件客户端
+  const handleSupportMailto = async () => {
+    const subjectZh = '言镜 AI - 会员迁移申请';
+    const subjectEn = 'Offline-Meeting-Notes - License Migration';
+    const bodyZh = `机器ID: ${machineId ?? ''}`;
+    const bodyEn = `Machine ID: ${machineId ?? ''}`;
+    const subject = encodeURIComponent(locale === 'zh' ? subjectZh : subjectEn);
+    const body = encodeURIComponent(locale === 'zh' ? bodyZh : bodyEn);
+    try {
+      await openUrl(`mailto:sam.wang01@icloud.com?subject=${subject}&body=${body}`);
+    } catch (err) {
+      console.error('mailto failed', err);
+      toast.error(t('account.mailto_failed'));
+    }
+  };
+
   const router = useRouter();
   const { user, machineId, logout, activateMember, refresh, session } = useAuth();
   const [busy, setBusy] = useState(false);
@@ -164,9 +182,9 @@ export default function AccountPage() {
         </div>
         <p className="text-xs text-gray-500">
           {locale === 'zh' ? (
-            <>会员与本机绑定, 换机器请重新购买或 <a href="mailto:sam.wang01@icloud.com?subject=言镜 AI%20-%20会员迁移申请&body=机器ID:%20{machineId ?? '%20'}" className="text-blue-600 hover:underline">联系客服</a> 迁移。</>
+            <>会员与本机绑定, 换机器请重新购买或 <a onClick={handleSupportMailto} className="text-blue-600 hover:underline cursor-pointer">联系客服</a> 迁移。</>
           ) : (
-            <>Membership is bound to this machine. Re-purchase or <a href="mailto:sam.wang01@icloud.com?subject=Offline-Meeting-Notes%20-%20License%20Migration&body=Machine%20ID:%20{machineId ?? '%20'}" className="text-blue-600 hover:underline">contact support</a> to migrate.</>
+            <>Membership is bound to this machine. Re-purchase or <a onClick={handleSupportMailto} className="text-blue-600 hover:underline cursor-pointer">contact support</a> to migrate.</>
           )}
         </p>
       </section>
@@ -265,11 +283,11 @@ export default function AccountPage() {
       {/* v0.6.10+: 条款链接 */}
       <div className="text-[11px] text-neutral-500 text-center pt-2">
         使用本软件即代表您同意我们的{' '}
-        <Link href="/legal/terms" target="_blank" className="text-blue-600 hover:underline">
+        <Link href="/legal/terms" className="text-blue-600 hover:underline">
           用户协议
         </Link>
         {' '}和{' '}
-        <Link href="/legal/privacy" target="_blank" className="text-blue-600 hover:underline">
+        <Link href="/legal/privacy" className="text-blue-600 hover:underline">
           隐私政策
         </Link>
       </div>
