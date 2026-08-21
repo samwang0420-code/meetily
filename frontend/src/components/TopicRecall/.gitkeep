@@ -1,0 +1,4 @@
+# §144 removed 2026-08-20
+# TopicRecallPopup 已删除 (用户 8/20 反馈"华而不实")
+# 恢复: git log -p 取回 frontend/src/components/TopicRecall/TopicRecallPopup.tsx
+# 重新挂载: 在 layout.tsx 加 <TopicRecallPopup /> + import

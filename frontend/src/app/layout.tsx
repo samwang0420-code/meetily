@@ -2,7 +2,6 @@
 
 import './globals.css'
 import { TopicSearchModal } from '@/components/TopicSearch/TopicSearchModal'
-import { TopicRecallPopup } from '@/components/TopicRecall/TopicRecallPopup' 
 import { Source_Sans_3 } from 'next/font/google'
 import Sidebar from '@/components/Sidebar'
 import { SidebarProvider } from '@/components/Sidebar/SidebarProvider'
@@ -256,6 +255,7 @@ export default function RootLayout({
   return (
     <I18nHtmlWrapper>
       <I18nProvider>
+        {/* §144 (2026-08-20): TopicRecallPopup 已移除 — 用户 8/20 反馈"华而不实",新会议开始自动弹出的"上次讨论过的话题"popup 删掉。恢复: git log -p 取回 import + <TopicRecallPopup /> + 文件 src/components/TopicRecall/TopicRecallPopup.tsx */}
         <body className={`${sourceSans3.variable} font-sans antialiased`}>
             <AuthProvider>
               <ConfigProvider>
@@ -351,7 +351,6 @@ function TopicSearchLauncher() {
   return (
     <>
       <TopicSearchModal open={open} onOpenChange={setOpen} />
-      <TopicRecallPopup />
     </>
   );
 }
