@@ -2301,3 +2301,66 @@ sqlite3 "$HOME/Library/Application Support/tech.yanjingai.app/meeting_minutes.sq
 - §92 (防代码漏) + §56 (AGENTS.md 双校) + §37 (硬闸门) + §18 (不主动改无关 bug)
 - [[152-P1-3-中文数字fact_guard盲点+c1299582真实回归]] (Obsidian)
 - outputs/§152-P1-3-...md (Codex)
+
+## §156 account 页 3 个死链修复 (2026-08-21)
+
+**触发**: 用户截图反馈 account 页 (会员信息) 三个链接全部点不开:
+- 联系客服 (mailto:sam.wang01@icloud.com)
+- 用户协议 (/legal/terms)
+- 隐私政策 (/legal/privacy)
+
+**根因 (2 条叠加)**:
+1. Tauri 单窗口 webview 默认拦截 `mailto:` 协议 → 点击无反应
+2. `<Link target="_blank">` 在 Tauri 没配 multi-window → webview 静默拦截 → 新窗口无法创建 → 点击无反应
+
+**修复**:
+- `Cargo.toml` + `Cargo.lock`: 加 `tauri-plugin-opener = "2.5.4"` (Tauri 2 官方推荐)
+- `frontend/package.json`: 加 `@tauri-apps/plugin-opener ^2.5.4`
+- `lib.rs`: 注册 `.plugin(tauri_plugin_opener::init())` + `use tauri_plugin_opener`
+- `tauri.conf.json`: main capability 加 `opener:default` + `opener:allow-open-url`
+- `frontend/src/app/account/page.tsx`:
+  - `handleSupportMailto` helper: onClick + `openUrl(mailto:...)` 调系统邮件客户端
+  - `/legal/terms` + `/legal/privacy` 删 `target="_blank"`, Next.js `<Link>` 走 SPA navigation (同 webview 内跳转)
+- `i18n/zh.ts` + `i18n/en.ts`: 加 `account.mailto_failed` 文案
+
+**guard 锚点 (4 个新增)**:
+- `156_opener_plugin_registered`
+- `156_opener_capability_added`
+- `156_account_mailto_uses_openUrl`
+- `156_legal_links_no_target_blank`
+
+**commit**: `a94e924`
+
+**验证 (§37 闸门全套)**:
+- tsc 0 errors
+- next build OK
+- cargo check --lib 0 errors
+- cargo build --release 6m 59s
+- check_historical_fixes.py **499/499 PASS**
+- audit_codebase.py 0 errors / 0 warns / 63 info
+- sync_app_bundle.sh: 3 binary 全部 sync, codesign OK
+
+**铁律 (任何 v0.X 演进适用)**:
+1. **Tauri 单窗口 webview 默认拦截 mailto:** — 必须用 `tauri-plugin-opener` 或自定义 shell command
+2. **Tauri `<Link target="_blank">` 必须有 multi-window 配置** — 否则删 `_blank` 走 SPA nav
+3. **新 plugin 加 capability 权限** — `opener:default` + `opener:allow-open-url` 二选一不能漏
+4. **JSX attribute 不支持嵌套 template literal** — 必须抽 helper function 或在外层构造变量
+
+**仍待修 (按 §18 不主动改, 等用户报)**:
+- About.tsx `handleContactClick` / `handleSupportClick` 还在 `invoke('open_external_url', ...)` (不存在的 Tauri command) — 同样会失败, 应改用 `openUrl()`
+- Sidebar `mailto:sam.wang01@icloud.com` (line 894) — 直接 `href`, 点击会被 webview 拦截
+- legal/terms + legal/privacy 内 `<a href="mailto:...">` (line 41 / 57 / 89) — 同上
+- FeedbackDialog / FeedbackDialog.tsx `mailtoUrl` (line 115) — invoke 同一个不存在的 command
+- BluetoothPlaybackWarning / SetupOverviewStep 外链 GitHub (target="_blank") — 单窗口 webview 拦截
+
+**§15 GUI 验收 (用户必做)**:
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# 1. 进 account 页 (会员信息)
+# 2. 点"联系客服" → 应唤起系统邮件客户端 (Mail.app), 收件人/主题/正文已预填
+# 3. 点"用户协议" → 应在 SPA 内跳转到 /legal/terms, 显示条款页
+# 4. 点"隐私政策" → 同上, 跳转到 /legal/privacy
+```
+
+**关联**: §92 (防代码漏) + §56 (AGENTS.md 双校) + §37 (硬闸门) + §18 (不主动改无关 bug)
