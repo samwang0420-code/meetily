@@ -353,8 +353,7 @@ export function SummaryPanel({
         /> */}
 
         {/* §110: 9 按钮 → 4 元素 (说话人/重新生成/⚙️ 设置下拉/📤 导出下拉) */}
-        {!isSummaryLoading && (
-          <div className="flex items-center justify-center w-full pt-0 gap-2">
+        <div className="flex items-center justify-center w-full pt-0 gap-2">
             {/* §152 P0-3-B: 兜底 stop 按钮 — 在 !isSummaryLoading 块内只判断 summaryError
                 (LLM panic 后 status 卡 error, 此时 loading 已结束, 但用户还能停).
                 正常的 processing/regenerating/summarizing 在 isSummaryLoading 块内已显示 stop. */}
@@ -570,7 +569,6 @@ export function SummaryPanel({
               </DropdownMenuContent>
             </DropdownMenu>
           </div>
-        )}
       </div>
 
         {/* §152 P1-1-B: §148 法律 critical banner — 在主区顶部常驻, 让用户立即看到 LLM 幻觉警告
