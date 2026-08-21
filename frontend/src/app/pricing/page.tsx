@@ -358,7 +358,7 @@ export default function PricingPage() {
         <div className="mx-auto max-w-5xl px-6 py-6 flex flex-wrap items-center justify-between gap-3 text-xs text-[var(--app-ink-subtle)]">
           <div className="flex items-center gap-2">
             <BrandShield size={18} />
-            <span>言镜 AI · v0.9.0</span>
+            <span>言镜 AI · v0.9.1</span>
           </div>
           <div className="flex items-center gap-4">
             <Link href="/legal/privacy" className="hover:text-[var(--app-ink)] transition-colors">
