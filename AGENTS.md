@@ -2364,3 +2364,77 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 ```
 
 **关联**: §92 (防代码漏) + §56 (AGENTS.md 双校) + §37 (硬闸门) + §18 (不主动改无关 bug)
+
+## §156.5 全项目 mailto / target="_blank" 一并修复 (2026-08-22)
+
+**触发**: §156 修了 account 页 3 死链后, AGENTS.md §156 "仍待修" 段列出 6 个同类 bug。
+
+**修复 (10 文件)**:
+
+新建 helper `frontend/src/lib/openExternalUrl.ts`:
+```ts
+import { openUrl } from '@tauri-apps/plugin-opener';
+export async function openExternalUrl(url: string): Promise<void> {
+  try { await openUrl(url); }
+  catch (err) {
+    // web 模式 fallback: 用 <a target="_blank"> 触发浏览器
+    const a = document.createElement('a');
+    a.href = url; a.target = '_blank'; a.rel = 'noopener noreferrer';
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  }
+}
+```
+
+替换清单:
+- `About.tsx` 2 处 invoke('open_external_url') → openExternalUrl (helper 内部已 invoke)
+- `FeedbackDialog.tsx` 1 处 invoke → openExternalUrl
+- `pricing/page.tsx`:
+  - Pro tier CTA mailto → button + onClick + openExternalUrl (用 `ctaIsMailto: true` 标记)
+  - trustItems GitHub + footer GitHub → onClick + openExternalUrl (阻止默认 _blank 行为)
+- `Sidebar/index.tsx` 底部客服 mailto → onClick
+- `legal/terms/page.tsx` 2 处 mailto `<a href>` → onClick
+- `legal/privacy/page.tsx` 1 处 mailto
+- `BluetoothPlaybackWarning.tsx` 1 处 GitHub _blank → onClick
+- `onboarding/steps/SetupOverviewStep.tsx` 1 处 GitHub _blank → onClick
+- `knowledge/page.tsx` 1 处 ollama.com _blank → onClick
+- `account/page.tsx` `handleSupportMailto` 改用 helper
+
+**guard 锚点 (13 个新增 + 1 修正)**:
+- 156.5 系列 13 个 anchor (含 156_5_no_invoke_open_external_url_left 反向断言)
+- 修正 156_account_mailto_uses_openUrl → 156_account_mailto_uses_openExternalUrl (openUrl 直接调用已改为 helper)
+
+**commit**: `dc85b29`
+
+**验证 (§37 闸门全套)**:
+- tsc 0 errors
+- next build OK
+- cargo check --lib 0 errors
+- cargo build --release 3m 51s
+- check_historical_fixes.py **512/512 PASS**
+- audit_codebase.py 0 errors / 0 warns / 63 info
+- sync_app_bundle.sh: 3 binary 全部 sync, codesign OK
+
+**铁律 (任何 v0.X 演进适用)**:
+1. **禁止 `invoke('open_external_url')`** — 调不存在的 Tauri command, 必须用 helper
+2. **禁止 `<a href="mailto:" target="_blank">`** — Tauri 单窗口 webview 拦截, 必须 onClick + openExternalUrl
+3. **禁止 `<a href="http..." target="_blank">`** — 同上, Tauri 单窗口无新窗口机制
+4. **JSX attribute onClick inline 函数** — 简单一行 OK, 复杂 URL 必须抽 helper 避免 nested template literal (§156 lesson)
+5. **fallback to window.open / createElement('a')** — web 模式下 openUrl 不可用, 必须有原生 HTML 兜底
+
+**§15 GUI 验收 (用户必做)**:
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+
+# 测以下链接全部应可点击:
+# 1. Sidebar 底部 "客服: sam.wang01@icloud.com" → 唤起 Mail.app
+# 2. About 页 "联系 / 反馈" → 唤起 Mail.app
+# 3. FeedbackDialog 提交 → 唤起 Mail.app
+# 4. Pricing 页 Pro CTA → 唤起 Mail.app (Pro 咨询)
+# 5. Pricing 页 footer GitHub → 浏览器打开 GitHub 仓库
+# 6. /legal/terms + /legal/privacy 内 mailto: → 唤起 Mail.app
+# 7. /knowledge 页 Ollama 下载 → 浏览器打开 ollama.com/download
+# 8. onboarding Report issues on GitHub → 浏览器
+```
+
+**关联**: §156 (account 页 3 死链) + §92 (防代码漏) + §56 (AGENTS.md 双校) + §37 (硬闸门)
