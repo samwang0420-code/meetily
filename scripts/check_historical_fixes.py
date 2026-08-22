@@ -1783,6 +1783,41 @@ ANCHORS = [
     ("156_5_no_invoke_open_external_url_left",
      "frontend/src/components",
      r"open_external_url.*url|mailto:"),
+
+    # §160 (2026-08-22): 摘要 invoke 静默失败防护
+    # A: in-flight guard (useRef 同步锁)
+    ("160_in_flight_ref_declared",
+     "frontend/src/hooks/meeting-details/useSummaryGeneration.ts",
+     r"const inFlightRef = useRef\(false\)"),
+    ("160_in_flight_guard_check",
+     "frontend/src/hooks/meeting-details/useSummaryGeneration.ts",
+     r"if \(inFlightRef\.current\)\s*\{"),
+    ("160_in_flight_finally_clear",
+     "frontend/src/hooks/meeting-details/useSummaryGeneration.ts",
+     r"\} finally \{[\s\S]*?inFlightRef\.current = false"),
+    ("160_in_flight_stop_clear",
+     "frontend/src/hooks/meeting-details/useSummaryGeneration.ts",
+     r"inFlightRef\.current = false"),
+    # B: invoke timeout + retry helper
+    ("160_invoke_with_timeout_helper_exists",
+     "frontend/src/lib/invokeWithTimeout.ts",
+     r"export async function invokeWithTimeout"),
+    ("160_timeout_error_class",
+     "frontend/src/lib/invokeWithTimeout.ts",
+     r"export class InvokeTimeoutError"),
+    ("160_process_transcript_uses_helper",
+     "frontend/src/hooks/meeting-details/useSummaryGeneration.ts",
+     r"invokeWithTimeout\('api_process_transcript'"),
+    ("160_timeout_caught_specifically",
+     "frontend/src/hooks/meeting-details/useSummaryGeneration.ts",
+     r"error instanceof InvokeTimeoutError"),
+    # i18n keys
+    ("160_i18n_zh_invoke_timeout",
+     "frontend/src/i18n/locales/zh.ts",
+     r"invoke_timeout: '[^']*'"),
+    ("160_i18n_en_invoke_timeout",
+     "frontend/src/i18n/locales/en.ts",
+     r"invoke_timeout: '[^']*'"),
 ]
 
 

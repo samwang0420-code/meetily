@@ -1,8 +1,9 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef } from 'react';
 import { Transcript, Summary } from '@/types';
 import { ModelConfig } from '@/components/ModelSettingsModal';
 import { CurrentMeeting, useSidebar } from '@/components/Sidebar/SidebarProvider';
 import { invoke as invokeTauri } from '@tauri-apps/api/core';
+import { invokeWithTimeout, InvokeTimeoutError } from '@/lib/invokeWithTimeout';
 import { safeToast, sanitizeDescription } from '@/lib/safeToast';
 import Analytics from '@/lib/analytics';
 import { isOllamaNotInstalledError } from '@/lib/utils';
@@ -81,6 +82,10 @@ export function useSummaryGeneration({
   const [summaryError, setSummaryError] = useState<string | null>(null);
   const { t } = useTranslation();
 
+  // §160: in-flight guard (同步锁, 防 processSummary 重入).
+  // useState 异步, 不能用来做即时去重. useRef 是同步 set, 立刻可见.
+  const inFlightRef = useRef(false);
+
   const { startSummaryPolling, stopSummaryPolling } = useSidebar();
 
   // Helper to get status message
@@ -115,6 +120,18 @@ export function useSummaryGeneration({
     customPrompt?: string;
     isRegeneration?: boolean;
   }) => {
+    // §160 A: in-flight guard (同步锁).
+    // useState 异步, 不能做即时去重. useRef 同步, 立刻可见.
+    if (inFlightRef.current) {
+      console.warn('[§160] processSummary already in flight, skipping duplicate call');
+      safeToast.warning(
+        isRegeneration ? t('summary.status_regenerating') : t('summary.status_processing'),
+        { description: t('summary.already_in_flight') || '摘要生成中, 请稍候...' }
+      );
+      return;
+    }
+    inFlightRef.current = true;
+
     setSummaryStatus(isRegeneration ? 'regenerating' : 'processing');
     setSummaryError(null);
 
@@ -153,8 +170,8 @@ export function useSummaryGeneration({
         transcriptTexts?.length ? transcriptTexts : [transcriptText]
       )) || 'zh';
 
-      // Process transcript and get process_id
-      const result = await invokeTauri('api_process_transcript', {
+      // §160 B: 30s timeout + 1 retry, 防 Tauri 2 macOS webview 偶发 IPC 静默丢消息
+      const result = await invokeWithTimeout('api_process_transcript', {
         text: transcriptText,
         model: modelConfig.provider,
         modelName: modelConfig.model,
@@ -165,6 +182,17 @@ export function useSummaryGeneration({
         templateId: selectedTemplate,
         summaryLanguage,
         evidence,
+      }, {
+        timeoutMs: 30_000,
+        retries: 1,
+        backoffMs: 500,
+        onRetry: (attempt, err) => {
+          console.warn(`[§160] api_process_transcript retry ${attempt} after error:`, err);
+          safeToast.warning(t('summary.retrying') || '正在重试...', {
+            description: t('summary.retry_after_ipc_failure') || '上一次请求超时, 自动重试中',
+            duration: 2000,
+          });
+        },
       }) as any;
 
       const process_id = result.process_id;
@@ -378,13 +406,21 @@ export function useSummaryGeneration({
       });
     } catch (error) {
       console.error(`Failed to ${isRegeneration ? 'regenerate' : 'generate'} summary:`, error);
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+
+      // §160 B: timeout 单独区分文案 (Tauri 2 macOS webview 偶发 IPC 静默丢消息)
+      const isTimeout = error instanceof InvokeTimeoutError;
+      const errorMessage = isTimeout
+        ? (t('summary.invoke_timeout') || '请求超时, 后端可能未收到. 请重试.')
+        : (error instanceof Error ? error.message : 'Unknown error');
+
       setSummaryError(sanitizeDescription(errorMessage, 'error'));
       setSummaryStatus('error');
       // Note: We don't clear the summary here because the backend has already restored from backup
 
       safeToast.error(t('summary.status_error'), {
-        description: errorMessage,
+        description: isTimeout
+          ? (t('summary.invoke_timeout_hint') || 'IPC 通信超时 (30s), 重试一次大概率成功')
+          : errorMessage,
       });
 
       await Analytics.trackSummaryGenerationCompleted(
@@ -394,6 +430,9 @@ export function useSummaryGeneration({
         undefined,
         errorMessage
       );
+    } finally {
+      // §160 A: in-flight guard 释放 (无论成功/失败/timeout)
+      inFlightRef.current = false;
     }
   }, [
     meeting.id,
@@ -672,6 +711,9 @@ export function useSummaryGeneration({
     // Reset status to idle
     setSummaryStatus('idle');
     setSummaryError(null);
+
+    // §160 A: stop 后清 lock, 允许立即重新发起 generate
+    inFlightRef.current = false;
 
     // Show toast notification
     safeToast.info(t('summary.stop_generation'), {

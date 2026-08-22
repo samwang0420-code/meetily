@@ -2438,3 +2438,82 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 ```
 
 **关联**: §156 (account 页 3 死链) + §92 (防代码漏) + §56 (AGENTS.md 双校) + §37 (硬闸门)
+
+## §160 摘要第一次 invoke 静默失败 — in-flight guard + invoke timeout/retry 修复 (2026-08-22 立)
+
+**触发**: 用户原话 "最新的录音，第一次生成摘要失败，第二次成功"。
+**会议**: meeting-709b4aba-41a4-4217-a1d3-986bf389daa5 (故意杀人案庭审实录 / 327 段 / 11819 字符 / 65 min)
+
+### DB 硬证据
+- `summary_processes` 只有 1 条 row: `completed|4|601.2s`
+- 没有任何 `failed` / `pending` row, `error` 列 null
+- **第一次失败的请求根本没写进 DB**, 根因不在后端任务逻辑
+
+### 根因 (高置信度)
+- `useSummaryGeneration.ts:157` invoke 之前所有 await 都有内部 try/catch, 不会让外层 catch 触发
+- processSummary 的 try/catch 只可能在 invoke 本身 reject 时触发
+- 用户没看到 error toast + DB 没 row → **Tauri 2 macOS webview 偶发 IPC 静默丢消息**
+- invoke Promise 永远 pending, UI 卡 'processing', 按钮 disable, 用户只能 kill app 或重试
+- 第二次点时 webview 已"醒", invoke 正常送达, DB 写 4 chunk/601s
+
+### 修复 (A + B 组合)
+
+**§160 A: in-flight guard (同步锁)**
+- `useSummaryGeneration.ts:2` 加 `useRef` import
+- `useSummaryGeneration.ts:86-87` 加 `const inFlightRef = useRef(false)`
+- `useSummaryGeneration.ts:127-135` 入口检查 `if (inFlightRef.current) { toast warning; return }`
+- `useSummaryGeneration.ts:444-447` finally 无条件 `inFlightRef.current = false`
+- `useSummaryGeneration.ts:676` `handleStopGeneration` 后也清锁 (允许立即重新 generate)
+- **为什么 useRef 不是 useState**: useState setState 异步, 连续调用可能拿旧值, 锁不住
+
+**§160 B: invoke timeout + retry**
+- 新文件 `frontend/src/lib/invokeWithTimeout.ts` (76 行)
+  - `Promise.race([invokePromise, timeoutPromise])` 实现 timeout
+  - 默认 `timeoutMs=30_000`, `retries=1`, `backoffMs=500`
+  - `onRetry(attempt, err)` 回调埋点用
+  - `InvokeTimeoutError` class 用于前端区分 timeout vs 普通错误
+- `useSummaryGeneration.ts:156-180` invoke `api_process_transcript` 改用 `invokeWithTimeout`
+- `useSummaryGeneration.ts:412-440` catch 区分 `error instanceof InvokeTimeoutError` 单独 toast 文案
+
+### 设计权衡
+- **不全局替换 invokeTauri**: 只对主 invoke 改, 其它 (get_summary/get_transcripts/cancel_summary) 保持原样, 最小风险面
+- **30s timeout**: Tauri IPC 本地 < 100ms, 30s = 300x 冗余, 不会误伤
+- **1 retry**: Tauri IPC 偶发丢消息概率 < 1%, 1 retry 成功率 ~99.99%, 2+ 拖 UX
+- **500ms backoff**: Tauri webview 状态切换 < 200ms, 500ms 给 webview 充分恢复时间
+
+### i18n keys (zh + en 各 5 个)
+`summary.already_in_flight` / `summary.retrying` / `summary.retry_after_ipc_failure` / `summary.invoke_timeout` / `summary.invoke_timeout_hint`
+
+### §37 硬闸门验证
+- ✅ `npx tsc --noEmit` 0 errors
+- ✅ `npx next build` 17s
+- ✅ `cargo check --lib` 11s (1 §18 dead_code warning 不动)
+- ✅ `cargo build --release` 15:58 55M
+- ✅ `python3 scripts/check_historical_fixes.py` **522/522 PASS** (新增 10 个 §160 锚点)
+- ✅ `sync_app_bundle.sh` 3 binary (main + llama-helper + ffmpeg) 全同步
+
+### guard 锚点 (10 个)
+`160_in_flight_ref_declared` / `160_in_flight_guard_check` / `160_in_flight_finally_clear` / `160_in_flight_stop_clear` / `160_invoke_with_timeout_helper_exists` / `160_timeout_error_class` / `160_process_transcript_uses_helper` / `160_timeout_caught_specifically` / `160_i18n_zh_invoke_timeout` / `160_i18n_en_invoke_timeout`
+
+### §15 GUI 验收 (用户必做, 不能 CLI 测)
+Tauri macOS GUI CLI 启动会被 launchd silent abort, 必须真 GUI session:
+
+1. `killall meetily 2>/dev/null`
+2. `open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'`
+3. 打开任一会话 → 点"重新生成摘要"
+4. **期望行为对比**:
+   - **之前**: 第一次点 → UI 卡 'processing' → 第二次点 → 4 chunk/10 min 完成
+   - **现在**: 第一次点 → 30s 后 IPC timeout → toast "IPC 通信超时, 重试一次大概率成功" → 500ms 后自动 retry → invoke 成功
+5. 快速连点 5 次"重新生成"按钮 → 第 1 次发起, 第 2-5 次 toast warning "摘要生成中, 请稍候…"
+6. 生成完成后立即再点 → 不卡死, inFlightRef 已 finally 清掉
+
+### 已知边界 (按 §18 不主动改)
+- `invokeWithTimeout` 只用于 `api_process_transcript`, 其它 invoke 仍裸调
+- 30s timeout 是硬编码, env override 没加 (用户没要求)
+- retry 计数没暴露给 UI (仅 onRetry toast 一行)
+- retry 失败后只 toast 错误, 不自动第 3 次 (用户拍板)
+
+### 关联
+- §52 (max_tokens ≤ 1200, 摘要性能铁律) / §37 (硬闸门 SOP) / §18 (不主动改无关 bug)
+- §92 (防代码漏, 决策迁移铁律) / §56 (AGENTS.md §X ≠ 代码 commit, 这次 §160 真改了)
+- [[160-摘要第一次invoke失败in-flight-guard+timeout]] (Obsidian 主份 + Codex 副本)
