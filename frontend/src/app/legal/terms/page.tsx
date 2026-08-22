@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { openExternalUrl } from '@/lib/openExternalUrl';
 
 // 离线会记 v0.6.10+: 用户协议
 // 简单 EULA — 本软件 "按原样" 提供, 不保证无错
@@ -38,7 +39,7 @@ export default function TermsPage() {
         <li>7 天内 (含) 未深度使用可全额退款</li>
         <li>违反使用条款 (破解 / 滥用) 时, 开发者保留撤销资格</li>
         <li>硬件识别码 (machine_id) 基于主板 UUID + 主机名生成, 仅在本机 SQLite 保存, 不上传任何服务器</li>
-        <li>极旧硬件 (例如 2010 前无 UUID 的设备) 可能读取失败, 此时会生成随机标识, 重装系统后可能丢失授权 — 如遇此情况请联系客服 <a href="mailto:lisangjie@icloudsend.com" className="text-blue-600 hover:underline">lisangjie@icloudsend.com</a> 人工迁移</li>
+        <li>极旧硬件 (例如 2010 前无 UUID 的设备) 可能读取失败, 此时会生成随机标识, 重装系统后可能丢失授权 — 如遇此情况请联系客服 <a href="mailto:lisangjie@icloudsend.com" onClick={(e) => { e.preventDefault(); openExternalUrl('mailto:lisangjie@icloudsend.com'); }} className="text-blue-600 hover:underline cursor-pointer">lisangjie@icloudsend.com</a> 人工迁移</li>
       </ul>
 
       <h2 className="mt-4 text-lg font-medium text-neutral-900">四、数据归属</h2>
@@ -54,7 +55,7 @@ export default function TermsPage() {
 
       <h2 className="mt-4 text-lg font-medium text-neutral-900">六、联系方式</h2>
       <p className="text-sm text-neutral-700">
-        任何条款问题, 邮件 <a href="mailto:sam.wang01@icloud.com" className="text-blue-600 hover:underline">sam.wang01@icloud.com</a>.
+        任何条款问题, 邮件 <a href="mailto:sam.wang01@icloud.com" onClick={(e) => { e.preventDefault(); openExternalUrl('mailto:sam.wang01@icloud.com'); }} className="text-blue-600 hover:underline cursor-pointer">sam.wang01@icloud.com</a>.
       </p>
     </div>
   );

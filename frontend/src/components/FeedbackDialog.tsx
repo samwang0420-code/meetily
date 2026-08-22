@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from 'react';
-import { invoke } from '@tauri-apps/api/core';
+import { openExternalUrl } from '@/lib/openExternalUrl';
 import { toast } from 'sonner';
 import { safeToast } from '@/lib/safeToast';
 import { Lightbulb, Bug, Frown, MessageSquare, Send, X } from 'lucide-react';
@@ -115,7 +115,7 @@ export function FeedbackDialog({ open, onOpenChange, defaultType = 'feature' }: 
       const mailtoUrl = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 
       try {
-        await invoke('open_external_url', { url: mailtoUrl });
+        await openExternalUrl(mailtoUrl);
         safeToast.success('已唤起邮件客户端, 发送后我们会尽快回复', {
           description: `收件人: ${SUPPORT_EMAIL}`,
           duration: 5000,

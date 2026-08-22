@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useTranslation } from '@/i18n';
+import { openExternalUrl } from '@/lib/openExternalUrl';
 import { useConfig } from '@/contexts/ConfigContext';
 
 interface TopicSearchHit {
@@ -315,9 +316,8 @@ export default function KnowledgePage() {
                       <div className="mt-3 grid gap-2 sm:grid-cols-2">
                         <a
                           href="https://ollama.com/download"
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-[12px] text-amber-900 transition-colors hover:bg-amber-50"
+                          onClick={(e) => { e.preventDefault(); openExternalUrl('https://ollama.com/download'); }}
+                          className="rounded-lg border border-amber-300 bg-white px-3 py-2 text-[12px] text-amber-900 transition-colors hover:bg-amber-50 cursor-pointer"
                         >
                           <div className="font-medium">{t('knowledge.ollama_offline_option1_title')}</div>
                           <div className="mt-0.5 text-amber-700">{t('knowledge.ollama_offline_option1_desc')}</div>

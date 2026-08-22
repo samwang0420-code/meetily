@@ -3,7 +3,7 @@ import React, { useState, useRef } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
-import { openUrl } from '@tauri-apps/plugin-opener';
+import { openExternalUrl } from '@/lib/openExternalUrl';
 import { useTranslation } from '@/i18n';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
@@ -22,7 +22,7 @@ export default function AccountPage() {
     const subject = encodeURIComponent(locale === 'zh' ? subjectZh : subjectEn);
     const body = encodeURIComponent(locale === 'zh' ? bodyZh : bodyEn);
     try {
-      await openUrl(`mailto:sam.wang01@icloud.com?subject=${subject}&body=${body}`);
+      await openExternalUrl(`mailto:sam.wang01@icloud.com?subject=${subject}&body=${body}`);
     } catch (err) {
       console.error('mailto failed', err);
       toast.error(t('account.mailto_failed'));

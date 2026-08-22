@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { invoke } from '@tauri-apps/api/core';
 import { getVersion } from '@tauri-apps/api/app';
+import { openExternalUrl } from '@/lib/openExternalUrl';
 import { Shield, Cpu, Wallet, Globe2, Sparkles, Loader2, CheckCircle2, ArrowUpRight, Mic, FileText, Lock, Mail, Copy, Send } from "lucide-react";
 import AnalyticsConsentSwitch from "./AnalyticsConsentSwitch";
 import { UpdateDialog } from "./UpdateDialog";
@@ -24,29 +24,14 @@ export function About() {
     // 离线会记 v0.6.11: 客服联系方式 (sam.wang01@icloud.com)
     const SUPPORT_EMAIL = 'sam.wang01@icloud.com';
 
-    const handleContactClick = async () => {
-        // 优先尝试 mailto: 唤起本机邮件客户端; 失败 fallback 浏览器
-        const mailtoUrl = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('离线会记 - 商务定制咨询')}&body=${encodeURIComponent('您好,\n我想为团队咨询本地 AI 工具定制。\n\n[请简要描述团队规模 / 行业 / 核心需求]\n')}`;
-        try {
-            await invoke('open_external_url', { url: mailtoUrl });
-        } catch (error) {
-            console.error('Failed to open mailto:', error);
-            // fallback: 浏览器打开
-            try {
-                await invoke('open_external_url', { url: `https://mail.google.com/mail/?view=cm&to=${SUPPORT_EMAIL}` });
-            } catch (e2) {
-                console.error('Failed to open browser mail:', e2);
-            }
-        }
+    const handleContactClick = () => {
+        const mailtoUrl = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('言镜 AI - 商务定制咨询')}&body=${encodeURIComponent('您好,\n我想为团队咨询本地 AI 工具定制。\n\n[请简要描述团队规模 / 行业 / 核心需求]\n')}`;
+        openExternalUrl(mailtoUrl);
     };
 
-    const handleSupportClick = async () => {
-        const mailtoUrl = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('离线会记 - 用户反馈')}&body=${encodeURIComponent('版本 v0.6.11 · macOS\n问题描述:\n')}`;
-        try {
-            await invoke('open_external_url', { url: mailtoUrl });
-        } catch (error) {
-            console.error('Failed to open support mailto:', error);
-        }
+    const handleSupportClick = () => {
+        const mailtoUrl = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('言镜 AI - 用户反馈')}&body=${encodeURIComponent('版本 v0.9.1 · macOS\n问题描述:\n')}`;
+        openExternalUrl(mailtoUrl);
     };
 
     const handleCheckForUpdates = async () => {

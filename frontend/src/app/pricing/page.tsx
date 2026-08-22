@@ -6,6 +6,7 @@ import { motion } from 'framer-motion';
 import { Check, X, Sparkles, Github, Download, ChevronDown } from 'lucide-react';
 import { useTranslation } from '@/i18n';
 import { BrandShield } from '@/components/BrandShield';
+import { openExternalUrl } from '@/lib/openExternalUrl';
 
 // §145: 言镜 AI 官网重做 — pricing 页
 // 减文字 (246→180) · 深色 hero · 同心环 logo · 三档极简卡 · 合并 FAQ
@@ -49,6 +50,7 @@ export default function PricingPage() {
       features: t.list('pricing.tier_pro_features'),
       cta: t('pricing.tier_pro_cta'),
       ctaHref: 'mailto:lisangjie@icloudsend.com?subject=Pro%20%E4%B9%B0%E6%96%AD%E5%92%A8%E8%AF%A2',
+      ctaIsMailto: true,
       ctaRedeem: t('pricing.tier_pro_cta_redeem'),
       ctaRedeemHref: '/redeem',
       accent: true,
@@ -152,9 +154,8 @@ export default function PricingPage() {
                 <a
                   key={i}
                   href={item.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="hover:text-[var(--app-ink)] transition-colors"
+                  onClick={(e) => { e.preventDefault(); openExternalUrl(item.href); }}
+                  className="hover:text-[var(--app-ink)] transition-colors cursor-pointer"
                 >
                   {inner}
                 </a>
@@ -241,12 +242,21 @@ export default function PricingPage() {
 
               {tier.ctaRedeem ? (
                 <div className="space-y-2">
+                  {tier.ctaIsMailto ? (
+                    <button
+                      onClick={() => openExternalUrl(tier.ctaHref!)}
+                      className="block w-full text-center px-4 py-2.5 rounded-xl bg-[var(--app-summary)] text-[var(--app-canvas)] text-sm font-medium hover:opacity-90 transition-opacity"
+                    >
+                      {tier.cta}
+                    </button>
+                  ) : (
                   <a
                     href={tier.ctaHref}
                     className="block w-full text-center px-4 py-2.5 rounded-xl bg-[var(--app-summary)] text-[var(--app-canvas)] text-sm font-medium hover:opacity-90 transition-opacity"
                   >
                     {tier.cta}
                   </a>
+                  )}
                   <Link
                     href={tier.ctaRedeemHref!}
                     className="block w-full text-center px-4 py-2.5 rounded-xl border border-[var(--app-hairline-strong)] bg-transparent text-[var(--app-ink-muted)] text-sm hover:bg-[var(--app-surface-3)] transition-colors"
@@ -369,9 +379,8 @@ export default function PricingPage() {
             </Link>
             <a
               href="https://github.com/samwang0420-code/meetily"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 hover:text-[var(--app-ink)] transition-colors"
+              onClick={(e) => { e.preventDefault(); openExternalUrl('https://github.com/samwang0420-code/meetily'); }}
+              className="inline-flex items-center gap-1 hover:text-[var(--app-ink)] transition-colors cursor-pointer"
             >
               <Github className="w-3 h-3" />
               GitHub

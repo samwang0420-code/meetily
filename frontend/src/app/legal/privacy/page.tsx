@@ -1,6 +1,7 @@
 'use client';
 
 import React from 'react';
+import { openExternalUrl } from '@/lib/openExternalUrl';
 
 // 离线会记 v0.6.10+: 隐私政策页面
 // 主要内容: 100% 本地处理, 不上传任何数据
@@ -86,7 +87,7 @@ export default function PrivacyPage() {
 
       <h2 className="mt-4 text-lg font-medium text-neutral-900">七、联系方式</h2>
       <p className="text-sm text-neutral-700">
-        任何隐私问题, 邮件 <a href="mailto:sam.wang01@icloud.com" className="text-blue-600 hover:underline">sam.wang01@icloud.com</a>,
+        任何隐私问题, 邮件 <a href="mailto:sam.wang01@icloud.com" onClick={(e) => { e.preventDefault(); openExternalUrl('mailto:sam.wang01@icloud.com'); }} className="text-blue-600 hover:underline cursor-pointer">sam.wang01@icloud.com</a>,
         我们会在 7 个工作日内回复.
       </p>
 

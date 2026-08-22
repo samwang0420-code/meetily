@@ -9,6 +9,7 @@ import { FeedbackDialog } from '@/components/FeedbackDialog';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSidebar } from './SidebarProvider';
 import { useTranslation } from '@/i18n';
+import { openExternalUrl } from '@/lib/openExternalUrl';
 import { useAuth } from '@/contexts/AuthContext';
 import type { CurrentMeeting } from '@/components/Sidebar/SidebarProvider';
 import { ConfirmationModal } from '../ConfirmationModel/confirmation-modal';
@@ -892,7 +893,8 @@ const Sidebar: React.FC = () => {
         {!isCollapsed && (
           <a
             href="mailto:sam.wang01@icloud.com?subject=言镜 AI - 反馈&body=版本 v0.9.1 · macOS"
-            className="mt-1.5 flex items-center gap-1 text-[10px] text-neutral-500 hover:text-blue-600 transition-colors truncate"
+            onClick={(e) => { e.preventDefault(); openExternalUrl('mailto:sam.wang01@icloud.com?subject=言镜 AI - 反馈&body=版本 v0.9.1 · macOS'); }}
+            className="mt-1.5 flex items-center gap-1 text-[10px] text-neutral-500 hover:text-blue-600 transition-colors truncate cursor-pointer"
             title="联系客服: sam.wang01@icloud.com"
           >
             <svg className="h-2.5 w-2.5 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="m22 7-10 5L2 7"/></svg>

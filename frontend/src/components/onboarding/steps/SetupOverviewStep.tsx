@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { openExternalUrl } from '@/lib/openExternalUrl';
 import { Info } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { OnboardingContainer } from '../OnboardingContainer';
@@ -99,9 +100,8 @@ export function SetupOverviewStep() {
           <div className="text-center">
             <a
               href="https://github.com/Zackriya-Solutions/meeting-minutes"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-gray-600 hover:underline"
+              onClick={(e) => { e.preventDefault(); openExternalUrl('https://github.com/Zackriya-Solutions/meeting-minutes'); }}
+              className="text-xs text-gray-600 hover:underline cursor-pointer"
             >
               Report issues on GitHub
             </a>

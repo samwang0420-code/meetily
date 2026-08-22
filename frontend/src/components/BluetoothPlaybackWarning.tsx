@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from 'react';
 import { invoke } from '@tauri-apps/api/core';
+import { openExternalUrl } from '@/lib/openExternalUrl';
 import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Speaker, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -82,9 +83,8 @@ export function BluetoothPlaybackWarning({
             <br />
             <a
               href="https://github.com/your-org/meetily/blob/main/BLUETOOTH_PLAYBACK_NOTICE.md"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="underline hover:text-yellow-900 font-medium mt-2 inline-block"
+              onClick={(e) => { e.preventDefault(); openExternalUrl('https://github.com/your-org/meetily/blob/main/BLUETOOTH_PLAYBACK_NOTICE.md'); }}
+              className="underline hover:text-yellow-900 font-medium mt-2 inline-block cursor-pointer"
             >
               Learn why this happens →
             </a>
