@@ -422,6 +422,23 @@ ANCHORS = [
      "frontend/src-tauri/src/summary/templates/defaults.rs",
      r"medical_internal_round"),
 
+    # ===== §169: regenerate 强制 bypass summary cache (2026-08-23) =====
+    ("169_force_fresh_param",
+     "frontend/src-tauri/src/summary/commands.rs",
+     r"force_fresh: Option<bool>"),
+    ("169_force_fresh_forwarded",
+     "frontend/src-tauri/src/summary/commands.rs",
+     r"force_fresh\.unwrap_or\(false\)"),
+    ("169_bypass_cache_branch",
+     "frontend/src-tauri/src/summary/service.rs",
+     r"§169 force_fresh=true, bypassing summary cache"),
+    ("169_force_fresh_in_signature",
+     "frontend/src-tauri/src/summary/service.rs",
+     r"force_fresh: bool,"),
+    ("169_frontend_forceFresh",
+     "frontend/src/hooks/meeting-details/useSummaryGeneration.ts",
+     r"forceFresh: isRegeneration"),
+
 
     # ===== §93: macOS .app bundle 同步 (2026-08-07) =====
     # §93 anchor: sync_app_bundle.sh 脚本存在

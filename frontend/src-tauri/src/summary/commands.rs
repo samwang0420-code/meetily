@@ -345,6 +345,8 @@ pub async fn api_process_transcript<R: Runtime>(
     summary_language: Option<String>,
     evidence: Option<Vec<StructuredTranscriptEvidence>>,
     _auth_token: Option<String>,
+    // §169: 强制 bypass summary cache, 重新调用 LLM (用户主动 "重新生成" 时为 true)
+    force_fresh: Option<bool>,
 ) -> Result<ProcessTranscriptResponse, String> {
     use uuid::Uuid;
 
@@ -429,6 +431,7 @@ pub async fn api_process_transcript<R: Runtime>(
                 final_template_id,
                 summary_language,
                 structured_evidence,
+                force_fresh.unwrap_or(false), // §169: 默认 false, 保留 cache; regenerate 时前端传 true
             ),
         )
         .catch_unwind()

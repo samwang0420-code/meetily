@@ -171,6 +171,7 @@ export function useSummaryGeneration({
       )) || 'zh';
 
       // §160 B: 30s timeout + 1 retry, 防 Tauri 2 macOS webview 偶发 IPC 静默丢消息
+      // §169: 用户主动重新生成 → force_fresh=true, 后端 bypass summary cache, 真调 LLM
       const result = await invokeWithTimeout('api_process_transcript', {
         text: transcriptText,
         model: modelConfig.provider,
@@ -182,6 +183,7 @@ export function useSummaryGeneration({
         templateId: selectedTemplate,
         summaryLanguage,
         evidence,
+        forceFresh: isRegeneration, // §169
       }, {
         timeoutMs: 30_000,
         retries: 1,

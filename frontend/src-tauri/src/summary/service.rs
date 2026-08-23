@@ -354,6 +354,9 @@ impl SummaryService {
         template_id: String,
         summary_language: Option<String>,
         structured_evidence: Vec<StructuredTranscriptEvidence>,
+        // §169: 强制 bypass summary cache, 重新调用 LLM
+        // 用户主动点 "重新生成" 按钮时为 true; 首次生成 / polling 重入为 false
+        force_fresh: bool,
     ) {
         let start_time = Instant::now();
         info!(
@@ -532,31 +535,40 @@ impl SummaryService {
             custom_openai_top_p,
         );
 
-        let cached_english = match SummaryProcessesRepository::get_summary_data(&pool, &meeting_id).await {
-            Err(e) => {
-                warn!(
-                    "Failed to load prior summary row for cache lookup (meeting_id={}): {}. Falling back to full pass-1 generation.",
-                    meeting_id, e
-                );
-                None
-            }
-            Ok(None) => None,
-            Ok(Some(process)) => process.result.and_then(|raw| {
-                match extract_cached_english_markdown(
-                    &raw,
-                    &cache_source,
-                    summary_language.as_deref(),
-                ) {
-                    Ok(opt) => opt,
-                    Err(e) => {
-                        warn!(
-                            "Cached summary result for meeting_id={} is not valid JSON ({}); ignoring cache.",
-                            meeting_id, e
-                        );
-                        None
-                    }
+        let cached_english = if force_fresh {
+            // §169: 用户主动重新生成 → 强制 bypass cache, 必须真调 LLM
+            info!(
+                "§169 force_fresh=true, bypassing summary cache for meeting_id={}",
+                meeting_id
+            );
+            None
+        } else {
+            match SummaryProcessesRepository::get_summary_data(&pool, &meeting_id).await {
+                Err(e) => {
+                    warn!(
+                        "Failed to load prior summary row for cache lookup (meeting_id={}): {}. Falling back to full pass-1 generation.",
+                        meeting_id, e
+                    );
+                    None
                 }
-            }),
+                Ok(None) => None,
+                Ok(Some(process)) => process.result.and_then(|raw| {
+                    match extract_cached_english_markdown(
+                        &raw,
+                        &cache_source,
+                        summary_language.as_deref(),
+                    ) {
+                        Ok(opt) => opt,
+                        Err(e) => {
+                            warn!(
+                                "Cached summary result for meeting_id={} is not valid JSON ({}); ignoring cache.",
+                                meeting_id, e
+                            );
+                            None
+                        }
+                    }
+                }),
+            }
         };
 
         let client = reqwest::Client::new();
