@@ -342,12 +342,12 @@ ANCHORS = [
      r"导入音频.*stamp|friendly date title"),
 
     # ===== UI 版本号同步 (2026-08-07 §92 P0, 2026-08-20 §143 升级 0.9.1) =====
-    ("ui_version_0_9_1_sidebar",
+    ("ui_version_0_9_2_sidebar",
      "frontend/src/components/Sidebar/index.tsx",
-     r"v0\.9\.1"),
-    ("ui_version_0_9_1_dashboard",
+     r"v0\.9\.2"),
+    ("ui_version_0_9_2_dashboard",
      "frontend/src/app/_components/HomeDashboard.tsx",
-     r"v0\.9\.1"),
+     r"v0\.9\.2"),
 
     # ===== §93: macOS .app bundle 同步 (2026-08-07) =====
     # §93 anchor: sync_app_bundle.sh 脚本存在
