@@ -261,12 +261,41 @@ impl SherpaDaemon {
         let mut guard = self.inner[slot].lock().map_err(|_| anyhow!("lock slot {}", slot))?;
         let h = guard.as_mut().ok_or_else(|| anyhow!("daemon slot {} not started", slot))?;
         let line = serde_json::to_string(req_json)?;
-        writeln!(h.stdin, "{}", line).map_err(|e| anyhow!("write daemon slot {}: {}", slot, e))?;
-        h.stdin.flush().map_err(|e| anyhow!("flush daemon slot {}: {}", slot, e))?;
+        // §P1-A5 (audit 2026-08-23): any I/O failure on a once-running slot
+        // must reset the handle. Before this fix a crashed daemon left a stale
+        // `Some(SherpaHandle)` in the slot, so every subsequent call hit a
+        // dead process and silently failed — the slot was never respawned
+        // because `ensure_started_slot` short-circuited on `guard.is_some()`.
+        let write_result = writeln!(h.stdin, "{}", line);
+        if let Err(e) = write_result {
+            warn!("[sherpa slot {}] write failed: {}, resetting slot for respawn", slot, e);
+            let _ = h.child.wait();
+            *guard = None;
+            return Err(anyhow!("write daemon slot {}: {}", slot, e));
+        }
+        if let Err(e) = h.stdin.flush() {
+            warn!("[sherpa slot {}] flush failed: {}, resetting slot for respawn", slot, e);
+            let _ = h.child.wait();
+            *guard = None;
+            return Err(anyhow!("flush daemon slot {}: {}", slot, e));
+        }
         let mut resp_line = String::new();
-        h.stdout.read_line(&mut resp_line).map_err(|e| anyhow!("read daemon slot {}: {}", slot, e))?;
-        let resp: serde_json::Value = serde_json::from_str(&resp_line)
-            .map_err(|e| anyhow!("parse daemon slot {} '{}': {}", slot, resp_line.trim(), e))?;
+        if let Err(e) = h.stdout.read_line(&mut resp_line) {
+            warn!("[sherpa slot {}] read failed: {}, resetting slot for respawn", slot, e);
+            let _ = h.child.wait();
+            *guard = None;
+            return Err(anyhow!("read daemon slot {}: {}", slot, e));
+        }
+        let resp: serde_json::Value = match serde_json::from_str(&resp_line) {
+            Ok(v) => v,
+            Err(e) => {
+                // Parse failure can also indicate the daemon died mid-stream.
+                warn!("[sherpa slot {}] parse failed: {}, resetting slot for respawn", slot, e);
+                let _ = h.child.wait();
+                *guard = None;
+                return Err(anyhow!("parse daemon slot {} '{}': {}", slot, resp_line.trim(), e));
+            }
+        };
         Ok(resp)
     }
 

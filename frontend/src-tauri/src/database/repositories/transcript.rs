@@ -170,26 +170,85 @@ impl TranscriptsRepository {
     }
 
     /// Helper function to extract a snippet of text around the first match of a query.
+    ///
+    /// §P1-A2 (audit 2026-08-23): the previous byte-index slicing panics with
+    /// "byte index N is not a char boundary" for any Chinese query that lands on
+    /// a multi-byte UTF-8 codepoint. Compute all indices in char-space so we
+    /// always land on valid char boundaries before slicing.
     fn get_match_context(transcript: &str, query: &str) -> String {
         let transcript_lower = transcript.to_lowercase();
         let query_lower = query.to_lowercase();
 
-        match transcript_lower.find(&query_lower) {
-            Some(match_index) => {
-                let start_index = match_index.saturating_sub(100);
-                let end_index = (match_index + query.len() + 100).min(transcript.len());
+        // Operate in char indices: keeps us on UTF-8 boundaries for any language.
+        let chars: Vec<(usize, char)> = transcript_lower.char_indices().collect();
+        let query_chars: Vec<char> = query_lower.chars().collect();
+
+        if query_chars.is_empty() {
+            return transcript.chars().take(200).collect();
+        }
+
+        // Find first occurrence by char equality (case-fold done via to_lowercase).
+        let match_start_char = chars
+            .windows(query_chars.len())
+            .position(|w| w.iter().map(|(_, c)| *c).eq(query_chars.iter().copied()));
+
+        match match_start_char {
+            Some(idx) => {
+                let pad_chars = 100usize;
+                let start_char_idx = idx.saturating_sub(pad_chars);
+                let end_char_idx = (idx + query_chars.len() + pad_chars).min(chars.len());
+                let start_byte = chars[start_char_idx].0;
+                let end_byte = if end_char_idx < chars.len() {
+                    chars[end_char_idx].0
+                } else {
+                    transcript.len()
+                };
 
                 let mut context = String::new();
-                if start_index > 0 {
+                if start_byte > 0 {
                     context.push_str("...");
                 }
-                context.push_str(&transcript[start_index..end_index]);
-                if end_index < transcript.len() {
+                // Bound the slice so a query near the end cannot exceed transcript.len().
+                let safe_end = end_byte.min(transcript.len()).max(start_byte);
+                context.push_str(&transcript[start_byte..safe_end]);
+                if end_byte < transcript.len() {
                     context.push_str("...");
                 }
                 context
             }
             None => transcript.chars().take(200).collect(), // Fallback to the start of the transcript
         }
+    }
+
+    /// §P1-A2 regression: keep UTF-8 boundary safe behavior pinned.
+    fn _p1_a2_tests() {}
+}
+
+/// §P1-A2 tests: ensure char-boundary-safe slicing for CJK queries.
+#[cfg(test)]
+mod tests_p1_a2 {
+    use super::TranscriptsRepository;
+
+    #[test]
+    fn get_match_context_chinese_query_does_not_panic() {
+        let transcript = "今天晚上打开发型 总结一下今天的内容";
+        let query = "总结";
+        let ctx = TranscriptsRepository::get_match_context(transcript, query);
+        assert!(ctx.contains(query), "context must include the query: {}", ctx);
+    }
+
+    #[test]
+    fn get_match_context_ascii_query_still_works() {
+        let transcript = "the quick brown fox jumps over the lazy dog";
+        let query = "fox";
+        let ctx = TranscriptsRepository::get_match_context(transcript, query);
+        assert!(ctx.contains(query));
+    }
+
+    #[test]
+    fn get_match_context_no_match_falls_back_to_prefix() {
+        let transcript = "你好世界 hello world";
+        let ctx = TranscriptsRepository::get_match_context(transcript, "xyz");
+        assert!(!ctx.is_empty());
     }
 }

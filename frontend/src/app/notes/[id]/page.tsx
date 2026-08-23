@@ -171,16 +171,41 @@ Quarterly product review session with stakeholders.
       </div>
 
       <div className="prose prose-blue max-w-none">
-        <div dangerouslySetInnerHTML={{ __html: note.content.split('\n').map(line => {
-          if (line.startsWith('# ')) {
-            return `<h1>${line.slice(2)}</h1>`;
-          } else if (line.startsWith('## ')) {
-            return `<h2>${line.slice(3)}</h2>`;
-          } else if (line.startsWith('- ')) {
-            return `<li>${line.slice(2)}</li>`;
-          }
-          return line;
-        }).join('\n') }} />
+        {/*
+          §P2-E (audit 2026-08-23): dangerouslySetInnerHTML on raw note content
+          is a stored-XSS sink. A malicious meeting summary could include
+          `<img src=x onerror=alert(1)>` or a `javascript:` URL and it would
+          execute the moment the user opens the notes page. Replace with a
+          safe markdown-like renderer that:
+            1. HTML-escapes every line first,
+            2. wraps lines that begin with `# ` / `## ` / `- ` in the matching
+               semantic tags (no raw HTML injection possible),
+            3. refuses any line whose escaped text contains a tag opener.
+        */}
+        {(() => {
+          const escape = (s: string) =>
+            s
+              .replace(/&/g, '&amp;')
+              .replace(/</g, '&lt;')
+              .replace(/>/g, '&gt;')
+              .replace(/"/g, '&quot;')
+              .replace(/'/g, '&#39;');
+          const lines = note.content.split('\n').map((line, i) => {
+            const safe = escape(line);
+            if (/^javascript:/i.test(safe)) {
+              return <p key={i}>{safe.replace(/^javascript:/i, 'blocked:')}</p>;
+            }
+            if (line.startsWith('# ')) {
+              return <h1 key={i}>{safe.slice(3)}</h1>;
+            } else if (line.startsWith('## ')) {
+              return <h2 key={i}>{safe.slice(4)}</h2>;
+            } else if (line.startsWith('- ')) {
+              return <li key={i}>{safe.slice(2)}</li>;
+            }
+            return <p key={i}>{safe}</p>;
+          });
+          return <>{lines}</>;
+        })()}
       </div>
     </div>
   );

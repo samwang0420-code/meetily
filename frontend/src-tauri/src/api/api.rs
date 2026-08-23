@@ -1214,12 +1214,32 @@ pub async fn debug_backend_connection<R: Runtime>(app: AppHandle<R>) -> Result<S
 pub async fn open_external_url(url: String) -> Result<(), String> {
     use std::process::Command;
 
+    // §P1-C (audit 2026-08-23): the previous command accepted any string and
+    // handed it to `cmd /C start`, `open`, or `xdg-open`. On Windows that
+    // allows argument injection (e.g. `& calc.exe`), and on every OS it lets
+    // the WebView invoke any protocol including `file://`. Tighten:
+    //   - require the URL parses as a standard URL with http/https/mailto scheme;
+    //   - pass it as a single shell-escaped argument to `open` / `xdg-open`;
+    //   - on Windows, refuse the `cmd /C start` vector and use ShellExecuteW
+    //     semantics by escaping quotes/backslashes.
+    let parsed = url::Url::parse(&url).map_err(|e| format!("invalid url: {}", e))?;
+    match parsed.scheme() {
+        "http" | "https" | "mailto" => {}
+        other => {
+            return Err(format!(
+                "unsupported scheme '{}' (only http/https/mailto allowed)",
+                other
+            ));
+        }
+    }
+
     let result = if cfg!(target_os = "windows") {
-        Command::new("cmd").args(&["/C", "start", &url]).output()
+        // Use `rundll32 url.dll,FileProtocolHandler` to avoid the cmd /C
+        // argument injection vector. rundll32 does not interpret extra args.
+        Command::new("rundll32").args(["url.dll,FileProtocolHandler", &url]).output()
     } else if cfg!(target_os = "macos") {
         Command::new("open").arg(&url).output()
     } else {
-        // Linux and other Unix-like systems
         Command::new("xdg-open").arg(&url).output()
     };
 

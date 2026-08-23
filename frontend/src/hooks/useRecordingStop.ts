@@ -1,5 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useState, useEffect, useCallback, useRef } from 'react';
+
+// §P2-A (audit 2026-08-23): module-level guard shared by every hook instance.
+// The previous per-instance `stopInProgressRef` did not dedupe between the
+// RecordingPostProcessingProvider hook and the main page hook — both are
+// mounted at the same time and each receives the same recording-stop event
+// from the Rust backend, so they raced on the save / quota increment.
+const GLOBAL_STOP_IN_PROGRESS: { current: boolean } = { current: false };
 import { useRouter } from 'next/navigation';
 import { listen } from '@tauri-apps/api/event';
 import { safeToast, sanitizeDescription } from '@/lib/safeToast';
@@ -70,7 +77,8 @@ export function useRecordingStop(
   const router = useRouter();
 
   // Guard to prevent duplicate/concurrent stop calls (e.g., from UI and tray simultaneously)
-  const stopInProgressRef = useRef(false);
+  // §P2-A: see GLOBAL_STOP_IN_PROGRESS — same object for every hook instance.
+  const stopInProgressRef = GLOBAL_STOP_IN_PROGRESS;
 
   // Promise to track recording-stopped event data (fixes race condition with recording-stop-complete)
   const recordingStoppedDataRef = useRef<Promise<void> | null>(null);
@@ -305,8 +313,9 @@ export function useRecordingStop(
               ? window.localStorage.getItem('lixianhuiji.session')
               : null;
             if (session) {
+              // §P1-B15: pass meetingId for server-side idempotency.
               const r = await invoke<{ can_record: boolean; month_meetings_used: number; month_meetings_limit: number; reason: string | null }>(
-                'quota_increment_after_record', { session }
+                'quota_increment_after_record', { session, meetingId: meetingId }
               );
               // 用 window 全局事件, 让其他组件刷新 quota
               if (typeof window !== 'undefined') {
