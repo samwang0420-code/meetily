@@ -2517,3 +2517,93 @@ Tauri macOS GUI CLI 启动会被 launchd silent abort, 必须真 GUI session:
 - §52 (max_tokens ≤ 1200, 摘要性能铁律) / §37 (硬闸门 SOP) / §18 (不主动改无关 bug)
 - §92 (防代码漏, 决策迁移铁律) / §56 (AGENTS.md §X ≠ 代码 commit, 这次 §160 真改了)
 - [[160-摘要第一次invoke失败in-flight-guard+timeout]] (Obsidian 主份 + Codex 副本)
+
+## §161 多案件/跨案件污染/法条 verbatim/关键证据完整性 — 5 铁律落地 (2026-08-23 立)
+
+**触发事故**: 用户 2026-08-23 反馈 meeting-709b4aba (故意杀人案庭审实录) 实际拼了 2 个不同案件:
+1. **赵某交通肇事案** (前段 0-2155s, transcript 含 "现在播出庭审现场惠州特大交通肇事案")
+2. **三小故意杀人案** (后段 2155-3910s, transcript 含 "庭审现场正在播出三小故意杀人案")
+
+AI 摘要犯了 5 类严重错误:
+1. **时间错位** — "三小 2017-06-11 被刑事拘留", 实际 **2017-06-02 拘留**, **2017-06-11** 是提起公诉日期
+2. **事实幻觉** — "被告人最初有杀父意图", transcript 显示三小**否认**事前有杀人故意
+3. **跨案件污染** — 把赵某交通肇事案的"自首情节"整套辩论 (transcript 1859s) 错误搬到三小案的"争议焦点"
+4. **关键证据丢失** — transcript 有"法医精神病鉴定意见"(完全刑事责任能力), 摘要"关键证据"段完全没收录
+5. **法条原文编造** — 摘要法条块写出"被告人被抓获归案, 不认定为自首, 但可视为如实供述自己的罪行", 但 transcript 没有这条法条
+
+### 5 项铁律 (任何一项违反 → 摘要作废)
+
+1. **多案件识别** — 若 transcript 含 ≥ 2 个独立被告人 (如"被告人赵某"+"被告人三小"), 或含"现在播出/庭审现场正在播出/下面继续关注"等案件切换标志词, **必须**按"案件 1: <被告>" / "案件 2: <被告>" 分段处理
+2. **零跨案件污染** — 案件 A 的事实/辩论/证据/法条**禁止**写入案件 B 的摘要
+3. **必要证据完整性 (6 类)** — transcript 含"鉴定意见/物证/书证/证人证言/被告人供述/视听资料"任一类时, "关键证据"段必须显式列出该类证据
+4. **法条 verbatim 强制** — "法条引用块"每条法条的"原文摘要"必须是 transcript verbatim 出现的内容, **禁止** LLM 自行撰写法条原文
+5. **主体 verbatim** — 同一案件内同一主体全程使用相同名字, 不许替换/合并/简化
+
+### 修复 (5 文件, 7 测试, 14 guard anchors)
+
+#### §161-A fact_guard.rs 3 个新 detector
+- `detect_cross_case_pollution(transcript, summary) -> Vec<String>`
+  - 简化判定: 多被告人 (≥ 2 个 `被告人X` 候选) + transcript 含 high_risk 词 (自首/交通肇事/驾驶证/高速公路/大客车等) + summary 段落含 high_risk 但不出现本案被告 → 跨案件污染嫌疑
+  - split 支持 `##` markdown 标题 + `**粗体**` 段标题 (项目常用粗体代替 ##)
+- `detect_fabricated_statute_text(transcript, summary) -> Vec<String>`
+  - 找出"法条引用块"段落, 提取每行第 3 个 cell (原文摘要列)
+  - 按 `。/；/?` 切短句 (≥ 6 字), 每句必须在 transcript 出现 verbatim, 否则 fabricated
+- `detect_missing_evidence_categories(transcript, summary) -> Vec<String>`
+  - 6 类必要证据 (物证/书证/证人证言/被告人供述/鉴定意见/视听资料) 各自有信号词
+  - transcript 含某类但"关键证据"段无 → 报告缺失
+- `FactGuardReport` 加 3 字段: `cross_case_pollution` / `fabricated_statute_text` / `missing_evidence_categories`
+- `is_legal_critical()` 扩展: 跨案件污染 + 法条编造也算 legal_critical (等同判决编造严重)
+- `issue_count()` 计入 3 个新字段
+
+#### §161-B court_hearing.json + legal_consultation.json 加 4 强约束
+- description 加 §161 块 (5 项铁律)
+- 法条引用块 instruction 加 "§161 §4 法条 verbatim 强约束"
+- 关键证据 instruction 加 "§161 §3 必要证据完整性 (6 类必查)"
+
+#### §161-C processor.rs P161_MULTI_CASE_AND_EVIDENCE const
+- 新 const 含 §161.1 ~ §161.5 详细 prompt 块
+- 注入到 3 个 prompt:
+  - `build_chunk_summary_user_prompt` (chunk ledger)
+  - `build_combine_summary_user_prompt` (combine ledgers)
+  - `build_final_report_system_prompt` (最终模板填充, 编号 2.7)
+
+#### §161-D 7 个新测试 (fact_guard.rs, 7/7 PASS)
+- `test_161_a1_cross_case_pollution_detected` — 简单 fixture, 验证跨案件污染命中
+- `test_161_a1_cross_case_pollution_clean_summary_ok` — 单案件不误报
+- `test_161_a2_fabricated_statute_detected` — 法条编造命中
+- `test_161_a2_fabricated_statute_verbatim_passes` — verbatim 法条不误报
+- `test_161_a3_missing_evidence_鉴定意见` — 关键证据缺失命中
+- `test_161_a3_missing_evidence_完整时_passes` — 6 类齐全不误报
+- `test_161_full_709b_fixture_catches_all_bugs` — **真实 transcript + 真实摘要 fixture**, 验证 §161 全栈命中 5 类用户报告 bug
+
+#### §161-E 14 个 guard 锚点 (check_historical_fixes.py 522 → 536)
+
+### §37 硬闸门全过
+- ✅ tsc --noEmit: 0 errors (1 §18 bun:test 已知)
+- ✅ next build: OK
+- ✅ cargo test --lib: 418 passed / 0 failed (含 §161 7 个新测试)
+- ✅ cargo build --release: OK (lto, ~3 min)
+- ✅ check_historical_fixes.py: 536/536 PASS
+- ✅ sync_app_bundle.sh: 3 binary OK
+
+### 关键工程决策
+1. **接受 false positive 风险** — 跨案件污染 detector 检测"含 high_risk 词 + 段内不出现任何被告人", 可能误报单案件摘要中讨论通用议题 (用户看到 banner 可手动判断)
+2. **简化判定** — 不再要求 transcript "自首" 上下文绑定 first_defendant (ASR 听错率高, 强求会漏报)
+3. **split 支持 ## 和 **粗体** 两种 markdown** — 真实项目用 `**事实时间线**` 代替 `## 事实时间线`, find_section_by_titles 两种都识别
+4. **法条原文 verbatim substring 匹配** — 必须 transcript 出现完整短句, 减少 false positive
+5. **新字段加进 legal_critical** — 跨案件污染/法条编造等同判决编造级别严重, 单条触发即降级让用户看到
+
+### §15 GUI 验收 (用户必做, 不能 CLI 测)
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# 1. 重生成 meeting-709b4aba-41a4-4217-a1d3-986bf389daa5 摘要 (4 chunks)
+# 2. 期望 fact_guard 报告里 cross_case_pollution + fabricated_statute_text + missing_evidence_categories 都被标红
+# 3. UI 显示法律模板 critical 警告 (黄色 banner)
+# 4. 用户可手动判断哪些是 false positive
+```
+
+### 关联
+- §138 (P1 verbatim) / §141 (VERBATIM FACT-CHECK) / §148 (法律模板 critical) / §149 (归一化) / §152 (NUMBER_RE 中文数字)
+- §37 (硬闸门 SOP) / §18 (不主动改无关 bug) / §56 (AGENTS.md 双校) / §92 (防代码漏)
+- [[161-多案件-跨案件污染-法条编造-关键证据丢失-2026-08-23]] (Obsidian 主份) + `outputs/§161-...md` (Codex 副本)

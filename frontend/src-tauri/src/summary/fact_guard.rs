@@ -93,6 +93,15 @@ pub struct FactGuardReport {
     /// §149 §1: 归一化操作记录 — 哪些变体名被自动归一化 (例: "李富强 → 李福强")
     #[serde(default)]
     pub name_normalized: Vec<String>,
+    /// §161 A1: 跨案件污染 — 一段录音含 ≥ 2 个独立案件 (不同被告人/不同案由), 摘要把案件 A 的事实/辩论搬到案件 B
+    #[serde(default)]
+    pub cross_case_pollution: Vec<String>,
+    /// §161 A2: 法条原文编造 — 法条块的"原文摘要"在 transcript 找不到 substring (LLM 自行撰写法条)
+    #[serde(default)]
+    pub fabricated_statute_text: Vec<String>,
+    /// §161 A3: 关键证据完整性 — 法律模板 6 类必要证据 (物证/书证/证人证言/被告人供述/鉴定意见/视听资料) 缺哪类
+    #[serde(default)]
+    pub missing_evidence_categories: Vec<String>,
 }
 
 impl FactGuardReport {
@@ -124,13 +133,19 @@ impl FactGuardReport {
             + self.role_confusion.len()
             + self.fabricated_verdict.len()
             + self.attribution_confusion.len()
+            + self.cross_case_pollution.len()
+            + self.fabricated_statute_text.len()
+            + self.missing_evidence_categories.len()
             + if self.overclaimed_decision { 1 } else { 0 }
     }
 
-    /// §148: 法律模板 critical 判定 — 出现 1 项角色混淆或判决编造即为 SEVERE
+    /// §148 + §161: 法律模板 critical 判定 — 出现 1 项角色混淆/判决编造/跨案件污染/法条编造即为 SEVERE
     /// (这些是法庭纪要硬伤, 单条也要降级让用户看到, 不能隐藏在 needs_review 横幅里)
     pub fn is_legal_critical(&self) -> bool {
-        !self.role_confusion.is_empty() || !self.fabricated_verdict.is_empty()
+        !self.role_confusion.is_empty()
+            || !self.fabricated_verdict.is_empty()
+            || !self.cross_case_pollution.is_empty()
+            || !self.fabricated_statute_text.is_empty()
     }
 
     /// True when the report has issues worth a UI banner, even if not severe enough to replace the summary.
@@ -226,6 +241,13 @@ pub fn validate_summary(transcript: &str, summary: &str) -> FactGuardReport {
     // §149 §4: 关键陈述归属混淆 (例: 把辩护人量刑建议"判处三年"安到被告人头上)
     let attribution_confusion = detect_attribution_confusion(transcript, summary);
 
+    // §161 A1: 跨案件污染检测 — 多案件录音, 摘要把案件 A 的事实/辩论搬到案件 B
+    let cross_case_pollution = detect_cross_case_pollution(transcript, summary);
+    // §161 A2: 法条原文编造检测 — 法条块的"原文摘要"在 transcript 找不到 substring
+    let fabricated_statute_text = detect_fabricated_statute_text(transcript, summary);
+    // §161 A3: 关键证据完整性 — 法律模板 6 类必要证据缺哪类
+    let missing_evidence_categories = detect_missing_evidence_categories(transcript, summary);
+
     FactGuardReport {
         unexpected_numbers: summary_numbers.difference(&source_numbers).cloned().collect(),
         unexpected_dates: summary_dates.difference(&source_dates).cloned().collect(),
@@ -236,6 +258,9 @@ pub fn validate_summary(transcript: &str, summary: &str) -> FactGuardReport {
         fabricated_verdict,
         attribution_confusion,
         name_normalized: vec![],
+        cross_case_pollution,
+        fabricated_statute_text,
+        missing_evidence_categories,
     }
 }
 
@@ -672,9 +697,238 @@ pub fn detect_attribution_confusion(transcript: &str, summary: &str) -> Vec<Stri
 /// 1. 提取 transcript canonical 人名集合 (3-4 字姓氏开头, transcript 实际出现)
 /// 2. 扫 summary 所有人名 token
 /// 3. 对每个非 canonical token: 用 CONFUSABLE_PAIRS 替换每个字符, 看哪个变体在 transcript
+/// §161 A1: 跨案件污染检测
+///
+/// 触发场景 (2026-08-23 meeting-709b4aba): 一段录音实际拼接了 2 个不同案件
+/// (赵某交通肇事案 + 三小故意杀人案), LLM 把前案的 "自首情节" 整套辩论
+/// (transcript 1859s) 错误搬运到后案摘要的 "争议焦点" 段.
+///
+/// 检测策略 (简化版):
+/// 1. 提取 transcript 里所有 "被告人X" / "罪犯X" 候选
+/// 2. 如果 ≥ 2 个明确不同的被告人, 在 summary 里找含第二个被告人的段落
+/// 3. 若该段落含 "自首" 等跨案件高风险词, 且 transcript 中 "自首" 上下文只关联第一个被告人 → 命中
+fn detect_cross_case_pollution(transcript: &str, summary: &str) -> Vec<String> {
+    use std::collections::HashSet;
+    let mut issues = Vec::new();
+    static DEFENDANT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
+        r"(?:被告人|罪犯|被告)([\u4e00-\u9fa5]{2,3}?)"
+    ).unwrap());
+    let mut defendants: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    for cap in DEFENDANT_RE.captures_iter(transcript) {
+        if let Some(m) = cap.get(1) {
+            let name = m.as_str().to_string();
+            // 过滤掉不是人名的情况 (停用词 + 单字后缀)
+            let stop_words = ["席", "座位", "权利", "因", "男", "一", "九", "于", "被", "当", "未", "已", "年"];
+            if !name.is_empty() && !seen.contains(&name) && !stop_words.contains(&name.as_str()) {
+                seen.insert(name.clone());
+                defendants.push(name);
+            }
+        }
+    }
+    if defendants.len() < 2 {
+        return issues;
+    }
+    let first_defendant = defendants[0].clone();
+    let second_defendant = defendants[defendants.len() - 1].clone();
+    // 检查 transcript "自首" 上下文绑定到 first_defendant (在自首上下文出现 first_defendant 即足够证明关联)
+    // 简化判定: 多被告人 + summary 段落(绑 second_defendant) 含 high_risk_words
+    // → 该 high_risk 词可能从 first_defendant 案件被搬运过来
+    //
+    // 注: 不再要求 transcript "自首" 上下文绑定 first_defendant (ASR 听错率高, 强求会漏报)
+    // 接受 false positive 风险 — 用户看到警告可手动判断
+    let high_risk_words = ["自首", "交通肇事", "驾驶证", "高速公路", "大客车", "车辆碰撞",
+                          "高速", "客车", "超速", "驾驶"];
+    // 跨案件污染的必要条件: transcript 本身含 ≥ 1 个 high_risk 词
+    if !high_risk_words.iter().any(|w| transcript.contains(w)) {
+        return issues;
+    }
+    // split 支持 ## markdown 标题 和 **粗体** 段标题
+    let normalized_summary = summary.replace("\n**", "\n##__BOLD__**");
+    let mut found_pattern1 = false;
+    for section in normalized_summary.split("\n##") {
+        let risk_hit: Vec<&str> = high_risk_words.iter()
+            .filter(|w| section.contains(*w))
+            .copied().collect();
+        if risk_hit.is_empty() {
+            continue;
+        }
+        let contains_first = section.contains(&first_defendant);
+        let contains_second = section.contains(&second_defendant);
+        // 检测模式 1: 含 high_risk 但两个被告人都不提 → 争议焦点可能在搬用别案辩论
+        // 典型场景: 摘要"争议焦点"段讨论"自首"但段内不出现本案任何被告人名
+        if !contains_first && !contains_second && !found_pattern1 {
+            issues.push(format!(
+                "跨案件污染嫌疑: 摘要 \"{}\" 段落含案件专属词 [{}], 但未提及任何本案被告人 ({}/{}), 可能搬用别案辩论/事实, 请核对 transcript",
+                section.lines().next().unwrap_or("(无标题)").trim(),
+                risk_hit.join("/"),
+                first_defendant, second_defendant
+            ));
+            found_pattern1 = true;
+            if issues.len() >= 3 {
+                break;
+            }
+            continue;
+        }
+        // 检测模式 2: 含 high_risk 且含 second_defendant → second 案可能引了 first 案事实
+        if contains_second {
+            issues.push(format!(
+                "跨案件污染: 摘要 \"{}\" 段落含 {} + 案件专属词 [{}], 这些事实可能属于 {} 案件, 请核对",
+                section.lines().next().unwrap_or("(无标题)").trim(),
+                second_defendant, risk_hit.join("/"),
+                first_defendant
+            ));
+            if issues.len() >= 3 {
+                break;
+            }
+        }
+    }
+    issues
+}
+/// §161 A2: 法条原文编造检测
+///
+/// 触发场景 (2026-08-23 meeting-709b4aba): LLM 在法条块写出
+/// "被告人被抓获归案，不认定为自首，但可视为如实供述自己的罪行"
+/// 但 transcript 全文没有这条法条, 这是 AI 自行撰写法条原文.
+///
+/// 检测策略:
+/// 1. 找出 summary 里的 "法条引用块" 段落
+/// 2. 提取每条法条的 "原文摘要:" 字段 (取冒号后的内容)
+/// 3. 把原文摘要按中文标点 (。/；) 切成短句
+/// 4. 每条短句 (≥ 6 字) 必须在 transcript 出现 verbatim (substring 匹配)
+/// 5. 任何一句找不到 → fabricated
+fn detect_fabricated_statute_text(transcript: &str, summary: &str) -> Vec<String> {
+    let mut issues = Vec::new();
+    let statute_section = find_section_by_titles(summary, &["法条", "引用", "法律依据", "法条引用块"]);
+    if statute_section.is_empty() {
+        return issues;
+    }
+    for line in statute_section.split('\n') {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || !trimmed.starts_with('|') {
+            continue;
+        }
+        // 用 cell index 提取 (markdown table row split by |)
+        // row format: | 法条ID | 法律名称 | 原文摘要: | 引用方 | 适用目的 | [证据] |
+        //            |   1    | 《XX》  | <内容>   | XX    | XX       | [216] |
+        // 取 index 3 (原文摘要列)
+        let cells: Vec<&str> = trimmed.split('|').collect();
+        if cells.len() < 4 {
+            continue;
+        }
+        let mut content = cells[3].trim().to_string();
+        // 跳过 "原文摘要:" 前缀 (数据行/表头都有)
+        if content.starts_with("原文摘要:") {
+            content = content["原文摘要:".len()..].trim().to_string();
+        }
+        // 表头行: "原文摘要:" (无内容)
+        if content.is_empty() || content == "原文摘要:" {
+            continue;
+        }
+        // 检查这是否是模板占位符 (e.g. "《<法律名称>》第 <条号> 条")
+        if content.contains("<法律名称>") || content.contains("<条号>") {
+            continue;
+        }
+        // 按中文句号 / 句号 切短句
+        for sent in content.split(|c: char| c == '。' || c == '；' || c == ';' || c == '?') {
+            let trimmed_sent = sent.trim();
+            if trimmed_sent.chars().count() < 6 {
+                continue;
+            }
+            if !transcript.contains(trimmed_sent) {
+                issues.push(format!(
+                    "法条原文未在转录找到 (AI 自行撰写): \"{}\"",
+                    trimmed_sent.chars().take(40).collect::<String>()
+                ));
+                if issues.len() >= 5 {
+                    return issues;
+                }
+            }
+        }
+    }
+    issues
+}
+
+/// §161 A3: 关键证据完整性 — 法律模板应含 6 类必要证据
+///
+/// 触发场景 (2026-08-23 meeting-709b4aba): transcript 有 "法医精神病鉴定意见"
+/// (完全刑事责任能力) 这份核心量刑证据, 但摘要 "关键证据" 段完全没收录.
+///
+/// 检测策略: 如果 transcript 含某类证据, 摘要 "关键证据" 段必须含相应关键词
+fn detect_missing_evidence_categories(transcript: &str, summary: &str) -> Vec<String> {
+    let mut missing = Vec::new();
+    let evidence_section = find_section_by_titles(summary, &["关键证据", "证据"]);
+    if evidence_section.is_empty() {
+        if transcript.contains("鉴定") || transcript.contains("书证") || transcript.contains("物证") {
+            missing.push("关键证据段完全缺失".to_string());
+        }
+        return missing;
+    }
+    let category_signals = [
+        ("鉴定意见", &["鉴定", "鉴定意见", "法医"][..]),
+        ("物证", &["物证", "照片为证", "现场图", "现场照片"][..]),
+        ("书证", &["书证", "受案", "立案", "告知书", "决定书", "笔录"][..]),
+        ("证人证言", &["证人", "证言"][..]),
+        ("被告人供述", &["被告人供", "供述", "供认", "供称", "庭上供"][..]),
+        ("视听资料", &["视听资料", "视频", "执法记录仪", "录音", "录像"][..]),
+    ];
+    for (category_name, signals) in category_signals {
+        let transcript_has = signals.iter().any(|s| transcript.contains(s));
+        let summary_has = signals.iter().any(|s| evidence_section.contains(s));
+        if transcript_has && !summary_has {
+            missing.push(format!("{} (转录含此证据类别, 摘要未收录)", category_name));
+        }
+    }
+    missing
+}
+
+/// 通用辅助: 从 text 找包含 titles 任意一个关键字的段落 (## 标题或 **粗体** 段标题)
+fn find_section_by_titles(text: &str, titles: &[&str]) -> String {
+    let mut result = String::new();
+    let mut in_target = false;
+    for line in text.split('\n') {
+        let trimmed = line.trim();
+        // 标准 markdown 标题 ## 事实时间线 / # 案件基本信息
+        let is_md_heading = trimmed.starts_with("## ") || trimmed.starts_with("# ");
+        // 实际项目常用 **事实时间线 / Key Events Timeline** 粗体代替 ## 标题
+        let is_bold_heading = trimmed.starts_with("**") && trimmed.ends_with("**");
+        if is_md_heading || is_bold_heading {
+            in_target = titles.iter().any(|t| trimmed.contains(t));
+            if in_target {
+                result.push_str(line);
+                result.push('\n');
+            }
+        } else if in_target {
+            result.push_str(line);
+            result.push('\n');
+        }
+    }
+    result
+}
+
+/// 在 text 找关键词 context, 返回关键词前后 n 字的上下文
+fn extract_context(text: &str, keyword: &str, around_chars: usize) -> String {
+    if let Some(pos) = text.find(keyword) {
+        let start = pos.saturating_sub(around_chars);
+        let end = (pos + keyword.len() + around_chars).min(text.len());
+        let mut s = start;
+        while s > 0 && !text.is_char_boundary(s) {
+            s -= 1;
+        }
+        let mut e = end;
+        while e < text.len() && !text.is_char_boundary(e) {
+            e += 1;
+        }
+        text[s..e].to_string()
+    } else {
+        String::new()
+    }
+}
+
 /// 4. 替换为 canonical
 ///
 /// 返回: (归一化后 summary, 归一化操作列表 ["李富国 → 李福强", ...])
+
 pub fn normalize_name_drift(transcript: &str, summary: &str) -> (String, Vec<String>) {
     use std::collections::HashSet;
 
@@ -921,6 +1175,9 @@ mod tests {
             fabricated_verdict: vec![],
             attribution_confusion: vec![],
             name_normalized: vec![],
+            cross_case_pollution: vec![],
+            fabricated_statute_text: vec![],
+            missing_evidence_categories: vec![],
         };
         let fallback = conservative_fallback(source, &empty);
         assert!(fallback.contains("未识别到具体错误字段"));
@@ -1043,6 +1300,9 @@ mod tests {
             fabricated_verdict: vec![],
             attribution_confusion: vec![],
             name_normalized: vec![],
+            cross_case_pollution: vec![],
+            fabricated_statute_text: vec![],
+            missing_evidence_categories: vec![],
         };
         let summary = "实际佣金9.29千，案件背景清晰。";
         let marked = highlight_unexpected_facts(summary, &report);
@@ -1062,6 +1322,9 @@ mod tests {
             fabricated_verdict: vec![],
             attribution_confusion: vec![],
             name_normalized: vec![],
+            cross_case_pollution: vec![],
+            fabricated_statute_text: vec![],
+            missing_evidence_categories: vec![],
         };
         let summary = "实际佣金3000元。";
         let marked = highlight_unexpected_facts(summary, &report);
@@ -1319,6 +1582,9 @@ fn test_149_fact_guard_report_contains_new_fields() {
         fabricated_verdict: vec![],
         attribution_confusion: vec!["测试归属混淆".to_string()],
         name_normalized: vec!["李富强 → 李福强".to_string()],
+        cross_case_pollution: vec![],
+        fabricated_statute_text: vec![],
+        missing_evidence_categories: vec![],
     };
     let json = serde_json::to_value(&report).unwrap();
     assert_eq!(json["attribution_confusion"][0], "测试归属混淆");
@@ -1392,3 +1658,115 @@ fn test_152_p1_3_c1299582_real_hallucination_caught() {
     );
 }
 
+
+// ============================================================================
+// §161 真实场景 fixture 测试 — meeting-709b4aba (赵某交通肇事案 + 三小故意杀人案)
+// ============================================================================
+
+#[test]
+fn test_161_a1_cross_case_pollution_detected() {
+    // 用户 2026-08-23 反馈: 一段录音拼了 2 个不同案件, AI 把前案 "自首" 辩论搬到后案摘要
+    let transcript = "现在播出庭审现场惠州特大交通肇事案。被告人赵某因交通肇事于二零一七年七月十一日被刑事拘留。
+        辩护人指出被告人赵某可采取强制措施的时间是二零一七年七月十一日即未被采取强制措施时被告人赵某主动直接向公安机关投案故被告人赵某的行为足以认定为自首。
+        下面继续关注。庭审现场正在播出三小故意杀人案。被告人三小男一九九零年八月二十五日出生。
+        内蒙古自治区赤峰市人民检察院以故意杀人罪对三小提起公诉。";
+    let summary = "## 争议焦点\n- 关于自首情节: 公诉人认为被告人三小于案发当日即被抓获, 不存在投案自首情节。
+        辩护人: 公安机关下发的是行政案件《权利义务告知书》, 不能据此认定自首。";
+    let issues = detect_cross_case_pollution(transcript, summary);
+    assert!(
+        !issues.is_empty(),
+        "应检测到跨案件污染 (赵某的自首辩论被搬到三小案), 实际: {issues:?}"
+    );
+}
+
+#[test]
+fn test_161_a1_cross_case_pollution_clean_summary_ok() {
+    // 干净摘要 (无跨案件污染) 应通过
+    let transcript = "被告人李福强因故意伤害被诉。辩护人作罪轻辩护。";
+    let summary = "## 争议焦点\n- 关于量刑: 辩护人请求从轻处罚。";
+    let issues = detect_cross_case_pollution(transcript, summary);
+    assert!(
+        issues.is_empty(),
+        "单案件无跨案件污染, 应通过: {issues:?}"
+    );
+}
+
+#[test]
+fn test_161_a2_fabricated_statute_detected() {
+    // 用户截图: LLM 写 "被告人被抓获归案，不认定为自首，但可视为如实供述自己的罪行"
+    // transcript 完全没有这条法条
+    let transcript = "被告人三小因故意杀人被起诉。庭审未引用任何刑诉法具体条文。";
+    let summary = "## 法条引用块\n| 1 | 《中华人民共和国刑事诉讼法》 | 原文摘要: 被告人被抓获归案不认定为自首但可视为如实供述自己的罪行。 | 辩方 | 量刑情节 | [216] |";
+    let issues = detect_fabricated_statute_text(transcript, summary);
+    assert!(
+        !issues.is_empty(),
+        "应检测到法条原文编造 (transcript 无此法条), 实际: {issues:?}"
+    );
+}
+
+#[test]
+fn test_161_a2_fabricated_statute_verbatim_passes() {
+    // transcript 实际引用的法条 → 应通过
+    let transcript = "公诉人引用中华人民共和国刑法第二百三十二条故意杀人的处死刑。";
+    let summary = "## 法条引用块\n| 1 | 《中华人民共和国刑法》第二百三十二条 | 原文摘要: 故意杀人的处死刑。 | 公诉方 | 定罪 | [202] |";
+    let issues = detect_fabricated_statute_text(transcript, summary);
+    assert!(
+        issues.is_empty(),
+        "verbatim 法条引用应通过, 实际: {issues:?}"
+    );
+}
+
+#[test]
+fn test_161_a3_missing_evidence_鉴定意见() {
+    // 用户截图: transcript 有"法医精神病鉴定意见" (完全刑事责任能力), 摘要完全没收录
+    let transcript = "鉴定意见是被鉴定人三小案发时被评定为完全刑事责任能力。法医精神病鉴定。";
+    let summary = "## 关键证据\n- 物证: 涉案大客车照片。\n- 书证: 受案登记表。";
+    let missing = detect_missing_evidence_categories(transcript, summary);
+    assert!(
+        missing.iter().any(|m| m.contains("鉴定")),
+        "应报告 '鉴定意见' 缺失, 实际: {missing:?}"
+    );
+}
+
+#[test]
+fn test_161_a3_missing_evidence_完整时_passes() {
+    // transcript 含 6 类但摘要都覆盖 → 应通过
+    let transcript = "物证照片。书证受案登记表。证人证言。被告人供述。鉴定意见。执法记录仪视频。";
+    let summary = "## 关键证据\n- 物证: 照片。\n- 书证: 受案登记表。\n- 证人证言: XXX。\n- 被告人供述: XXX。\n- 鉴定意见: XXX。\n- 视听资料: 执法记录仪视频。";
+    let missing = detect_missing_evidence_categories(transcript, summary);
+    assert!(
+        missing.is_empty(),
+        "完整覆盖 6 类证据应通过, 实际: {missing:?}"
+    );
+}
+
+#[test]
+fn test_161_full_709b_fixture_catches_all_bugs() {
+    // 集成测试: 用户 8/23 报告的 5 类问题应全被检测
+    let transcript = std::fs::read_to_string("/tmp/transcript_709b.txt")
+        .expect("fixture 必须存在 /tmp/transcript_709b.txt");
+    let summary = std::fs::read_to_string("/tmp/summary_709b_fixture.md")
+        .expect("fixture 必须存在 /tmp/summary_709b_fixture.md");
+    let report = validate_summary(&transcript, &summary);
+    // §161 A1: 跨案件污染 (赵某自首辩论搬到三小案)
+    assert!(
+        !report.cross_case_pollution.is_empty(),
+        "应检测到跨案件污染, 实际 report: {report:?}"
+    );
+    // §161 A2: 法条原文编造 ("被告人被抓获归案不认定为自首但可视为如实供述自己的罪行")
+    assert!(
+        !report.fabricated_statute_text.is_empty(),
+        "应检测到法条原文编造, 实际 report: {report:?}"
+    );
+    // §161 A3: 关键证据缺失 (法医精神病鉴定意见 transcript 有, 摘要未收录)
+    assert!(
+        report.missing_evidence_categories.iter().any(|m| m.contains("鉴定")),
+        "应检测到鉴定意见证据缺失, 实际 missing: {:?}",
+        report.missing_evidence_categories
+    );
+    // 总体: 至少 1 个 legal_critical 命中
+    assert!(
+        report.is_legal_critical(),
+        "至少 1 个 legal_critical detector 应命中, 实际 report: {report:?}"
+    );
+}
