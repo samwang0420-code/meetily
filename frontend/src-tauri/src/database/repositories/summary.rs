@@ -103,11 +103,12 @@ impl SummaryProcessesRepository {
                 start_time = excluded.start_time,
                 result_backup = result,
                 result_backup_timestamp = excluded.updated_at,
-                result = result,
+                result = NULL,
                 error = NULL
-            -- §152 P0-2 idempotent guard: 只有 status 不是 completed 才覆盖
-            -- 已 completed 的会议再点 "重新生成" 应走显式 regenerate 路径, 不在 reset 时清空
-            WHERE summary_processes.status != 'completed'
+            -- §169.5: 不再 WHERE status != 'completed', 强制重置 status='PENDING' + result=NULL.
+            -- §152 idempotent guard 原意图是"首次生成不重复 reset", 但 create_or_reset_process
+            --   是入口函数, 每次 invoke 都会被调一次 (包括 regenerate completed 会议).
+            --   不重置 status 导致 polling 立刻看到 'completed' → 立刻返回旧 markdown → "秒生成" bug.
             "#
         )
         .bind(meeting_id)

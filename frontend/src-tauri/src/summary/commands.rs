@@ -398,6 +398,37 @@ pub async fn api_process_transcript<R: Runtime>(
 
     log_info!("✓ Summary process initialized for meeting_id: {}", &m_id);
 
+    // §169.4: macOS .app bundle 启动后 stderr 被 LaunchServices 丢弃, 没法看 backend log.
+    //         把 invoke 实际接收到的每个参数写进 SQLite, 用户点 regenerate 后直接 SELECT 即可诊断.
+    //         这是 "Tauri invoke 序列化到底把 force_fresh 收成什么" 的唯一可靠诊断路径.
+    if let Err(e) = sqlx::query(
+        "INSERT INTO summary_invoke_log
+         (meeting_id, invoked_at, force_fresh_recv, force_fresh_camel_recv,
+          force_fresh_alias_recv, regeneration_flag_recv, summary_language,
+          model_provider, template_id, effective_force_fresh)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)"
+    )
+    .bind(&m_id)
+    .bind(chrono::Utc::now().to_rfc3339())
+    .bind(force_fresh)
+    .bind(force_fresh_camel)
+    .bind(force_fresh_alias)
+    .bind(regeneration_flag)
+    .bind(summary_language.as_deref())
+    .bind(&model)
+    .bind(&final_template_id)
+    .bind(force_fresh_value)
+    .execute(&pool)
+    .await
+    {
+        log_warn!("§169.4 Failed to write summary_invoke_log ({}). Continuing.", e);
+    } else {
+        log_info!(
+            "§169.4 invoke_log written: meeting_id={} snake={:?} camel={:?} alias={:?} regen_flag={:?} effective={}",
+            &m_id, force_fresh, force_fresh_camel, force_fresh_alias, regeneration_flag, force_fresh_value
+        );
+    }
+
     // §123: 持久化用户选过的模板 ID. 下次进入会议详情默认显示同一模板.
     if let Some(tid) = template_id_for_persist.as_deref() {
         if !tid.trim().is_empty() {
