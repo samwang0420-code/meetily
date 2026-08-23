@@ -586,20 +586,39 @@ pub struct AdminActivateRequest {
 }
 
 /// Admin token 鉴权
-/// 生产环境: 必须 ADMIN_OPERATOR_TOKEN 匹配
-/// dev 环境 (debug build 或显式 LIXIANHUIJI_DEV_MODE=1): 任何非空 token 通过
+///
+/// §P1-B14 (audit 2026-08-23): the previous implementation accepted any non-empty
+/// token when running in a debug build (`cfg!(debug_assertions)`) or when
+/// `LIXIANHUIJI_DEV_MODE=1` was set. Production builds that left the env var
+/// unset silently passed (the `if let Ok(expected)` short-circuit returned
+/// false on the inside, then fell through to `cfg!(debug_assertions)`, and
+/// a developer running a debug-built binary on a customer laptop via Tauri's
+/// dev-tools mode could escalate anyone to Pro without a payment. Now:
+///
+///  - Admin OPERATOR_TOKEN env var must match, case-sensitive.
+///  - When unset OR empty, admin commands refuse outright (no implicit
+///    debug / dev-mode bypass).
+///  - The previous `cfg!(debug_assertions)` and `LIXIANHUIJI_DEV_MODE` escape
+///    hatches are removed.
+///  - To exercise admin flows locally, set `ADMIN_OPERATOR_TOKEN` to a long
+///    random string in `~/.zshrc` and pass that as `operator_token`.
 fn check_admin_token(token: &str) -> bool {
     if token.is_empty() {
         return false;
     }
-    if let Ok(expected) = std::env::var("ADMIN_OPERATOR_TOKEN") {
-        if !expected.is_empty() && token == expected {
-            return true;
-        }
+    let expected = match std::env::var("ADMIN_OPERATOR_TOKEN") {
+        Ok(v) if !v.is_empty() => v,
+        _ => return false,
+    };
+    // Constant-time compare to avoid timing leaks on the operator token.
+    if expected.len() != token.len() {
+        return false;
     }
-    let dev_mode_explicit =
-        std::env::var("LIXIANHUIJI_DEV_MODE").map(|v| v == "1" || v == "true").unwrap_or(false);
-    cfg!(debug_assertions) || dev_mode_explicit
+    let mut diff: u8 = 0;
+    for (a, b) in expected.as_bytes().iter().zip(token.as_bytes().iter()) {
+        diff |= a ^ b;
+    }
+    diff == 0
 }
 
 #[tauri::command]
