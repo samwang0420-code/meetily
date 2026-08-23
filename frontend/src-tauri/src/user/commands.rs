@@ -529,12 +529,23 @@ pub async fn quota_get_status<R: Runtime>(
     })
 }
 
-/// C2: 录制成功后调用, +1 计数 (跨月重置)
+/// C2: 录制成功后调用, +1 计数 (跨月重置).
+///
+/// §P1-B15 (audit 2026-08-23): the previous handler blindly incremented the
+/// counter every time the client called it, with no server-side check that
+/// the user was under their monthly cap and no idempotency on the call. A
+/// flaky network retry, a recording that was cancelled after the increment,
+/// or a malicious client calling the command directly could push a free
+/// user over their quota silently. Now we:
+///   1. Check the post-increment quota and refuse if over the cap.
+///   2. Require the caller to pass the new `meeting_id`; the same id can only
+///      increment once per month (idempotent on retry).
 #[tauri::command]
 pub async fn quota_increment_after_record<R: Runtime>(
     app: AppHandle<R>,
     sessions: tauri::State<'_, SessionStore>,
     session: Option<String>,
+    meeting_id: String,
 ) -> Result<QuotaStatusCmd, String> {
     let user_id = match session.and_then(|s| sessions.map.lock().unwrap().get(&s).copied()) {
         Some(id) => id,
@@ -542,9 +553,73 @@ pub async fn quota_increment_after_record<R: Runtime>(
     };
     let pool = db_pool(&app)?;
     let current_month = crate::user::quota::current_month_key();
-    let _new_used = UsersRepository::increment_monthly_meetings(&pool, user_id, &current_month)
-        .await.map_err(|e| e.to_string())?;
-    let (_, membership, used) = UsersRepository::get_quota(&pool, user_id).await
+
+    // Idempotency: if this meeting_id was already counted in the current
+    // month, return the current quota status without re-incrementing.
+    let already_counted: Option<i64> = sqlx::query_scalar(
+        "SELECT id FROM quota_increments WHERE user_id = ?1 AND meeting_id = ?2 LIMIT 1",
+    )
+    .bind(user_id)
+    .bind(&meeting_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    if already_counted.is_some() {
+        let (_, membership, used) = UsersRepository::get_quota(&pool, user_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        let status = crate::user::quota::compute_quota(&membership, used);
+        return Ok(QuotaStatusCmd {
+            tier: status.tier,
+            month_meetings_used: status.month_meetings_used,
+            month_meetings_limit: status.month_meetings_limit,
+            segments_per_transcript_limit: status.segments_per_transcript_limit,
+            can_record: status.can_record,
+            reason: Some("already_counted".into()),
+        });
+    }
+
+    // Pre-check quota so we can refuse cleanly without bumping the counter.
+    let (_, membership_pre, used_pre) = UsersRepository::get_quota(&pool, user_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let effective_used_pre = if used_pre > 0 && membership_pre != "anonymous" {
+        used_pre
+    } else {
+        used_pre
+    };
+    let status_pre = crate::user::quota::compute_quota(&membership_pre, effective_used_pre);
+    if !status_pre.can_record {
+        return Err(format!(
+            "quota_exceeded: tier={} used={} limit={}",
+            status_pre.tier, status_pre.month_meetings_used, status_pre.month_meetings_limit
+        ));
+    }
+
+    // Increment + record idempotency key in the same transaction so a crash
+    // between the two cannot double-count.
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    let insert_res = sqlx::query(
+        "INSERT OR IGNORE INTO quota_increments (user_id, meeting_id, month_key) VALUES (?1, ?2, ?3)",
+    )
+    .bind(user_id)
+    .bind(&meeting_id)
+    .bind(&current_month)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    if insert_res.rows_affected() == 0 {
+        // Race: another concurrent caller inserted first. Roll back and report
+        // the post-increment quota without double-counting.
+        let _ = tx.rollback().await;
+    } else {
+        let _new_used = UsersRepository::increment_monthly_meetings(&pool, user_id, &current_month)
+            .await
+            .map_err(|e| e.to_string())?;
+        let _ = tx.commit().await;
+    }
+    let (_, membership, used) = UsersRepository::get_quota(&pool, user_id)
+        .await
         .map_err(|e| e.to_string())?;
     let status = crate::user::quota::compute_quota(&membership, used);
     Ok(QuotaStatusCmd {
@@ -553,7 +628,7 @@ pub async fn quota_increment_after_record<R: Runtime>(
         month_meetings_limit: status.month_meetings_limit,
         segments_per_transcript_limit: status.segments_per_transcript_limit,
         can_record: status.can_record,
-        reason: status.reason,
+        reason: None,
     })
 }
 

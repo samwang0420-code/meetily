@@ -305,8 +305,9 @@ export function useRecordingStop(
               ? window.localStorage.getItem('lixianhuiji.session')
               : null;
             if (session) {
+              // §P1-B15: pass meetingId for server-side idempotency.
               const r = await invoke<{ can_record: boolean; month_meetings_used: number; month_meetings_limit: number; reason: string | null }>(
-                'quota_increment_after_record', { session }
+                'quota_increment_after_record', { session, meetingId: meetingId }
               );
               // 用 window 全局事件, 让其他组件刷新 quota
               if (typeof window !== 'undefined') {
