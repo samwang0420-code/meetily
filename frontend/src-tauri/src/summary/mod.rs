@@ -76,3 +76,6 @@ pub use processor::{
     generate_meeting_summary, rough_token_count,
 };
 pub use service::SummaryService;
+
+// §164 hard_post_process — 文档模块 2.4 (2026-08-23 立)
+pub(crate) mod hard_post_process;

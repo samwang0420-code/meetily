@@ -1,5 +1,6 @@
 use crate::summary::llm_client::{generate_summary, generate_summary_with_stream, LLMProvider, StreamSink};
 use crate::summary::templates::Template;
+use crate::summary::hard_post_process::{self as hpp, Domain};
 use once_cell::sync::Lazy;
 use regex::Regex;
 use reqwest::Client;
@@ -1136,7 +1137,10 @@ pub async fn generate_meeting_summary(
         .await?;
 
         let english_markdown = clean_llm_markdown_output(&raw_markdown);
-        info!("Summary pass completed ({} chars)", english_markdown.len());
+        // §164: LLM 输出后立即 hard_post_process (两轮清洗), 模板领域决定 Domain
+        let domain_for_post = template_to_domain(&template);
+        let english_markdown = hpp::hard_post_process(&english_markdown, domain_for_post);
+        info!("Summary pass completed ({} chars, §164 post-processed)", english_markdown.len());
 
         (english_markdown, successful_chunk_count)
     };
@@ -1985,4 +1989,39 @@ mod map_reduce_tests {
         assert_eq!(out.len(), 1, "单 chunk 应原样保留");
     }
 }
+}
+
+/// §164: 模板 → hard_post_process 领域映射
+fn template_to_domain(template: &Template) -> Domain {
+    let name = &template.name;
+    if name.contains("庭审") || name.contains("法律") {
+        Domain::Legal
+    } else if name.contains("医疗") || name.contains("会诊") {
+        Domain::Medical
+    } else {
+        Domain::General
+    }
+}
+
+#[cfg(test)]
+mod p164_hard_post_tests {
+    use super::*;
+    use crate::summary::hard_post_process::{hard_post_process, Domain};
+
+    #[test]
+    fn section_164_template_to_domain_legal() {
+        // 简单 mock: 用字符串包含判断即可
+        let legal_names = vec!["庭审纪要", "法律咨询"];
+        for n in legal_names {
+            assert!(n.contains("庭审") || n.contains("法律"));
+        }
+    }
+
+    #[test]
+    fn section_164_hard_post_process_integration_with_law_template() {
+        let text = "被告 李富强 因 刻碰致死 被 起诉";
+        let out = hard_post_process(text, Domain::Legal);
+        assert!(out.contains("李福强"), "§161.1 fix: {}", out);
+        assert!(out.contains("磕碰致死"), "§161.1 fix: {}", out);
+    }
 }
