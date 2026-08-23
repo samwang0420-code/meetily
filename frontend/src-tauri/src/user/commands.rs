@@ -328,6 +328,14 @@ pub fn system_machine_id() -> String {
     get_machine_id()
 }
 
+// §P1-B12 (audit 2026-08-23): user_activate_member is a self-service Pro
+// upgrade backdoor — any logged-in user could call it via the 5-tap hidden
+// button on /account (frontend/src/app/account/page.tsx). The command is no
+// longer registered in the Tauri invoke_handler, so calling it from a client
+// is impossible. The function body is kept under `#[cfg(test)]` so a future
+// developer can reintroduce it deliberately, but the production path no
+// longer exposes it. Also remove the 5-tap UI handler.
+#[cfg(test)]
 #[tauri::command]
 pub async fn user_activate_member<R: Runtime>(
     app: AppHandle<R>,

@@ -820,7 +820,6 @@ pub fn run() {
             user::commands::user_get_current,
             user::commands::user_logout,
             user::commands::system_machine_id,
-            user::commands::user_activate_member,
             user::commands::hotwords_get,
             user::commands::hotwords_save,
             user::commands::hotwords_set_globals,
