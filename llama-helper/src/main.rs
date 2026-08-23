@@ -73,14 +73,25 @@ impl SamplingConfig {
         repeat_penalty: Option<f32>,
         penalty_last_n: Option<i32>,
     ) -> Self {
-        let temperature = temperature.unwrap_or(1.0);
+        // §163: 推理参数固化 (2026-08-23 立, 文档模块 3)
+        // Map / Reduce 一律使用 temperature=0.1, top_p=0.3, repetition_penalty=1.05
+        // 默认值走 env var 覆盖 (LLAMA_DEFAULT_TEMPERATURE / _TOP_P / _REPEAT_PENALTY),
+        // 单元测试或临时验证可 export 改回 1.0。
+        let default_temperature: f32 = std::env::var("LLAMA_DEFAULT_TEMPERATURE")
+            .ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.1);
+        let default_top_p: f32 = std::env::var("LLAMA_DEFAULT_TOP_P")
+            .ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.3);
+        let default_repeat_penalty: f32 = std::env::var("LLAMA_DEFAULT_REPEAT_PENALTY")
+            .ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(1.05);
+
+        let temperature = temperature.unwrap_or(default_temperature);
         let temperature = if temperature.is_finite() {
             temperature.max(0.0)
         } else {
             0.0
         };
         let top_k = top_k.unwrap_or(64).max(1);
-        let top_p = top_p.unwrap_or(0.95);
+        let top_p = top_p.unwrap_or(default_top_p);
         let top_p = if top_p.is_finite() && top_p > 0.0 && top_p <= 1.0 {
             top_p
         } else {
@@ -98,7 +109,7 @@ impl SamplingConfig {
         } else {
             0.0
         };
-        let repeat_penalty = repeat_penalty.unwrap_or(1.0);
+        let repeat_penalty = repeat_penalty.unwrap_or(default_repeat_penalty);
         let repeat_penalty = if repeat_penalty.is_finite() && repeat_penalty > 0.0 {
             repeat_penalty
         } else {
@@ -558,9 +569,16 @@ fn main() -> Result<()> {
         .and_then(|s| s.parse::<u64>().ok())
         .unwrap_or(300); // 5 minutes default
 
+    // §163: 启动时打印默认推理参数 (供日志验证)
+    let log_temp: f32 = std::env::var("LLAMA_DEFAULT_TEMPERATURE")
+        .ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.1);
+    let log_top_p: f32 = std::env::var("LLAMA_DEFAULT_TOP_P")
+        .ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.3);
+    let log_repeat: f32 = std::env::var("LLAMA_DEFAULT_REPEAT_PENALTY")
+        .ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(1.05);
     eprintln!(
-        "🦙 llama-helper starting (idle timeout: {}s)",
-        idle_timeout_secs
+        "🦙 llama-helper starting (idle timeout: {}s, §163 default: temp={} top_p={} rep={})",
+        idle_timeout_secs, log_temp, log_top_p, log_repeat
     );
 
     let mut state = ModelState::new()?;
@@ -719,6 +737,47 @@ mod tests {
     }
 
     #[test]
+    /// §163: 默认 temperature=0.1, top_p=0.3, repeat_penalty=1.05 (文档模块 3 规范)
+    #[test]
+    fn section_163_default_sampling_values_for_qwen_summary() {
+        let json = r#"{"type":"generate","prompt":"summarize","temperature":null,"top_k":null,"top_p":null,"presence_penalty":null,"frequency_penalty":null,"repeat_penalty":null,"penalty_last_n":null}"#;
+        let request: Request = serde_json::from_str(json).unwrap();
+        let Request::Generate {
+            temperature, top_k, top_p,
+            presence_penalty, frequency_penalty, repeat_penalty,
+            penalty_last_n, ..
+        } = request else { panic!("expected generate") };
+        let sampling = SamplingConfig::from_request(
+            temperature, top_k, top_p,
+            presence_penalty, frequency_penalty, repeat_penalty,
+            penalty_last_n,
+        );
+        // §163 锁定的 3 个值
+        assert!((sampling.temperature - 0.1).abs() < 1e-6, "expected 0.1, got {}", sampling.temperature);
+        assert!((sampling.top_p - 0.3).abs() < 1e-6, "expected 0.3, got {}", sampling.top_p);
+        assert!((sampling.repeat_penalty - 1.05).abs() < 1e-6, "expected 1.05, got {}", sampling.repeat_penalty);
+    }
+
+    /// §163: 调用方显式传入温度/top_p/repeat 应不受默认值影响
+    #[test]
+    fn section_163_explicit_values_override_defaults() {
+        let json = r#"{"type":"generate","prompt":"x","temperature":0.7,"top_k":20,"top_p":0.9,"presence_penalty":0.0,"frequency_penalty":0.0,"repeat_penalty":1.2,"penalty_last_n":0}"#;
+        let request: Request = serde_json::from_str(json).unwrap();
+        let Request::Generate {
+            temperature, top_k, top_p,
+            presence_penalty, frequency_penalty, repeat_penalty,
+            penalty_last_n, ..
+        } = request else { panic!("expected generate") };
+        let sampling = SamplingConfig::from_request(
+            temperature, top_k, top_p,
+            presence_penalty, frequency_penalty, repeat_penalty,
+            penalty_last_n,
+        );
+        assert!((sampling.temperature - 0.7).abs() < 1e-6);
+        assert!((sampling.top_p - 0.9).abs() < 1e-6);
+        assert!((sampling.repeat_penalty - 1.2).abs() < 1e-6);
+    }
+
     fn streaming_response_serializes_delta_and_done() {
         let delta = serde_json::to_string(&Response::Delta { text: "你".to_string() }).unwrap();
         let done = serde_json::to_string(&Response::Done { text: "你好".to_string() }).unwrap();
