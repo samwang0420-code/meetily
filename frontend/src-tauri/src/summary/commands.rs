@@ -346,15 +346,35 @@ pub async fn api_process_transcript<R: Runtime>(
     evidence: Option<Vec<StructuredTranscriptEvidence>>,
     _auth_token: Option<String>,
     // §169: 强制 bypass summary cache, 重新调用 LLM (用户主动 "重新生成" 时为 true)
+    // §169.1: Tauri v2 invoke 序列化默认不自动 camelCase ↔ snake_case 转换,
+    //         snake_case 是后端命令体参数标准命名 (与 useSummaryGeneration.ts 一致).
+    //         但前端老调用方可能仍传 camelCase `forceFresh`, 后端双名接收兜底兼容.
+    //         同样 `regenerationFlag` 用于 prompt 注入迭代标记.
     force_fresh: Option<bool>,
+    force_fresh_camel: Option<bool>,
+    force_fresh_alias: Option<bool>,
+    regeneration_flag: Option<bool>,
 ) -> Result<ProcessTranscriptResponse, String> {
     use uuid::Uuid;
 
+    // §169.1: 双名接收兜底 — 任意一个为 true 都视为 force_fresh=true
+    // 同时打印每个参数的实际接收值 (debug 时容易定位 invoke 序列化问题)
+    let force_fresh_value = force_fresh
+        .or(force_fresh_camel)
+        .or(force_fresh_alias)
+        .unwrap_or(false);
+    let regeneration_flag_value = regeneration_flag.unwrap_or(force_fresh_value);
+
     let m_id = meeting_id.unwrap_or_else(|| format!("meeting-{}", Uuid::new_v4()));
     log_info!(
-        "api_process_transcript (native) called for meeting_id: {}, model: {}",
+        "api_process_transcript (native) called for meeting_id: {}, model: {} | §169.1 force_fresh={} (snake={:?}, camel={:?}, alias={:?}, regen_flag={:?})",
         &m_id,
-        &model
+        &model,
+        force_fresh_value,
+        force_fresh,
+        force_fresh_camel,
+        force_fresh_alias,
+        regeneration_flag,
     );
 
     let pool = state.db_manager.pool().clone();
@@ -431,7 +451,8 @@ pub async fn api_process_transcript<R: Runtime>(
                 final_template_id,
                 summary_language,
                 structured_evidence,
-                force_fresh.unwrap_or(false), // §169: 默认 false, 保留 cache; regenerate 时前端传 true
+                force_fresh_value, // §169.1: 三名接收 (snake/camel/alias) 任一为 true 视为 regenerate
+                regeneration_flag_value, // §169.2: prompt 注入迭代标记
             ),
         )
         .catch_unwind()

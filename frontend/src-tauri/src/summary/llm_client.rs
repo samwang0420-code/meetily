@@ -296,8 +296,25 @@ pub async fn generate_summary_with_stream(
             "stream": stream_sink.is_some(),
             "think": false,  // 关掉 thinking mode (qwen3.5:2b 等 thinking 模型必需)
         });
+        // §169.3: Ollama /api/chat options 块同时支持 num_predict + temperature + top_p.
+        //         之前只传 num_predict, temperature/top_p 永远用 Ollama 默认值
+        //         (qwen3.5:2b 在 Ollama 默认 0.8, 与 §163 推理参数固化 0.1 严重不符).
+        //         现在补传, 让 §163 + §169 真正生效, regenerate 路径也能调温度.
+        let mut options = serde_json::Map::new();
         if let Some(mt) = max_tokens {
-            body["options"] = serde_json::json!({"num_predict": mt});
+            options.insert("num_predict".to_string(), serde_json::json!(mt));
+        }
+        if let Some(t) = temperature {
+            // Clamp to Ollama's expected range [0.0, 2.0]
+            let t_clamped = t.max(0.0).min(2.0);
+            options.insert("temperature".to_string(), serde_json::json!(t_clamped));
+        }
+        if let Some(p) = top_p {
+            let p_clamped = p.max(0.0).min(1.0);
+            options.insert("top_p".to_string(), serde_json::json!(p_clamped));
+        }
+        if !options.is_empty() {
+            body["options"] = serde_json::Value::Object(options);
         }
         body
     } else if provider != &LLMProvider::Claude {

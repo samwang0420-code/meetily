@@ -357,6 +357,9 @@ impl SummaryService {
         // §169: 强制 bypass summary cache, 重新调用 LLM
         // 用户主动点 "重新生成" 按钮时为 true; 首次生成 / polling 重入为 false
         force_fresh: bool,
+        // §169.2: regenerate 时强制在 prompt 头部注入迭代标记 (即使 cache 命中也生效),
+        // 保证 LLM 看到显式 regenerate 标记, 输出必然不同.
+        regeneration_flag: bool,
     ) {
         let start_time = Instant::now();
         info!(
@@ -535,6 +538,10 @@ impl SummaryService {
             custom_openai_top_p,
         );
 
+        info!(
+            "§169.2 service.rs process_transcript_background entered: meeting_id={}, force_fresh={}, regeneration_flag={}",
+            meeting_id, force_fresh, regeneration_flag
+        );
         let cached_english = if force_fresh {
             // §169: 用户主动重新生成 → 强制 bypass cache, 必须真调 LLM
             info!(
@@ -572,14 +579,36 @@ impl SummaryService {
         };
 
         let client = reqwest::Client::new();
-        let evidence_text = if structured_evidence.is_empty() {
-            text.clone()
+        // §169.2: 如果是 regenerate, 在 evidence_text 头部注入显式迭代标记.
+        //         marker 会被打包到 <transcript_chunks>...</transcript_chunks> 之外,
+        //         LLM 第一眼看到, 输出必然重新组织, 不可能跟上次完全一致.
+        //         epoch_ms + meeting_id 后缀保证每次 regenerate 都不同 prompt.
+        let regen_marker: String = if regeneration_flag {
+            let epoch_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis())
+                .unwrap_or(0);
+            let meeting_short: String = meeting_id.chars().rev().take(8).collect::<String>().chars().rev().collect();
+            format!(
+                "<regeneration_marker>\n⚠️ THIS IS A REGENERATION REQUEST (not first generation).\nRe-examine the transcript and produce a fresh, alternative summary.\nThe previous summary (if any) is automatically DISCARDED — do NOT match its wording or structure.\nregenerate_epoch_ms={}\nmeeting_id_suffix={}\n</regeneration_marker>\n\n",
+                epoch_ms, meeting_short
+            )
         } else {
-            structured_evidence.iter().enumerate().map(|(i, item)| {
+            String::new()
+        };
+        info!(
+            "§169.2 regen_marker injection: regeneration_flag={}, marker_len={}",
+            regeneration_flag, regen_marker.len()
+        );
+        let evidence_text = if structured_evidence.is_empty() {
+            format!("{}{}", regen_marker, text)
+        } else {
+            let body = structured_evidence.iter().enumerate().map(|(i, item)| {
                 let start = item.start_seconds.map(|v| format!("{v:.2}s")).unwrap_or_else(|| "unknown".to_string());
                 let end = item.end_seconds.map(|v| format!("{v:.2}s")).unwrap_or_else(|| "unknown".to_string());
                 format!("[evidence:{i} start={start} end={end}] {}", item.text.trim())
-            }).collect::<Vec<_>>().join("\n")
+            }).collect::<Vec<_>>().join("\n");
+            format!("{}{}", regen_marker, body)
         };
 
         let stream_app = app.clone();
@@ -616,6 +645,23 @@ impl SummaryService {
             );
         }));
 
+        // §169.3: regenerate 路径 + 本地 LLM (Ollama/BuiltInAI) → 强制注入 temperature=0.7
+        //         首次生成保留 None (用 model card 默认).
+        //         CustomOpenAI 仍用 custom_openai_temperature (用户已设).
+        //         0.7 是 §163 默认 0.1 与 Ollama 默认 0.8 之间的折中:
+        //         既保留一定稳定性, 又能让 regenerate 输出明显不同于上次的版本.
+        let effective_temperature: Option<f32> = if regeneration_flag
+            && matches!(provider, LLMProvider::Ollama | LLMProvider::BuiltInAI)
+        {
+            Some(0.7_f32)
+        } else {
+            custom_openai_temperature
+        };
+        info!(
+            "§169.3 effective_temperature={:?} (regeneration_flag={}, provider={:?}, custom_openai_temperature={:?})",
+            effective_temperature, regeneration_flag, provider, custom_openai_temperature
+        );
+
         let result = generate_meeting_summary(
             &client,
             &provider,
@@ -629,7 +675,7 @@ impl SummaryService {
             ollama_endpoint.as_deref(),
             custom_openai_endpoint.as_deref(),
             custom_openai_max_tokens,
-            custom_openai_temperature,
+            effective_temperature,
             custom_openai_top_p,
             app_data_dir.as_ref(),
             Some(&cancellation_token),

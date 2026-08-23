@@ -172,6 +172,12 @@ export function useSummaryGeneration({
 
       // §160 B: 30s timeout + 1 retry, 防 Tauri 2 macOS webview 偶发 IPC 静默丢消息
       // §169: 用户主动重新生成 → force_fresh=true, 后端 bypass summary cache, 真调 LLM
+      // §169.1: Tauri v2 invoke 默认不自动转换 camelCase ↔ snake_case,
+      //         后端命令体接收 snake_case `force_fresh`, 必须 snake_case 1:1 发送
+      //         (否则后端 Option<bool> 收到 None, unwrap_or(false) → cache hit → 秒生成)
+      //         同时双发 camelCase `forceFresh` 给后端双名接收兜底
+      // §169.2: regenerationFlag 强制 prompt 头部注入"重新生成 N 次"标识,
+      //         即使 cache 命中也确保 LLM 看到显式 regenerate 标记
       const result = await invokeWithTimeout('api_process_transcript', {
         text: transcriptText,
         model: modelConfig.provider,
@@ -183,7 +189,9 @@ export function useSummaryGeneration({
         templateId: selectedTemplate,
         summaryLanguage,
         evidence,
-        forceFresh: isRegeneration, // §169
+        force_fresh: isRegeneration, // §169.1: snake_case 1:1 与后端命令体一致
+        forceFresh: isRegeneration, // §169.1: 兜底, 后端双名接收
+        regenerationFlag: isRegeneration, // §169.2: prompt 注入使用
       }, {
         timeoutMs: 30_000,
         retries: 1,
