@@ -279,8 +279,21 @@ pub async fn recover_audio_from_checkpoints(
         });
     }
 
-    // Sort by filename (audio_chunk_000.mp4, audio_chunk_001.mp4, etc.)
-    checkpoint_files.sort_by_key(|entry| entry.path());
+    // §P1-A7 (audit 2026-08-23): the previous path-lexical sort misordered
+    // chunks once the meeting crossed 10 minutes (sort goes 0..9 then falls
+    // back to path bytes that don't track the audio timeline once chunk
+    // counts exceed single-digit padding or multiple directories exist).
+    // Sort by the numeric suffix extracted from `audio_chunk_<NNNN>.mp4`,
+    // which is the actual sequential order they were written in.
+    checkpoint_files.sort_by_key(|entry| {
+        entry
+            .path()
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .and_then(|s| s.rsplit('_').next())
+            .and_then(|s| s.parse::<u64>().ok())
+            .unwrap_or(u64::MAX)
+    });
 
     let chunk_count = checkpoint_files.len() as u32;
     let estimated_duration = (chunk_count as f64) * 30.0; // 30 seconds per chunk
