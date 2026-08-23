@@ -707,7 +707,7 @@ pub fn detect_attribution_confusion(transcript: &str, summary: &str) -> Vec<Stri
 /// 1. 提取 transcript 里所有 "被告人X" / "罪犯X" 候选
 /// 2. 如果 ≥ 2 个明确不同的被告人, 在 summary 里找含第二个被告人的段落
 /// 3. 若该段落含 "自首" 等跨案件高风险词, 且 transcript 中 "自首" 上下文只关联第一个被告人 → 命中
-fn detect_cross_case_pollution(transcript: &str, summary: &str) -> Vec<String> {
+pub fn detect_cross_case_pollution(transcript: &str, summary: &str) -> Vec<String> {
     use std::collections::HashSet;
     let mut issues = Vec::new();
     static DEFENDANT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
@@ -1769,4 +1769,113 @@ fn test_161_full_709b_fixture_catches_all_bugs() {
         report.is_legal_critical(),
         "至少 1 个 legal_critical detector 应命中, 实际 report: {report:?}"
     );
+}
+
+
+/// §165: Reduce 阶段检测到多案件时, 把 summary 包成 JSON 数组格式输出
+/// 文档要求 (模块 2.1 Reduce 阶段):
+///   "若检测到输入包含多起独立案件 / 多段无关病情, 则直接输出 JSON 数组,
+///    拆成多条独立条目, 绝不强行揉合成一篇"
+///
+/// 实现策略:
+///   - 调用 detect_cross_case_pollution 检查 summary 是否含跨案件污染
+///   - 如果是: 把整篇 markdown 包装为 case[0] (主案件), case[1] 留给被搬用的案件
+///     加 warning 字段说明哪些 high_risk words 属于哪个案件
+///   - 否: 返回 None (走原 markdown 路径)
+///   - UI 检测 JSON 数组开头 "[" 显示多案件 banner
+///
+/// 降级: detect_cross_case_pollution 抛错或返回空 → None
+pub fn wrap_summary_as_multi_case_array(
+    transcript: &str,
+    summary: &str,
+) -> Option<String> {
+    let issues = detect_cross_case_pollution(transcript, summary);
+    if issues.is_empty() {
+        return None;
+    }
+
+    // 提取 first/second defendant (复用 detect 逻辑)
+    use std::collections::HashSet;
+    static DEFENDANT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
+        r"(?:被告人|罪犯|被告)([\u4e00-\u9fa5]{2,3}?)"
+    ).unwrap());
+    let mut defendants: Vec<String> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
+    let stop_words = ["席", "座位", "权利", "因", "男", "一", "九", "于", "被", "当", "未", "已", "年"];
+    for cap in DEFENDANT_RE.captures_iter(transcript) {
+        if let Some(m) = cap.get(1) {
+            let name = m.as_str().to_string();
+            if !name.is_empty() && !seen.contains(&name) && !stop_words.contains(&name.as_str()) {
+                seen.insert(name.clone());
+                defendants.push(name);
+            }
+        }
+    }
+    if defendants.len() < 2 {
+        return None;
+    }
+    let first_defendant = defendants[0].clone();
+    let second_defendant = defendants[defendants.len() - 1].clone();
+
+    // 包装为 JSON 数组 — 保持原 markdown 作为 case[0], 加 case[1] 待补
+    let json = format!(
+        concat!(
+            "[\n",
+            "  {{\n",
+            "    \"case_index\": 1,\n",
+            "    \"defendant\": \"{first}\",\n",
+            "    \"content\": {content_json},\n",
+            "    \"warning\": null\n",
+            "  }},\n",
+            "  {{\n",
+            "    \"case_index\": 2,\n",
+            "    \"defendant\": \"{second}\",\n",
+            "    \"content\": \"(本案件摘要需根据原 transcript 单独生成)\",\n",
+            "    \"warning\": {warning_json}\n",
+            "  }}\n",
+            "]"
+        ),
+        first = first_defendant,
+        second = second_defendant,
+        content_json = serde_json::to_string(summary).unwrap_or_else(|_| String::from("")),
+        warning_json = serde_json::to_string(&issues.join("; ")).unwrap_or_else(|_| String::from("")),
+    );
+    Some(json)
+}
+
+#[cfg(test)]
+mod p165_multi_case_tests {
+    use super::*;
+
+    #[test]
+    fn section_165_no_multi_case_returns_none() {
+        let transcript = "被告李三因合同纠纷起诉";
+        let summary = "本案涉及合同纠纷, 双方协商解决";
+        let out = wrap_summary_as_multi_case_array(transcript, summary);
+        assert!(out.is_none(), "should return None for single case: {:?}", out);
+    }
+
+    #[test]
+    fn section_165_multi_case_emits_json_array() {
+        // 模拟 §161 用户报告的多案件场景
+        let transcript = "被告人三小因故意伤害被起诉. 另案中被告人赵某因交通肇事被起诉, 该案中赵某自首情节有争议";
+        let summary = "## 争议焦点\n本案被告人三小的辩护人提出赵某自首情节不适用, 讨论了交通肇事案的驾驶证问题";
+        let out = wrap_summary_as_multi_case_array(transcript, summary);
+        assert!(out.is_some(), "should detect multi-case: {:?}", out);
+        let json = out.unwrap();
+        assert!(json.starts_with("[\n"), "should be JSON array: {}", &json[..50]);
+        assert!(json.contains("\"case_index\": 1"), "case 1 present");
+        assert!(json.contains("\"case_index\": 2"), "case 2 present");
+        assert!(json.contains("三小"), "first defendant present");
+        assert!(json.contains("赵某"), "second defendant present");
+        assert!(json.contains("warning"), "warning field present");
+    }
+
+    #[test]
+    fn section_165_multi_case_with_no_defendants_returns_none() {
+        let transcript = "本院认为...";
+        let summary = "本院认为...";
+        let out = wrap_summary_as_multi_case_array(transcript, summary);
+        assert!(out.is_none());
+    }
 }

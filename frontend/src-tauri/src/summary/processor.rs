@@ -1139,8 +1139,15 @@ pub async fn generate_meeting_summary(
         let english_markdown = clean_llm_markdown_output(&raw_markdown);
         // §164: LLM 输出后立即 hard_post_process (两轮清洗), 模板领域决定 Domain
         let domain_for_post = template_to_domain(&template);
-        let english_markdown = hpp::hard_post_process(&english_markdown, domain_for_post);
-        info!("Summary pass completed ({} chars, §164 post-processed)", english_markdown.len());
+        let mut english_markdown = hpp::hard_post_process(&english_markdown, domain_for_post);
+        // §165: Reduce 多案件 → JSON 数组包装 (text 是 generate_meeting_summary 的 transcript 参数)
+        if let Some(json_array) = crate::summary::fact_guard::wrap_summary_as_multi_case_array(
+            text, &english_markdown
+        ) {
+            info!("§165 multi-case JSON array emitted ({} chars)", json_array.len());
+            english_markdown = json_array;
+        }
+        info!("Summary pass completed ({} chars, §164 + §165)", english_markdown.len());
 
         (english_markdown, successful_chunk_count)
     };
