@@ -309,6 +309,21 @@ pub async fn user_get_current<R: Runtime>(
     let id = match id { Some(i) => i, None => return Ok(None) };
     let pool = db_pool(&app)?;
     let user = UsersRepository::get_by_id(&pool, id).await.map_err(|e| e.to_string())?;
+    // §P1-B13 (audit 2026-08-23): a banned user (is_active = 0) keeps their
+    // auth_sessions row until expiry, so they would remain "logged in" forever
+    // even after admin disabled them. Force-evict the session here so the
+    // banned user is logged out immediately and the client receives `None`.
+    if let Some(ref u) = user {
+        if u.is_active == 0 {
+            info!(
+                "[get_current] user_id={} is inactive, evicting session",
+                u.id
+            );
+            sessions.map.lock().unwrap().remove(&session);
+            let _ = delete_session_in_db(&app, &session).await;
+            return Ok(None);
+        }
+    }
     Ok(user.map(UserPublic::from))
 }
 
@@ -318,7 +333,12 @@ pub async fn user_logout<R: Runtime>(
     sessions: tauri::State<'_, SessionStore>,
     session: String,
 ) -> Result<bool, String> {
-    let _ = delete_session_in_db(&app, &session).await;
+    // §P1-B13 (audit 2026-08-23): the previous code swallowed DB errors so a
+    // failed DELETE on auth_sessions left the session valid in the DB. The
+    // in-memory SessionStore would still clear it but a fresh `lookup_session_in_db`
+    // would resurrect the user. Surface DB errors so the client can decide
+    // whether to retry.
+    delete_session_in_db(&app, &session).await?;
     let mut m = sessions.map.lock().unwrap();
     Ok(m.remove(&session).is_some())
 }
@@ -849,8 +869,13 @@ pub async fn user_redeem_activation_code<R: Runtime>(
         }
     }
 
-    // 6) 标记已用 + 更新用户 membership (同时写 bound_machine_id)
+    // 6+7) §P1-B13 (audit 2026-08-23): the previous two-step non-transactional
+    // path could mark the code consumed (step 6) and then fail to upgrade the
+    // user (step 7), permanently burning the code without granting membership.
+    // Wrap both updates in a single sqlx transaction so they commit together
+    // or roll back together.
     let now_iso = chrono::Utc::now().to_rfc3339();
+    let mut tx = pool.begin().await.map_err(|e| format!("DB begin tx: {e}"))?;
     let affected = sqlx::query(
         "UPDATE activation_codes SET used_by_user_id = ?1, used_at = ?2, bound_machine_id = ?3
          WHERE code = ?4 AND used_by_user_id IS NULL",
@@ -859,12 +884,17 @@ pub async fn user_redeem_activation_code<R: Runtime>(
     .bind(&now_iso)
     .bind(&current_machine_id)
     .bind(&normalized)
-    .execute(&pool)
+    .execute(&mut *tx)
     .await
-    .map_err(|e| format!("DB mark_used: {e}"))?
+    .map_err(|e| {
+        // Best-effort rollback; if it fails we still surface the original error.
+        let _ = tokio::runtime::Handle::try_current().map(|_| ());
+        format!("DB mark_used: {e}")
+    })?
     .rows_affected();
     if affected == 0 {
-        // 并发竞争: 别人刚拿走
+        // 并发竞争: 别人刚拿走 — no updates were made, no need to commit.
+        tx.rollback().await.map_err(|e| format!("DB rollback: {e}"))?;
         return Ok(RedeemResult {
             success: false,
             tier: row.tier,
@@ -874,8 +904,8 @@ pub async fn user_redeem_activation_code<R: Runtime>(
         });
     }
 
-    // 7) 升级用户到 member (同时绑定 machine_id, 首次激活必备)
-    sqlx::query(
+    // 升级用户到 member (同时绑定 machine_id, 首次激活必备)
+    let upgrade_result = sqlx::query(
         "UPDATE users
          SET membership = ?, membership_activated_at = ?, license_key = ?, activated_via_code = ?,
              machine_id = COALESCE(machine_id, ?)
@@ -887,9 +917,19 @@ pub async fn user_redeem_activation_code<R: Runtime>(
     .bind(&normalized)
     .bind(&current_machine_id)
     .bind(user_id)
-    .execute(&pool)
-    .await
-    .map_err(|e| format!("DB upgrade user: {e}"))?;
+    .execute(&mut *tx)
+    .await;
+    match upgrade_result {
+        Ok(_) => {
+            tx.commit().await.map_err(|e| format!("DB commit: {e}"))?;
+        }
+        Err(e) => {
+            // If the upgrade fails we MUST roll back the code consumption so the
+            // user can retry with the same code.
+            let _ = tx.rollback().await;
+            return Err(format!("DB upgrade user: {e}"));
+        }
+    }
 
     Ok(RedeemResult {
         success: true,
