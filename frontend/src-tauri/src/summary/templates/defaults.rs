@@ -12,6 +12,7 @@ pub const STANDARD_MEETING: &str = include_str!("../../../templates/standard_mee
 /// Industry-specific templates shipped with the application.
 pub const LEGAL_CONSULTATION: &str = include_str!("../../../templates/legal_consultation.json");
 pub const MEDICAL_CONSULTATION: &str = include_str!("../../../templates/medical_consultation.json");
+pub const MEDICAL_INTERNAL_ROUND: &str = include_str!("../../../templates/medical_internal_round.json");
 /// §131.2 庭审纪要模板 — 法院庭审专版, 不与 legal_consultation 律师咨询混用
 pub const COURT_HEARING: &str = include_str!("../../../templates/court_hearing.json");
 /// §131.4 完整注册 — 之前 JSON 写了但未 register, 用户看不到
@@ -53,6 +54,7 @@ pub fn get_builtin_template(id: &str) -> Option<&'static str> {
         "standard_meeting" => Some(STANDARD_MEETING),
         "legal_consultation" => Some(LEGAL_CONSULTATION),
         "medical_consultation" => Some(MEDICAL_CONSULTATION),
+        "medical_internal_round" => Some(MEDICAL_INTERNAL_ROUND),
         "court_hearing" => Some(COURT_HEARING),
         "cross_border_ecommerce" => Some(CROSS_BORDER_ECOMMERCE),
         "project_sync" => Some(PROJECT_SYNC),
@@ -177,5 +179,22 @@ mod tests {
             });
             assert!(has_narrative, "template {id} must have a Narrative Summary section (整件事叙述)");
         }
+    }
+    
+    #[test]
+    fn section_167_medical_internal_round_template_loads() {
+        let content = get_builtin_template("medical_internal_round").expect("medical_internal_round");
+        assert!(content.contains("科室会诊纪要"), "name: {}", &content[..200]);
+    }
+    #[test]
+    fn section_167_medical_internal_round_has_10_sections() {
+        let content = get_builtin_template("medical_internal_round").expect("medical_internal_round");
+        assert_eq!(content.matches("\"title\":").count(), 10, "must have 10 sections");
+    }
+    #[test]
+    fn section_167_medical_internal_round_has_doctor_opinions_section() {
+        let content = get_builtin_template("medical_internal_round").expect("medical_internal_round");
+        assert!(content.contains("各医生意见汇总"), "must have 各医生意见汇总 section");
+        assert!(content.contains("会诊结论与下一步"), "must have 会诊结论与下一步 section");
     }
 }
