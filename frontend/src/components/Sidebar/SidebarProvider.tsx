@@ -1,6 +1,6 @@
 'use client';
 
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import Analytics from '@/lib/analytics';
 import { invoke } from '@tauri-apps/api/core';
@@ -334,13 +334,21 @@ export function SidebarProvider({ children }: { children: React.ReactNode }) {
     }
   }, [activeSummaryPolls]);
 
-  // Cleanup all polling intervals on unmount
+  // §P2-B (audit 2026-08-23): previous dependency on [activeSummaryPolls]
+  // re-ran the cleanup every time the map changed. Each 
+  // fired against every still-active interval, killing concurrent summary
+  // polls the moment one meeting finished. Use an empty dep array so we
+  // only tear down on actual unmount, and read the latest map via a ref.
+  const activeSummaryPollsRef = useRef(activeSummaryPolls);
+  useEffect(() => {
+    activeSummaryPollsRef.current = activeSummaryPolls;
+  }, [activeSummaryPolls]);
   useEffect(() => {
     return () => {
-      console.log('🧹 Cleaning up all summary polling intervals');
-      activeSummaryPolls.forEach(interval => clearInterval(interval));
+      console.log('🧹 Cleaning up all summary polling intervals (unmount only)');
+      activeSummaryPollsRef.current.forEach(interval => clearInterval(interval));
     };
-  }, [activeSummaryPolls]);
+  }, []);
 
 
 
