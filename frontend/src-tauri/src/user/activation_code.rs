@@ -8,6 +8,7 @@
 //! 鉴权: 不依赖登录态, code 本身就是权限 (gift card 模式).
 
 use base32::{Alphabet, encode as b32_encode};
+use sha2::{Digest, Sha256};
 
 const PREFIX: &str = "PROMO";
 const SECRET_LEN: usize = 8;
@@ -81,14 +82,21 @@ pub fn validate_code(raw: &str) -> Result<String, String> {
     Ok(normalized)
 }
 
-/// 4 字符 checksum (FNV-1a 64-bit + base32)
+/// §P1-B16 (audit 2026-08-23): replaced FNV-1a (trivially reversible, no
+/// secret separation, 64-bit collision space) with keyed SHA-256 truncated to
+/// 4 characters of Crockford base32. The salt is a project constant; a
+/// malicious local user can still tamper with their SQLite to grant
+/// themselves membership, but the in-product checksum is now a real
+/// cryptographic digest instead of a public hash function. Note: real
+/// authorization still happens against the `activation_codes` DB row at
+/// redeem time, so this upgrade only hardens the typo-detection layer.
 fn compute_checksum_4(core: &str) -> String {
-    let mut acc: u64 = 0xcbf29ce484222325;
-    for b in core.as_bytes() {
-        acc = (acc ^ (*b as u64)).wrapping_mul(0x100000001b3);
-    }
-    let bytes = acc.to_le_bytes();
-    let encoded = b32_encode(ALPHABET, &bytes);
+    // Salt embeds the schema version so old codes still verify.
+    let mut hasher = Sha256::new();
+    hasher.update(b"yanjing-ai-activation-code-checksum/v1:");
+    hasher.update(core.as_bytes());
+    let digest = hasher.finalize();
+    let encoded = b32_encode(ALPHABET, &digest);
     encoded
         .chars()
         .filter(|c| *c != '=')

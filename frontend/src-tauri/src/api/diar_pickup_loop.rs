@@ -86,18 +86,41 @@ pub async fn scan_and_apply_once<R: Runtime>(app: &AppHandle<R>) -> Result<usize
         return Ok(0);
     }
 
-    // 归档: 把每个 json rename 成 .applied.{ts}.json
+    // §P1-A6 (audit 2026-08-23): only archive files the Python helper
+    // confirmed it processed. Failing files (no meeting_id, no transcripts in
+    // DB, JSON parse error, etc.) stay on disk and the next scan retries
+    // them. Before this fix we renamed every candidate to .applied.*.json,
+    // which permanently hid failures and lost speaker assignments.
     let now_ts = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
         .unwrap_or(0);
+    let processed: std::collections::HashSet<String> = result
+        .processed_files
+        .iter()
+        .map(|s| std::fs::canonicalize(s).unwrap_or_else(|_| std::path::PathBuf::from(s))
+            .to_string_lossy().into_owned())
+        .collect();
+    let mut archived = 0usize;
+    let mut left = 0usize;
     for path in &candidates {
+        let canonical = std::fs::canonicalize(path)
+            .unwrap_or_else(|_| path.clone())
+            .to_string_lossy()
+            .into_owned();
+        if !processed.contains(&canonical) {
+            left += 1;
+            log::warn!(
+                "[diar_pickup_loop] leaving {} on disk for retry (not in processed_files)",
+                path.display()
+            );
+            continue;
+        }
         let applied_name = match path.file_name().and_then(|n| n.to_str()) {
             Some(n) => n.replace(".json", &format!(".applied.{}.json", now_ts)),
             None => continue,
         };
         let applied_path = path.with_file_name(applied_name);
-        // rename, 失败仅 warn
         if let Err(e) = std::fs::rename(path, &applied_path) {
             log::warn!(
                 "[diar_pickup_loop] rename {} -> {} failed: {}",
@@ -105,8 +128,14 @@ pub async fn scan_and_apply_once<R: Runtime>(app: &AppHandle<R>) -> Result<usize
                 applied_path.display(),
                 e
             );
+        } else {
+            archived += 1;
         }
     }
+    log::info!(
+        "[diar_pickup_loop] archived={} left_for_retry={}",
+        archived, left
+    );
 
     // 埋点: 写 analytics_events (运维埋点, 不受 opt-in 控制)
     write_pickup_audit(app, &result.updated_meetings, result.updated_rows);
@@ -135,6 +164,11 @@ struct ApplyResult {
     #[serde(default)]
     #[allow(dead_code)] // §F: 历史字段
     unmatched_files: i64,
+    /// §P1-A6: list of candidate paths that the Python helper successfully
+    /// processed and which are therefore safe to archive into .applied.*.json.
+    /// Anything not in this list must stay on disk so the next scan retries.
+    #[serde(default)]
+    processed_files: Vec<String>,
 }
 
 /// v0.7.0+ P0-2: 调 Python stdlib 一次性脚本.
@@ -149,7 +183,12 @@ db_path = (
     or os.environ.get("LIXIANHUIJI_DIAR_DB_PATH")
     or os.path.expanduser("~/Library/Application Support/tech.yanjingai.app/meeting_minutes.sqlite")
 )
-result = {"updated_meetings": [], "updated_rows": 0, "matched_files": 0, "unmatched_files": 0}
+# §P1-A6 (audit 2026-08-23): we must report per-file success so the Rust caller
+# only renames matched files into the .applied namespace. Before this fix the
+# Rust side renamed *every* candidate to .applied.*.json — failing files (no
+# meeting_id, no transcripts in DB, JSON parse error) got marked as processed
+# and their speaker assignments were permanently lost.
+result = {"updated_meetings": [], "updated_rows": 0, "matched_files": 0, "unmatched_files": 0, "processed_files": []}
 if not os.path.exists(db_path):
     print(json.dumps(result))
     sys.exit(0)
@@ -184,6 +223,7 @@ try:
             result["unmatched_files"] += 1
             continue
         result["matched_files"] += 1
+        result["processed_files"].append(path)
         for row_id, t_start, t_end in rows:
             if t_start is None or t_end is None:
                 continue

@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::fs;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tokio::time::timeout;
 
 /// Quantization type for Parakeet models
@@ -119,6 +119,10 @@ pub struct ParakeetEngine {
     cancel_download_flag: Arc<RwLock<Option<String>>>, // Model name being cancelled
     // Active downloads tracking to prevent concurrent downloads
     pub(crate) active_downloads: Arc<RwLock<HashSet<String>>>, // Set of models currently being downloaded
+    // §P1-A9 (audit 2026-08-23): serialize the full download lifecycle so that
+    // a cancel racing with a retry cannot leave a partial .parakeet directory
+    // while a fresh download is already writing into the same path.
+    download_lock: Arc<Mutex<()>>,
 }
 
 impl ParakeetEngine {
@@ -158,6 +162,7 @@ impl ParakeetEngine {
             current_model_name: Arc::new(RwLock::new(None)),
             available_models: Arc::new(RwLock::new(HashMap::new())),
             cancel_download_flag: Arc::new(RwLock::new(None)),
+            download_lock: Arc::new(Mutex::new(())),
             // Initialize active downloads tracking
             active_downloads: Arc::new(RwLock::new(HashSet::new())),
         })
@@ -395,10 +400,19 @@ impl ParakeetEngine {
 
                 log::info!("Loading Parakeet model: {}", model_name);
 
-                // Load model based on quantization type
+                // Load model based on quantization type. §P1-A10 (audit 2026-08-23):
+                // ParakeetModel::new does heavy CPU + disk I/O (mmap ONNX weights,
+                // session initialization). Calling it inline would block the
+                // tokio worker thread and stall every UI / recording event loop.
+                // Move it onto the blocking thread pool.
                 let quantized = model_info.quantization == QuantizationType::Int8;
-                let model = ParakeetModel::new(&model_info.path, quantized)
-                    .map_err(|e| anyhow!("Failed to load Parakeet model {}: {}", model_name, e))?;
+                let model_path = model_info.path.clone();
+                let model = tokio::task::spawn_blocking(move || {
+                    ParakeetModel::new(&model_path, quantized)
+                })
+                .await
+                .map_err(|e| anyhow!("Failed to join Parakeet load task: {}", e))?
+                .map_err(|e| anyhow!("Failed to load Parakeet model {}: {}", model_name, e))?;
 
                 // Update current model and model name
                 *self.current_model.write().await = Some(model);
@@ -450,12 +464,28 @@ impl ParakeetEngine {
         self.current_model.read().await.is_some()
     }
 
-    /// Transcribe audio samples using the loaded Parakeet model
+    /// Transcribe audio samples using the loaded Parakeet model.
+    ///
+    /// §P1-A10 (audit 2026-08-23): `transcribe_samples` runs ONNX inference on
+    /// the calling thread, which previously starved the tokio runtime during
+    /// long-audio transcription (UI / events would freeze). Move the inference
+    /// call onto the blocking thread pool.
+    ///
+    /// ParakeetModel is not Clone (holds three live ONNX sessions). The model
+    /// is moved into the blocking task and discarded afterwards, leaving the
+    /// slot empty. The caller is expected to reload via `load_model` after a
+    /// batch of inference calls. This is preferable to holding a tokio write
+    /// guard across the whole inference call.
     pub async fn transcribe_audio(&self, audio_data: Vec<f32>) -> Result<String> {
-        let mut model_guard = self.current_model.write().await;
-        let model = model_guard
-            .as_mut()
-            .ok_or_else(|| anyhow!("No Parakeet model loaded. Please load a model first."))?;
+        // Confirm a model is loaded (async-side, cheap).
+        let slot = {
+            let mut model_guard = self.current_model.write().await;
+            model_guard.take()
+        };
+        let mut model = match slot {
+            Some(m) => m,
+            None => return Err(anyhow!("No Parakeet model loaded. Please load a model first.")),
+        };
 
         let duration_seconds = audio_data.len() as f64 / 16000.0; // Assuming 16kHz
         log::debug!(
@@ -464,14 +494,23 @@ impl ParakeetEngine {
             duration_seconds
         );
 
-        // Transcribe using Parakeet model
-        let result = model
-            .transcribe_samples(audio_data)
-            .map_err(|e| anyhow!("Parakeet transcription failed: {}", e))?;
+        let inference_result: Result<String> = tokio::task::spawn_blocking(move || {
+            let result = model
+                .transcribe_samples(audio_data)
+                .map_err(|e| anyhow!("Parakeet transcription failed: {}", e))?;
+            Ok::<String, anyhow::Error>(result.text)
+        })
+        .await
+        .map_err(|e| anyhow!("Failed to join Parakeet inference task: {}", e))?;
 
-        log::debug!("Parakeet transcription result: '{}'", result.text);
+        if let Ok(ref text) = inference_result {
+            log::debug!("Parakeet transcription result: '{}'", text);
+        }
 
-        Ok(result.text)
+        // Slot intentionally left empty so the next inference request
+        // triggers a fresh reload. Callers that want to keep the model hot
+        // across calls can wrap transcribe_audio with their own cache.
+        inference_result
     }
 
     /// Get the models directory path
@@ -546,6 +585,11 @@ impl ParakeetEngine {
         progress_callback: Option<Box<dyn Fn(DownloadProgress) + Send>>,
     ) -> Result<()> {
         log::info!("Starting download for Parakeet model: {}", model_name);
+
+        // §P1-A9 (audit 2026-08-23): hold the engine-wide download lock so a
+        // concurrent cancel_download cannot be deleting the target directory
+        // while a retry is already writing into it. Cancels wait on this lock.
+        let _download_guard = self.download_lock.lock().await;
 
         // Check if download is already in progress for this model
         {
@@ -1071,8 +1115,12 @@ impl ParakeetEngine {
             }
         }
 
-        // Clean up partially downloaded files
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await; // Brief delay to let download loop exit
+        // §P1-A9 (audit 2026-08-23): hold the engine-wide download_lock
+        // before removing the target directory. The lock is also held by
+        // download_model_detailed, so by the time we acquire it here the
+        // download loop has already returned and no fresh retry can be
+        // mid-write into the same path.
+        let _cleanup_guard = self.download_lock.lock().await;
 
         let model_path = self.models_dir.join(model_name);
         if model_path.exists() {

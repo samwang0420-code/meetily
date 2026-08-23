@@ -52,6 +52,11 @@ pub struct SidecarManager {
 
     /// Idle timeout in seconds (configurable via env var)
     idle_timeout_secs: u64,
+
+    /// §P1-A4: per-instance in-flight mutex. Held across the entire
+    /// stdin-write → stdout-read cycle to prevent concurrent callers from
+    /// interleaving requests and reading each other's responses.
+    in_flight: Arc<Mutex<()>>,
 }
 
 /// RAII guard for tracking active requests
@@ -98,6 +103,7 @@ impl SidecarManager {
             is_healthy: Arc::new(AtomicBool::new(false)),
             should_shutdown: Arc::new(AtomicBool::new(false)),
             active_request_count: Arc::new(AtomicUsize::new(0)),
+            in_flight: Arc::new(Mutex::new(())),
             helper_binary_path,
             current_model_path: Arc::new(RwLock::new(None)),
             idle_timeout_secs,
@@ -348,10 +354,19 @@ impl SidecarManager {
         Ok(())
     }
 
-    /// Send a request to the sidecar and wait for response
+    /// Send a request to the sidecar and wait for response.
+    ///
+    /// §P1-A4 (audit 2026-08-23): the sidecar exposes a single stdin/stdout pair;
+    /// before this fix two concurrent callers would write into stdin from
+    /// different tasks and then race on read_response — request A could read
+    /// request B's response (and vice versa). The serialization mutex below
+    /// makes the entire write+read cycle atomic.
     pub async fn send_request(&self, request_json: String, timeout: Duration) -> Result<String> {
         // Track active request
         let _guard = RequestGuard::new(self.active_request_count.clone());
+
+        // §P1-A4: serialize the full write+read cycle per sidecar instance.
+        let _in_flight = self.in_flight.lock().await;
 
         // Write request to stdin
         {
@@ -399,6 +414,8 @@ impl SidecarManager {
         F: FnMut(&str) + Send,
     {
         let _guard = RequestGuard::new(self.active_request_count.clone());
+        // §P1-A4: serialize the full write+read cycle per sidecar instance.
+        let _in_flight = self.in_flight.lock().await;
         {
             let mut stdin_lock = self.stdin_writer.lock().await;
             let stdin = stdin_lock.as_mut().ok_or_else(|| anyhow!("Sidecar not running"))?;
@@ -615,6 +632,7 @@ impl SidecarManager {
             helper_binary_path: self.helper_binary_path.clone(),
             current_model_path: self.current_model_path.clone(),
             idle_timeout_secs: self.idle_timeout_secs,
+            in_flight: self.in_flight.clone(),
         };
 
         tokio::spawn(async move {
@@ -663,6 +681,7 @@ impl SidecarManager {
             helper_binary_path: self.helper_binary_path.clone(),
             current_model_path: self.current_model_path.clone(),
             idle_timeout_secs: self.idle_timeout_secs,
+            in_flight: self.in_flight.clone(),
         };
 
         tokio::spawn(async move {

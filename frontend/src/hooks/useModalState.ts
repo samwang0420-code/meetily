@@ -164,17 +164,25 @@ export function useModalState(transcriptModelConfig?: TranscriptModelProps): Use
     };
   }, [showModal]);
 
-  // Listen for model download completion to auto-close modal
+  // Listen for model download completion to auto-close modal.
+  //
+  // §P2-D (audit 2026-08-23): the previous effect called
+  // setupDownloadListeners() and discarded the returned cleanup. Every
+  // re-render leaked one listener and the registered handlers eventually
+  // fired multiple times. Now we capture the returned cleanup and wire
+  // it into useEffect's cleanup so React unregisters them on dep change
+  // or unmount.
   useEffect(() => {
+    let cleanup: (() => void) | null = null;
+    let cancelled = false;
+
     const setupDownloadListeners = async () => {
       const unlisteners: (() => void)[] = [];
 
-      // Listen for Whisper model download complete
       const unlistenWhisper = await listen<{ modelName: string }>('model-download-complete', (event) => {
         const { modelName } = event.payload;
         console.log('[useModalState] Whisper model download complete:', modelName);
 
-        // Auto-close modal if the downloaded model matches the selected one
         if (transcriptModelConfig?.provider === 'localWhisper' && transcriptModelConfig?.model === modelName) {
           safeToast.success('Model ready! Closing window...', { duration: 1500 });
           setTimeout(() => hideModal('modelSelector'), 1500);
@@ -182,12 +190,23 @@ export function useModalState(transcriptModelConfig?: TranscriptModelProps): Use
       });
       unlisteners.push(unlistenWhisper);
 
-      return () => {
-        unlisteners.forEach(unsub => unsub());
-      };
+      // If this effect was cancelled before the listener attached, clean up
+      // immediately to avoid a leaked subscription.
+      if (cancelled) {
+        unlisteners.forEach((u) => u());
+        return;
+      }
+      cleanup = () => unlisteners.forEach((u) => u());
     };
 
     setupDownloadListeners();
+
+    return () => {
+      cancelled = true;
+      if (cleanup) {
+        cleanup();
+      }
+    };
   }, [transcriptModelConfig, hideModal]);
 
   return {

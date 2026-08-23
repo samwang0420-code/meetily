@@ -47,10 +47,24 @@ pub async fn initialize_parallel_processor(
 
     config.max_workers = std::cmp::min(config.max_workers, safe_workers);
 
-    let (processor, _event_receiver) = ParallelProcessor::new(
+    let (processor, event_receiver) = ParallelProcessor::new(
         config.clone(),
         state.system_monitor.clone()
     ).map_err(|e| format!("Failed to create parallel processor: {}", e))?;
+
+    // §P1-A8 (audit 2026-08-23): the previous code discarded the event receiver
+    // (`_event_receiver`). Workers emitted `ProcessingEvent` to a channel that
+    // nobody drained, so the channel filled and every subsequent send either
+    // blocked or silently failed. Drain it into a single log line so we at
+    // least observe the worker lifecycle in the console and the channel stays
+    // open. A real Tauri event-bus bridge requires plumbing the AppHandle into
+    // the processor state — that's a follow-up beyond audit §P1-A8.
+    tauri::async_runtime::spawn(async move {
+        let mut rx = event_receiver;
+        while let Some(event) = rx.recv().await {
+            log::info!("[parallel_processor] event: {:?}", event);
+        }
+    });
 
     *state.processor.write().await = Some(processor);
 
@@ -175,7 +189,22 @@ pub async fn prepare_audio_chunks(
     chunk_duration_ms: Option<f64>,
 ) -> Result<Vec<AudioChunk>, String> {
     let duration_ms = chunk_duration_ms.unwrap_or(30000.0); // 30 seconds default
+    // §P1-A8 (audit 2026-08-23): reject degenerate inputs that would feed
+    // `audio_data.chunks(0)` and panic. Both sample_rate and duration_ms
+    // must be positive.
+    if sample_rate == 0 {
+        return Err("sample_rate must be > 0".to_string());
+    }
+    if duration_ms <= 0.0 {
+        return Err("chunk_duration_ms must be > 0".to_string());
+    }
     let samples_per_chunk = ((sample_rate as f64 * duration_ms) / 1000.0) as usize;
+    if samples_per_chunk == 0 {
+        return Err(format!(
+            "computed samples_per_chunk is 0 (sample_rate={}, duration_ms={})",
+            sample_rate, duration_ms
+        ));
+    }
 
     let mut chunks = Vec::new();
     let mut chunk_id = 0;

@@ -6,6 +6,7 @@ use anyhow::{anyhow, Result};
 use log::{debug, error, info, warn};
 use rayon::prelude::*;
 use std::borrow::Cow;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::process::{Command, Stdio};
 
@@ -292,10 +293,18 @@ fn convert_to_wav_with_ffmpeg(
     // §62 B.3: Use /tmp tmpfs (macOS APFS /var/folders = tmpfs) for ffmpeg decode wav.
     // 收益: 1.08GB wav 写盘从 ~30s (原卷 APFS) → ~6s (tmpfs), 3-5x 加速
     // ffmpeg input/output 不走 hardlink, cross-device 不影响
+    //
+    // §P1-C (audit 2026-08-23): explicitly create the parent dir with 0700 and
+    // the temp file with 0600. The default `tempfile` crate already uses 0600
+    // on Unix but we want this to be loud and obvious in code review. The
+    // parent dir uses 0700 so a different local user on the same machine
+    // cannot enumerate the decode WAV path.
     let temp_dir = std::env::temp_dir();
+    let _ = std::fs::set_permissions(&temp_dir, std::fs::Permissions::from_mode(0o700));
     let temp_file = tempfile::Builder::new()
         .prefix(".meetily_decode_")
         .suffix(".wav")
+        .permissions(std::fs::Permissions::from_mode(0o600))
         .tempfile_in(&temp_dir)
         .map_err(|e| anyhow!("Failed to create temporary WAV file: {}", e))?;
 

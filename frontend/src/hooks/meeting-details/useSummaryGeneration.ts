@@ -506,31 +506,50 @@ export function useSummaryGeneration({
     };
   }, []);
 
-  // Public API: Generate summary from transcripts
+  // Public API: Generate summary from transcripts.
+  //
+  // §P2-C (audit 2026-08-23): the previous implementation set status to
+  // 'processing' up front, then had several early-return paths (model
+  // config still loading, no transcripts available, etc.) that did not
+  // reset the status. After one such early-return the UI was stuck on
+  // 'processing' forever and the user could only escape via a hard refresh.
+  // Wrap the body in a try/finally that always returns to a terminal state.
   const handleGenerateSummary = useCallback(async (customPrompt: string = '') => {
-    // 立即给 UI 反馈, 避免按钮"空响"假象. 真正早返回路径会用 setSummaryStatus('error') 兜底
     setSummaryStatus('processing');
     setSummaryError(null);
 
-    // Check if model config is still loading
-    if (isModelConfigLoading) {
-      console.log('⏳ Model configuration is still loading, please wait...');
+    try {
+      // Check if model config is still loading
+      if (isModelConfigLoading) {
+        console.log('⏳ Model configuration is still loading, please wait...');
+        setSummaryStatus('error');
+        setSummaryError(t('summary.loading_model_config'));
+        safeToast.info(t('summary.loading_model_config'));
+        return;
+      }
+
+      // CHANGE: Fetch ALL transcripts from database, not from pagination state
+      console.log('📊 Fetching all transcripts for summary generation...');
+      const allTranscripts = await fetchAllTranscripts(meeting.id);
+
+      if (!allTranscripts.length) {
+        const error_msg = 'No transcripts available for summary';
+        console.log(error_msg);
+        safeToast.error(error_msg);
+        setSummaryStatus('error');
+        setSummaryError(error_msg);
+        return;
+      }
+    } catch (err) {
+      // §P2-C: any failure inside the early-return block must still
+      // resolve to a terminal status, never leave the UI spinning.
+      console.error('Early-return validation failed:', err);
       setSummaryStatus('error');
-      setSummaryError(t('summary.loading_model_config'));
-      safeToast.info(t('summary.loading_model_config'));
+      setSummaryError(err instanceof Error ? err.message : String(err));
       return;
     }
 
-    // CHANGE: Fetch ALL transcripts from database, not from pagination state
-    console.log('📊 Fetching all transcripts for summary generation...');
     const allTranscripts = await fetchAllTranscripts(meeting.id);
-
-    if (!allTranscripts.length) {
-      const error_msg = 'No transcripts available for summary';
-      console.log(error_msg);
-      safeToast.error(error_msg);
-      return;
-    }
 
     console.log(`✅ Proceeding with ${allTranscripts.length} transcripts`);
 

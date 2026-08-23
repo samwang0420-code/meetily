@@ -37,12 +37,30 @@ pub fn create_meeting_folder(
     meeting_name: &str,
     create_checkpoints_dir: bool,
 ) -> Result<PathBuf> {
-    let timestamp = Utc::now().format("%Y-%m-%d_%H-%M").to_string();
+    // §P1-A1 (audit 2026-08-23): per-minute name collides silently overwrite audio.mp4
+    // and transcripts.json when two meetings start within the same minute.
+    // Fix: precision to seconds + collision-safe suffix (8-char nanos) before create_dir_all.
+    let timestamp = Utc::now().format("%Y-%m-%d_%H-%M-%S").to_string();
     let sanitized_name = sanitize_filename(meeting_name);
-    let folder_name = format!("{}_{}", sanitized_name, timestamp);
-    let meeting_folder = base_path.join(folder_name);
+    let base_folder_name = format!("{}_{}", sanitized_name, timestamp);
+    let mut meeting_folder = base_path.join(&base_folder_name);
 
-    // Create main meeting folder
+    // Collision guard for sub-second same-name races (e.g. parallel import + manual start).
+    // 8-hex-char nanos suffix on the existing name keeps ordering stable.
+    if meeting_folder.exists() {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.subsec_nanos())
+            .unwrap_or(0);
+        meeting_folder = base_path.join(format!("{}_{:08x}", base_folder_name, nanos));
+        warn!(
+            "Meeting folder name collided; using collision-safe variant: {}",
+            meeting_folder.display()
+        );
+    }
+
+    // Create main meeting folder (create_dir_all returns Err if a non-dir occupies path;
+    // the rare race above remains safe because each variant attempts only one create).
     std::fs::create_dir_all(&meeting_folder)?;
 
     // Only create .checkpoints subdirectory if requested (when auto_save is true)
@@ -779,4 +797,38 @@ pub fn write_transcript_json_to_file(
     std::fs::write(&file_path, json_string)?;
 
     Ok(file_path.to_string_lossy().to_string())
+}
+
+#[cfg(test)]
+mod tests_p1_a1 {
+    use super::*;
+    use tempfile::tempdir;
+
+    /// §P1-A1 (audit 2026-08-23): two meetings inside the same minute must not
+    /// collide on the folder name, otherwise audio.mp4 / transcripts.json from
+    /// the first meeting get silently overwritten by the second.
+    #[test]
+    fn test_create_meeting_folder_avoids_minute_collision() {
+        let dir = tempdir().unwrap();
+        let base = dir.path().to_path_buf();
+
+        // Build folder names the same way create_meeting_folder does internally
+        // and confirm the timestamps include seconds + the suffix differs.
+        let ts1 = chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+        // Sleep 1.1s to roll over the second tick (tests run fast, so we force it).
+        std::thread::sleep(std::time::Duration::from_millis(1100));
+        let ts2 = chrono::Utc::now().format("%Y-%m-%d_%H-%M-%S").to_string();
+
+        // Two meetings started one second apart must produce different folder names.
+        let n1 = format!("meeting_{}", ts1);
+        let n2 = format!("meeting_{}", ts2);
+        assert_ne!(n1, n2, "per-second timestamp must produce different folder names");
+
+        // Calling create_meeting_folder twice within the same second must not overwrite:
+        // the second invocation detects the existing folder and appends a nanos suffix.
+        let f1 = create_meeting_folder(&base, "parallel_import", false).unwrap();
+        let f2 = create_meeting_folder(&base, "parallel_import", false).unwrap();
+        assert_ne!(f1, f2, "collision-safe fallback must yield a different folder path");
+        assert!(f1.exists() && f2.exists(), "both folders must be created");
+    }
 }

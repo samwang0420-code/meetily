@@ -887,7 +887,7 @@ export const zh: Record<string, unknown> = {
     trust_local: '100% 本地',
     trust_open_source: 'MIT 开源',
     trust_github: 'GitHub',
-    trust_version: 'v0.9.2',
+    trust_version: 'v0.9.3',
     privacy_one_liner: '联网非必需 · Pro 激活码本地校验',
     why_local_title: '为什么坚持本地？',
     why_local_1_title: '你的录音',
@@ -899,7 +899,7 @@ export const zh: Record<string, unknown> = {
     compare_caption: '免费档够用，Pro 解锁精度 + 高级模板',
     faq_caption: '还有疑问？',
 
-    beta_title: '内测期购买流程 (v0.9.2)',
+    beta_title: '内测期购买流程 (v0.9.3)',
     beta_step_1: '邮件联系 lisangjie@icloudsend.com (USDT 或微信)',
     beta_step_2: '我们 24 小时内回复, 发送激活码 (形如 PROMO-XXXXXXXX-YYYY)',
     beta_step_3: '在 app 内点 “升级 Pro” → 粘贴激活码 → 立即生效',
@@ -922,7 +922,7 @@ export const zh: Record<string, unknown> = {
     footer_privacy: '隐私政策',
     footer_terms: '用户协议',
     footer_download: '下载言镜 AI',
-    footer_copyright: '© 2026 言镜 AI · v0.9.2',
+    footer_copyright: '© 2026 言镜 AI · v0.9.3',
   },
   admin: {
     th: {
@@ -985,7 +985,7 @@ export const zh: Record<string, unknown> = {
     code_unused: '未用 · 有效期 {days}d · 至 {date}',
     orders_title: '已激活订单',
     success_revenue: '条营收',
-    version_label: 'v0.9.2',
+    version_label: 'v0.9.3',
     obsidian: {
       title: 'Obsidian 集成',
       description: '每次会议结束自动生成 Markdown 写入你的 Obsidian vault. 在 Obsidian Graph View 看到所有会议互相连接.',

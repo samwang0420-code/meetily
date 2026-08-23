@@ -1,5 +1,5 @@
 'use client';
-import React, { useState, useRef } from 'react';
+import React, { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { invoke } from '@tauri-apps/api/core';
@@ -30,7 +30,7 @@ export default function AccountPage() {
   };
 
   const router = useRouter();
-  const { user, machineId, logout, activateMember, refresh, session } = useAuth();
+  const { user, machineId, logout, refresh, session } = useAuth();
   const [busy, setBusy] = useState(false);
   const [code, setCode] = useState('');
   const [redeeming, setRedeeming] = useState(false);
@@ -113,22 +113,9 @@ export default function AccountPage() {
     }
   }
 
-  // admin 激活入口 (本机开发者用) - 通常不暴露在 UI 上
-  // 隐藏在 dev mode 下: 用一个秘密按钮组合 (连点 5 次)
-  const tapCount = useRef(0);
-  function onTapMemberBadge() {
-    tapCount.current += 1;
-    if (tapCount.current >= 5) {
-      tapCount.current = 0;
-      activateMember().then((r) => {
-        if (r) {
-          safeToast.success(locale === 'zh' ? '本机开发者激活成功!' : 'Local dev activation success');
-          refresh();
-        }
-      });
-    }
-  }
-
+  // §P1-B12 (audit 2026-08-23): the 5-tap hidden admin-self-activate button
+  // is a Pro-membership backdoor. Removed from the UI. Activation now only
+  // happens through the activation-code redeem flow.
   if (!user) {
     // 未登录 -> 引导到 login
     React.useEffect(() => { router.replace('/login'); }, []);
@@ -237,7 +224,6 @@ export default function AccountPage() {
           )}
           {isMember && (
             <span
-              onClick={onTapMemberBadge}
               className="px-3 py-1 bg-green-100 text-green-700 text-xs font-medium rounded-full cursor-default select-none"
               title="已是 Pro 会员">
               ✨ Pro

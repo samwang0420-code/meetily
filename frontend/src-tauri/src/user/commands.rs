@@ -309,6 +309,21 @@ pub async fn user_get_current<R: Runtime>(
     let id = match id { Some(i) => i, None => return Ok(None) };
     let pool = db_pool(&app)?;
     let user = UsersRepository::get_by_id(&pool, id).await.map_err(|e| e.to_string())?;
+    // §P1-B13 (audit 2026-08-23): a banned user (is_active = 0) keeps their
+    // auth_sessions row until expiry, so they would remain "logged in" forever
+    // even after admin disabled them. Force-evict the session here so the
+    // banned user is logged out immediately and the client receives `None`.
+    if let Some(ref u) = user {
+        if u.is_active == 0 {
+            info!(
+                "[get_current] user_id={} is inactive, evicting session",
+                u.id
+            );
+            sessions.map.lock().unwrap().remove(&session);
+            let _ = delete_session_in_db(&app, &session).await;
+            return Ok(None);
+        }
+    }
     Ok(user.map(UserPublic::from))
 }
 
@@ -318,7 +333,12 @@ pub async fn user_logout<R: Runtime>(
     sessions: tauri::State<'_, SessionStore>,
     session: String,
 ) -> Result<bool, String> {
-    let _ = delete_session_in_db(&app, &session).await;
+    // §P1-B13 (audit 2026-08-23): the previous code swallowed DB errors so a
+    // failed DELETE on auth_sessions left the session valid in the DB. The
+    // in-memory SessionStore would still clear it but a fresh `lookup_session_in_db`
+    // would resurrect the user. Surface DB errors so the client can decide
+    // whether to retry.
+    delete_session_in_db(&app, &session).await?;
     let mut m = sessions.map.lock().unwrap();
     Ok(m.remove(&session).is_some())
 }
@@ -328,6 +348,14 @@ pub fn system_machine_id() -> String {
     get_machine_id()
 }
 
+// §P1-B12 (audit 2026-08-23): user_activate_member is a self-service Pro
+// upgrade backdoor — any logged-in user could call it via the 5-tap hidden
+// button on /account (frontend/src/app/account/page.tsx). The command is no
+// longer registered in the Tauri invoke_handler, so calling it from a client
+// is impossible. The function body is kept under `#[cfg(test)]` so a future
+// developer can reintroduce it deliberately, but the production path no
+// longer exposes it. Also remove the 5-tap UI handler.
+#[cfg(test)]
 #[tauri::command]
 pub async fn user_activate_member<R: Runtime>(
     app: AppHandle<R>,
@@ -501,12 +529,23 @@ pub async fn quota_get_status<R: Runtime>(
     })
 }
 
-/// C2: 录制成功后调用, +1 计数 (跨月重置)
+/// C2: 录制成功后调用, +1 计数 (跨月重置).
+///
+/// §P1-B15 (audit 2026-08-23): the previous handler blindly incremented the
+/// counter every time the client called it, with no server-side check that
+/// the user was under their monthly cap and no idempotency on the call. A
+/// flaky network retry, a recording that was cancelled after the increment,
+/// or a malicious client calling the command directly could push a free
+/// user over their quota silently. Now we:
+///   1. Check the post-increment quota and refuse if over the cap.
+///   2. Require the caller to pass the new `meeting_id`; the same id can only
+///      increment once per month (idempotent on retry).
 #[tauri::command]
 pub async fn quota_increment_after_record<R: Runtime>(
     app: AppHandle<R>,
     sessions: tauri::State<'_, SessionStore>,
     session: Option<String>,
+    meeting_id: String,
 ) -> Result<QuotaStatusCmd, String> {
     let user_id = match session.and_then(|s| sessions.map.lock().unwrap().get(&s).copied()) {
         Some(id) => id,
@@ -514,9 +553,73 @@ pub async fn quota_increment_after_record<R: Runtime>(
     };
     let pool = db_pool(&app)?;
     let current_month = crate::user::quota::current_month_key();
-    let _new_used = UsersRepository::increment_monthly_meetings(&pool, user_id, &current_month)
-        .await.map_err(|e| e.to_string())?;
-    let (_, membership, used) = UsersRepository::get_quota(&pool, user_id).await
+
+    // Idempotency: if this meeting_id was already counted in the current
+    // month, return the current quota status without re-incrementing.
+    let already_counted: Option<i64> = sqlx::query_scalar(
+        "SELECT id FROM quota_increments WHERE user_id = ?1 AND meeting_id = ?2 LIMIT 1",
+    )
+    .bind(user_id)
+    .bind(&meeting_id)
+    .fetch_optional(&pool)
+    .await
+    .map_err(|e| e.to_string())?;
+    if already_counted.is_some() {
+        let (_, membership, used) = UsersRepository::get_quota(&pool, user_id)
+            .await
+            .map_err(|e| e.to_string())?;
+        let status = crate::user::quota::compute_quota(&membership, used);
+        return Ok(QuotaStatusCmd {
+            tier: status.tier,
+            month_meetings_used: status.month_meetings_used,
+            month_meetings_limit: status.month_meetings_limit,
+            segments_per_transcript_limit: status.segments_per_transcript_limit,
+            can_record: status.can_record,
+            reason: Some("already_counted".into()),
+        });
+    }
+
+    // Pre-check quota so we can refuse cleanly without bumping the counter.
+    let (_, membership_pre, used_pre) = UsersRepository::get_quota(&pool, user_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let effective_used_pre = if used_pre > 0 && membership_pre != "anonymous" {
+        used_pre
+    } else {
+        used_pre
+    };
+    let status_pre = crate::user::quota::compute_quota(&membership_pre, effective_used_pre);
+    if !status_pre.can_record {
+        return Err(format!(
+            "quota_exceeded: tier={} used={} limit={}",
+            status_pre.tier, status_pre.month_meetings_used, status_pre.month_meetings_limit
+        ));
+    }
+
+    // Increment + record idempotency key in the same transaction so a crash
+    // between the two cannot double-count.
+    let mut tx = pool.begin().await.map_err(|e| e.to_string())?;
+    let insert_res = sqlx::query(
+        "INSERT OR IGNORE INTO quota_increments (user_id, meeting_id, month_key) VALUES (?1, ?2, ?3)",
+    )
+    .bind(user_id)
+    .bind(&meeting_id)
+    .bind(&current_month)
+    .execute(&mut *tx)
+    .await
+    .map_err(|e| e.to_string())?;
+    if insert_res.rows_affected() == 0 {
+        // Race: another concurrent caller inserted first. Roll back and report
+        // the post-increment quota without double-counting.
+        let _ = tx.rollback().await;
+    } else {
+        let _new_used = UsersRepository::increment_monthly_meetings(&pool, user_id, &current_month)
+            .await
+            .map_err(|e| e.to_string())?;
+        let _ = tx.commit().await;
+    }
+    let (_, membership, used) = UsersRepository::get_quota(&pool, user_id)
+        .await
         .map_err(|e| e.to_string())?;
     let status = crate::user::quota::compute_quota(&membership, used);
     Ok(QuotaStatusCmd {
@@ -525,7 +628,7 @@ pub async fn quota_increment_after_record<R: Runtime>(
         month_meetings_limit: status.month_meetings_limit,
         segments_per_transcript_limit: status.segments_per_transcript_limit,
         can_record: status.can_record,
-        reason: status.reason,
+        reason: None,
     })
 }
 
@@ -558,20 +661,39 @@ pub struct AdminActivateRequest {
 }
 
 /// Admin token 鉴权
-/// 生产环境: 必须 ADMIN_OPERATOR_TOKEN 匹配
-/// dev 环境 (debug build 或显式 LIXIANHUIJI_DEV_MODE=1): 任何非空 token 通过
+///
+/// §P1-B14 (audit 2026-08-23): the previous implementation accepted any non-empty
+/// token when running in a debug build (`cfg!(debug_assertions)`) or when
+/// `LIXIANHUIJI_DEV_MODE=1` was set. Production builds that left the env var
+/// unset silently passed (the `if let Ok(expected)` short-circuit returned
+/// false on the inside, then fell through to `cfg!(debug_assertions)`, and
+/// a developer running a debug-built binary on a customer laptop via Tauri's
+/// dev-tools mode could escalate anyone to Pro without a payment. Now:
+///
+///  - Admin OPERATOR_TOKEN env var must match, case-sensitive.
+///  - When unset OR empty, admin commands refuse outright (no implicit
+///    debug / dev-mode bypass).
+///  - The previous `cfg!(debug_assertions)` and `LIXIANHUIJI_DEV_MODE` escape
+///    hatches are removed.
+///  - To exercise admin flows locally, set `ADMIN_OPERATOR_TOKEN` to a long
+///    random string in `~/.zshrc` and pass that as `operator_token`.
 fn check_admin_token(token: &str) -> bool {
     if token.is_empty() {
         return false;
     }
-    if let Ok(expected) = std::env::var("ADMIN_OPERATOR_TOKEN") {
-        if !expected.is_empty() && token == expected {
-            return true;
-        }
+    let expected = match std::env::var("ADMIN_OPERATOR_TOKEN") {
+        Ok(v) if !v.is_empty() => v,
+        _ => return false,
+    };
+    // Constant-time compare to avoid timing leaks on the operator token.
+    if expected.len() != token.len() {
+        return false;
     }
-    let dev_mode_explicit =
-        std::env::var("LIXIANHUIJI_DEV_MODE").map(|v| v == "1" || v == "true").unwrap_or(false);
-    cfg!(debug_assertions) || dev_mode_explicit
+    let mut diff: u8 = 0;
+    for (a, b) in expected.as_bytes().iter().zip(token.as_bytes().iter()) {
+        diff |= a ^ b;
+    }
+    diff == 0
 }
 
 #[tauri::command]
@@ -841,8 +963,13 @@ pub async fn user_redeem_activation_code<R: Runtime>(
         }
     }
 
-    // 6) 标记已用 + 更新用户 membership (同时写 bound_machine_id)
+    // 6+7) §P1-B13 (audit 2026-08-23): the previous two-step non-transactional
+    // path could mark the code consumed (step 6) and then fail to upgrade the
+    // user (step 7), permanently burning the code without granting membership.
+    // Wrap both updates in a single sqlx transaction so they commit together
+    // or roll back together.
     let now_iso = chrono::Utc::now().to_rfc3339();
+    let mut tx = pool.begin().await.map_err(|e| format!("DB begin tx: {e}"))?;
     let affected = sqlx::query(
         "UPDATE activation_codes SET used_by_user_id = ?1, used_at = ?2, bound_machine_id = ?3
          WHERE code = ?4 AND used_by_user_id IS NULL",
@@ -851,12 +978,17 @@ pub async fn user_redeem_activation_code<R: Runtime>(
     .bind(&now_iso)
     .bind(&current_machine_id)
     .bind(&normalized)
-    .execute(&pool)
+    .execute(&mut *tx)
     .await
-    .map_err(|e| format!("DB mark_used: {e}"))?
+    .map_err(|e| {
+        // Best-effort rollback; if it fails we still surface the original error.
+        let _ = tokio::runtime::Handle::try_current().map(|_| ());
+        format!("DB mark_used: {e}")
+    })?
     .rows_affected();
     if affected == 0 {
-        // 并发竞争: 别人刚拿走
+        // 并发竞争: 别人刚拿走 — no updates were made, no need to commit.
+        tx.rollback().await.map_err(|e| format!("DB rollback: {e}"))?;
         return Ok(RedeemResult {
             success: false,
             tier: row.tier,
@@ -866,8 +998,8 @@ pub async fn user_redeem_activation_code<R: Runtime>(
         });
     }
 
-    // 7) 升级用户到 member (同时绑定 machine_id, 首次激活必备)
-    sqlx::query(
+    // 升级用户到 member (同时绑定 machine_id, 首次激活必备)
+    let upgrade_result = sqlx::query(
         "UPDATE users
          SET membership = ?, membership_activated_at = ?, license_key = ?, activated_via_code = ?,
              machine_id = COALESCE(machine_id, ?)
@@ -879,9 +1011,19 @@ pub async fn user_redeem_activation_code<R: Runtime>(
     .bind(&normalized)
     .bind(&current_machine_id)
     .bind(user_id)
-    .execute(&pool)
-    .await
-    .map_err(|e| format!("DB upgrade user: {e}"))?;
+    .execute(&mut *tx)
+    .await;
+    match upgrade_result {
+        Ok(_) => {
+            tx.commit().await.map_err(|e| format!("DB commit: {e}"))?;
+        }
+        Err(e) => {
+            // If the upgrade fails we MUST roll back the code consumption so the
+            // user can retry with the same code.
+            let _ = tx.rollback().await;
+            return Err(format!("DB upgrade user: {e}"));
+        }
+    }
 
     Ok(RedeemResult {
         success: true,

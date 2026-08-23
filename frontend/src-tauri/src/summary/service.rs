@@ -714,7 +714,14 @@ impl SummaryService {
                     Some(&fact_report),
                 );
 
-                // Update database with completed status
+                // Update database with completed status.
+                //
+                // §P1-A3 (audit 2026-08-23): the previous log-only failure left the
+                // summary_processes row stuck on PENDING forever (§129 only sweeps
+                // rows older than 30 min), so the polling client never observed a
+                // completed or failed state. Always mark failed on DB error so the
+                // row transitions out of PENDING immediately and Obsidian / topic
+                // graph / action_items downstreams do not run with no persisted result.
                 if let Err(e) = SummaryProcessesRepository::update_process_completed(
                     &pool,
                     &meeting_id,
@@ -725,9 +732,15 @@ impl SummaryService {
                 .await
                 {
                     error!(
-                        "Failed to save completed process for {}: {}",
+                        "§P1-A3 Failed to save completed process for {}: {}. Marking row as failed.",
                         meeting_id, e
                     );
+                    Self::update_process_failed(
+                        &pool,
+                        &meeting_id,
+                        &format!("DB write failed after summary completed: {}", e),
+                    )
+                    .await;
                 } else {
                     info!(
                         "Summary saved successfully for meeting_id: {}",
