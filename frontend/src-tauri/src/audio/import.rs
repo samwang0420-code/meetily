@@ -1080,11 +1080,19 @@ pub async fn select_and_validate_audio_command<R: Runtime>(
     }
 }
 
-/// Validate an audio file from a given path (for drag-drop)
+/// Validate an audio file from a given path (for drag-drop).
+///
+/// §P1-A11 (audit 2026-08-23): the sync `validate_audio_file` runs ffprobe-style
+/// metadata reads inline on the async runtime. For multi-GB files the file
+/// size stat + duration probe can stall the executor long enough to drop UI
+/// frames. Move the full call onto the blocking thread pool.
 #[tauri::command]
 pub async fn validate_audio_file_command(path: String) -> Result<AudioFileInfo, String> {
     info!("Validating audio file: {}", path);
-    validate_audio_file(Path::new(&path)).map_err(|e| e.to_string())
+    tokio::task::spawn_blocking(move || validate_audio_file(Path::new(&path)))
+        .await
+        .map_err(|e| format!("Failed to join validate task: {}", e))?
+        .map_err(|e| e.to_string())
 }
 
 /// Start importing an audio file (Beta gated using configContext.betaFeatures)
