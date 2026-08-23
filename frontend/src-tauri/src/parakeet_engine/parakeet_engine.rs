@@ -7,7 +7,7 @@ use std::sync::Arc;
 use tokio::fs;
 use tokio::io::{AsyncWriteExt, BufWriter};
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
+use tokio::sync::{Mutex, RwLock};
 use tokio::time::timeout;
 
 /// Quantization type for Parakeet models
@@ -119,6 +119,10 @@ pub struct ParakeetEngine {
     cancel_download_flag: Arc<RwLock<Option<String>>>, // Model name being cancelled
     // Active downloads tracking to prevent concurrent downloads
     pub(crate) active_downloads: Arc<RwLock<HashSet<String>>>, // Set of models currently being downloaded
+    // §P1-A9 (audit 2026-08-23): serialize the full download lifecycle so that
+    // a cancel racing with a retry cannot leave a partial .parakeet directory
+    // while a fresh download is already writing into the same path.
+    download_lock: Arc<Mutex<()>>,
 }
 
 impl ParakeetEngine {
@@ -158,6 +162,7 @@ impl ParakeetEngine {
             current_model_name: Arc::new(RwLock::new(None)),
             available_models: Arc::new(RwLock::new(HashMap::new())),
             cancel_download_flag: Arc::new(RwLock::new(None)),
+            download_lock: Arc::new(Mutex::new(())),
             // Initialize active downloads tracking
             active_downloads: Arc::new(RwLock::new(HashSet::new())),
         })
@@ -546,6 +551,11 @@ impl ParakeetEngine {
         progress_callback: Option<Box<dyn Fn(DownloadProgress) + Send>>,
     ) -> Result<()> {
         log::info!("Starting download for Parakeet model: {}", model_name);
+
+        // §P1-A9 (audit 2026-08-23): hold the engine-wide download lock so a
+        // concurrent cancel_download cannot be deleting the target directory
+        // while a retry is already writing into it. Cancels wait on this lock.
+        let _download_guard = self.download_lock.lock().await;
 
         // Check if download is already in progress for this model
         {
@@ -1071,8 +1081,12 @@ impl ParakeetEngine {
             }
         }
 
-        // Clean up partially downloaded files
-        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await; // Brief delay to let download loop exit
+        // §P1-A9 (audit 2026-08-23): hold the engine-wide download_lock
+        // before removing the target directory. The lock is also held by
+        // download_model_detailed, so by the time we acquire it here the
+        // download loop has already returned and no fresh retry can be
+        // mid-write into the same path.
+        let _cleanup_guard = self.download_lock.lock().await;
 
         let model_path = self.models_dir.join(model_name);
         if model_path.exists() {
