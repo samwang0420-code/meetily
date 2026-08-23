@@ -30,7 +30,7 @@ export function About() {
     };
 
     const handleSupportClick = () => {
-        const mailtoUrl = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('言镜 AI - 用户反馈')}&body=${encodeURIComponent('版本 v0.9.2 · macOS\n问题描述:\n')}`;
+        const mailtoUrl = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent('言镜 AI - 用户反馈')}&body=${encodeURIComponent('版本 v0.9.3 · macOS\n问题描述:\n')}`;
         openExternalUrl(mailtoUrl);
     };
 
