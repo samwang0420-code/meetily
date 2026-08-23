@@ -33,6 +33,11 @@ export const en: Record<string, unknown> = {
     no_match: 'No matching meetings',
   },
   meeting: {
+    // §166 UI evidence source + multi-case banner
+    transcript_evidence_source: 'Raw transcript · Evidence source',
+    transcript_readonly: 'Read-only',
+    summary_disclaimer: 'This summary is AI-generated and may contain factual errors. Please refer to the original recording and transcript for verification.',
+    multi_case_warning: '⚠️ Multiple independent cases detected, summary split into separate entries',
     untitled: 'Untitled meeting',
     delete_confirm: 'Delete this meeting? This cannot be undone.',
     edit_title: 'Edit meeting title',

@@ -5,7 +5,8 @@ import { TranscriptView } from '@/components/TranscriptView';
 import { VirtualizedTranscriptView } from '@/components/VirtualizedTranscriptView';
 import { TranscriptButtonGroup } from './TranscriptButtonGroup';
 import { useState, useMemo } from 'react';
-import { ChevronDown, PencilLine } from 'lucide-react';
+import { useTranslation } from '@/i18n';
+import { ChevronDown, PencilLine, FileText } from 'lucide-react';
 
 interface TranscriptPanelProps {
   transcripts: Transcript[];
@@ -56,6 +57,7 @@ export function TranscriptPanel({
   meetingFolderPath,
   onRefetchTranscripts,
 }: TranscriptPanelProps) {
+  const { t } = useTranslation();
   const [promptOpen, setPromptOpen] = useState(promptOpenDefault);
   // Convert transcripts to segments if pagination is not used but we want virtualization
   const convertedSegments = useMemo(() => {
@@ -74,6 +76,14 @@ export function TranscriptPanel({
 
   return (
     <div className="hidden md:flex md:w-1/4 lg:w-1/3 min-w-0 border-r border-gray-200 bg-white flex-col relative shrink-0">
+      {/* §166: 原始转录标识 (证据源, 不可编辑) */}
+      <div className="flex items-center gap-1.5 border-b border-neutral-200 bg-neutral-50/60 px-4 py-1.5 text-[11px] text-neutral-500">
+        <FileText className="h-3 w-3" />
+        <span className="font-medium">{t('meeting.transcript_evidence_source')}</span>
+        <span className="ml-auto rounded bg-neutral-200/70 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide">
+          {t('meeting.transcript_readonly')}
+        </span>
+      </div>
       {/* Title area */}
       <div className="p-4 border-b border-gray-200">
         <TranscriptButtonGroup

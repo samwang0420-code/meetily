@@ -89,6 +89,40 @@ interface SummaryPanelProps {
   onOpenModelSettings?: (openFn: () => void) => void;
 }
 
+
+
+/// §166: 检测 summary 是否是 §165 多案件 JSON 数组 (而不是 markdown)
+/// Summary 类型是 { [key: string]: Section }, 从所有 section 的 content 拼接检测
+function detectMultiCaseSummary(aiSummary: any): { isMultiCase: boolean; caseCount: number } {
+  if (!aiSummary || typeof aiSummary !== 'object') return { isMultiCase: false, caseCount: 0 };
+  // 收集所有 section 的纯文本内容
+  const allText: string[] = [];
+  for (const key of Object.keys(aiSummary)) {
+    const section = aiSummary[key];
+    if (section && section.blocks && Array.isArray(section.blocks)) {
+      for (const block of section.blocks) {
+        if (block?.content && Array.isArray(block.content)) {
+          for (const inline of block.content) {
+            if (inline?.type === 'text' && typeof inline.text === 'string') {
+              allText.push(inline.text);
+            }
+          }
+        }
+      }
+    }
+  }
+  const joined = allText.join('');
+  if (!joined.trim().startsWith('[')) return { isMultiCase: false, caseCount: 0 };
+  try {
+    const parsed = JSON.parse(joined);
+    if (Array.isArray(parsed) && parsed.length >= 2 && parsed[0]?.case_index !== undefined) {
+      return { isMultiCase: true, caseCount: parsed.length };
+    }
+  } catch {
+    // not JSON
+  }
+  return { isMultiCase: false, caseCount: 0 };
+}
 export function SummaryPanel({
   meeting,
   meetingTitle,
@@ -639,6 +673,19 @@ export function SummaryPanel({
         </div>
       ) : transcripts?.length > 0 && (
         <div className="flex-1 overflow-y-auto min-h-0">
+          {/* §166: AI 纪要免责声明 (硬编码在前端, 不依赖模型输出) */}
+          <div className="mx-6 mt-4 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] leading-relaxed text-amber-800">
+            <span className="font-medium">⚠️ {t('meeting.summary_disclaimer')}</span>
+          </div>
+          {/* §166: 多案件警告 banner (§165 JSON 数组触发) */}
+          {detectMultiCaseSummary(aiSummary).isMultiCase && (
+            <div
+              data-test-id="multi-case-banner"
+              className="mx-6 mt-2 rounded-md border border-orange-300 bg-orange-50 px-3 py-2 text-[12px] font-medium text-orange-800"
+            >
+              {t('meeting.multi_case_warning')} ({detectMultiCaseSummary(aiSummary).caseCount} 个案件)
+            </div>
+          )}
           {/* §135: 当前模板徽章 + 历史摘要按钮 (用户一眼看到本次生成用的什么模板) */}
           <div className="mx-6 mt-4 flex items-center justify-between gap-2">
             <div className="inline-flex items-center gap-1.5 rounded-full bg-violet-50 px-3 py-1 text-xs font-medium text-violet-700 border border-violet-200">

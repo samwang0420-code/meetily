@@ -33,6 +33,11 @@ export const zh: Record<string, unknown> = {
     no_match: '没有匹配的会议',
   },
   meeting: {
+    // §166 UI 证据源标识 (文档模块 5/6)
+    transcript_evidence_source: '原始转录 · 证据源',
+    transcript_readonly: '只读',
+    summary_disclaimer: '本纪要由 AI 自动生成, 内容可能存在事实偏差, 请以原始录音和转录为准, 重要事项请人工复核。',
+    multi_case_warning: '⚠️ 检测到多段独立内容, 摘要已拆分显示',
     export: '导出',
     copy_summary: '复制摘要到剪贴板',
     export_markdown: '导出 Markdown 文件',
