@@ -513,15 +513,24 @@ pub fn chunk_text(text: &str, chunk_size_tokens: usize, overlap_tokens: usize) -
         let start_byte = char_byte_offsets[start_char];
         let mut end_byte = char_byte_offsets[end_char];
 
-        // Try to break at sentence or word boundary for cleaner chunks
+        // §169.6: 中文 transcript 没有 ". ", rfind('. ') 永远返回 None.
+        //         然后 rfind(' ') + 1 切到空格后, 但空格后可能是中文 (3 bytes UTF-8),
+        //         end_byte 落在 char boundary 中间 → panic 'end byte index N is not a char boundary'.
+        //         修复: 找到 space 后, floor 到最近 char boundary (用 is_char_boundary).
+        //         或者更稳: 直接 round 到 char boundary 后再切, 多退 1-3 字节都可.
         if end_char < total_chars {
             let slice = &text[start_byte..end_byte];
-            // Look for sentence boundary (period followed by space)
-            if let Some(last_period) = slice.rfind(". ") {
-                end_byte = start_byte + last_period + 2;
-            } else if let Some(last_space) = slice.rfind(' ') {
-                // Fall back to word boundary (space)
-                end_byte = start_byte + last_space + 1;
+            let candidate_byte = if let Some(last_period) = slice.rfind(". ") {
+                Some(start_byte + last_period + 2)
+            } else {
+                slice.rfind(' ').map(|p| start_byte + p + 1)
+            };
+            if let Some(mut b) = candidate_byte {
+                // 找到 char boundary: 向前 floor 直到 text.is_char_boundary(b) 为真.
+                while b > start_byte && !text.is_char_boundary(b) {
+                    b -= 1;
+                }
+                end_byte = b;
             }
         }
 

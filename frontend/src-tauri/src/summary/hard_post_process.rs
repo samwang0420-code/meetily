@@ -188,10 +188,19 @@ fn jaccard_char_similarity(a: &str, b: &str) -> f32 {
 }
 
 fn replace_range(text: &str, start: usize, end: usize, replacement: &str) -> String {
+    // §169.6: defensive char boundary check (防止上游计算 start/end 时 byte 漂移)
+    let mut s_idx = start.min(text.len());
+    let mut e_idx = end.min(text.len());
+    while s_idx > 0 && !text.is_char_boundary(s_idx) {
+        s_idx -= 1;
+    }
+    while e_idx < text.len() && !text.is_char_boundary(e_idx) {
+        e_idx += 1;
+    }
     let mut s = String::with_capacity(text.len() + replacement.len());
-    s.push_str(&text[..start]);
+    s.push_str(&text[..s_idx]);
     s.push_str(replacement);
-    s.push_str(&text[end..]);
+    s.push_str(&text[e_idx..]);
     s
 }
 
