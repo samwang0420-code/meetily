@@ -49,18 +49,12 @@ function detectSummaryFormat(data: any): { format: SummaryFormat; data: any } {
     return { format: 'blocknote', data };
   }
 
-  // Priority 2: Markdown format
-  if (data.markdown && typeof data.markdown === 'string') {
-    console.log('✅ FORMAT: MARKDOWN (will parse to BlockNote)');
-    return { format: 'markdown', data };
-  }
-
-  // §170: Priority 2.5 - Multi-case JSON array (§165 wrap_summary_as_multi_case_array)
-  // 后端 LLM 输出多案件时, 返回 `[{ "case_index": 1, "defendant": "...", "content": "...", "warning": "..." }]`,
-  // 必须先检测,否则会走 markdown 解析,把 [{ 当成普通文本渲染 (用户截图问题).
-  const mdRaw = data?.markdown;
-  if (typeof mdRaw === 'string') {
-    const trimmed = mdRaw.trimStart();
+  // §170.6: Priority 1.5 - Multi-case JSON array (§165 wrap_summary_as_multi_case_array)
+  // 必须在 Markdown 检测之前 — 后端 LLM 输出多案件时, markdown 字段是 JSON 数组字符串
+  // `[{ "case_index": 1, "defendant": "...", "content": "...", "warning": "..." }]`,
+  // 如果先走 Markdown, 会被 tryParseMarkdownToBlocks 当成普通文本, [{ 显示成原样.
+  if (typeof data?.markdown === 'string') {
+    const trimmed = data.markdown.trimStart();
     if (trimmed.startsWith('[{')) {
       try {
         const candidate = JSON.parse(trimmed);
@@ -69,9 +63,15 @@ function detectSummaryFormat(data: any): { format: SummaryFormat; data: any } {
           return { format: 'multi-case', data: { ...data, _multiCase: candidate } };
         }
       } catch {
-        // not JSON, fall through
+        // not JSON, fall through to markdown
       }
     }
+  }
+
+  // Priority 2: Markdown format
+  if (data.markdown && typeof data.markdown === 'string') {
+    console.log('✅ FORMAT: MARKDOWN (will parse to BlockNote)');
+    return { format: 'markdown', data };
   }
 
   // Priority 3: Legacy JSON

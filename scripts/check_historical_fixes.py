@@ -1993,7 +1993,7 @@ ANCHORS = [
     # §170: 多案件 JSON 渲染 (BlockNoteSummaryView) — 修复 §165 JSON 包装被当 markdown 渲染
     ("170_multi_case_detection",
      "frontend/src/components/AISummary/BlockNoteSummaryView.tsx",
-     r"§170: Priority 2\.5 - Multi-case JSON array"),
+     r"§170.6: Priority 1.5 - Multi-case JSON array"),
     ("170_multi_case_card",
      "frontend/src/components/AISummary/BlockNoteSummaryView.tsx",
      r"function MultiCaseCard"),
