@@ -37,6 +37,30 @@ export interface BlockNoteSummaryViewRef {
   isDirty: boolean;
 }
 
+
+// §170.7: 极宽松正则 fallback — 当 JSON.parse 失败时, 用正则匹配 case_index / defendant / content
+function extractCasesByRegex(md: string): any[] {
+  const cases: any[] = [];
+  // 匹配每个 { ... } 块 (非贪婪, 不跨 case 嵌套)
+  const caseBlocks = md.match(/\{[^{}]*?"case_index"\s*:\s*\d+[^{}]*?\}/g) || [];
+  if (!caseBlocks) return cases;
+  for (const block of caseBlocks) {
+    const caseIdxMatch = block.match(/"case_index"\s*:\s*(\d+)/);
+    const defMatch = block.match(/"defendant"\s*:\s*"([^"]*)"/);
+    const contentMatch = block.match(/"content"\s*:\s*"([\s\S]*?)"\s*,\s*"warning"/);
+    const warningMatch = block.match(/"warning"\s*:\s*(?:"([^"]*)"|null)/);
+    if (caseIdxMatch) {
+      cases.push({
+        case_index: parseInt(caseIdxMatch[1], 10),
+        defendant: defMatch ? defMatch[1] : 'Unknown',
+        content: contentMatch ? contentMatch[1].replace(/\\n/g, '\n').replace(/\\"/g, '"') : '',
+        warning: warningMatch ? (warningMatch[1] || null) : null,
+      });
+    }
+  }
+  return cases;
+}
+
 // Format detection helper
 function detectSummaryFormat(data: any): { format: SummaryFormat; data: any } {
   if (!data) {
@@ -60,21 +84,46 @@ function detectSummaryFormat(data: any): { format: SummaryFormat; data: any } {
     return { format: 'blocknote', data };
   }
 
-  // §170.6: Priority 1.5 - Multi-case JSON array (§165 wrap_summary_as_multi_case_array)
-  // 必须在 Markdown 检测之前 — 后端 LLM 输出多案件时, markdown 字段是 JSON 数组字符串
-  // `[{ "case_index": 1, "defendant": "...", "content": "...", "warning": "..." }]`,
-  // 如果先走 Markdown, 会被 tryParseMarkdownToBlocks 当成普通文本, [{ 显示成原样.
+  // §170.7: Priority 1.5 - Multi-case JSON array (§165 wrap_summary_as_multi_case_array)
+  // 必须在 Markdown 检测之前. 后端 LLM 输出多案件时, markdown 字段是 JSON 数组字符串.
+  // 关键 bug (§170.6 老代码): JSON.parse 严格模式不认 content 字段里的字面 \n 换行符,
+  // 直接抛 'Bad control character' 异常, fallback 到 markdown 解析, 显示 raw JSON.
+  // §170.7 修复: 先尝试宽松 JSON 解析 (替换转义符), 失败再用正则逐个 case 提取.
   if (typeof data?.markdown === 'string') {
     const trimmed = data.markdown.trimStart();
     if (trimmed.startsWith('[{')) {
-      try {
-        const candidate = JSON.parse(trimmed);
-        if (Array.isArray(candidate) && candidate.length >= 2 && candidate[0]?.case_index !== undefined) {
-          console.log('\u2705 FORMAT: MULTI-CASE JSON array (' + candidate.length + ' cases)');
-          return { format: 'multi-case', data: { ...data, _multiCase: candidate } };
-        }
-      } catch {
-        // not JSON, fall through to markdown
+      // Step 1: 严格 JSON.parse (干净数据)
+      let candidate: any = null;
+      try { candidate = JSON.parse(trimmed); } catch {}
+      // Step 2: 宽松 JSON 解析 (content 字段里可能有未转义的换行符)
+      if (!Array.isArray(candidate) || candidate.length < 2 || candidate[0]?.case_index === undefined) {
+        try {
+          const sanitized = trimmed
+            .replace(/\\n/g, '\n')
+            .replace(/\\r/g, '\r')
+            .replace(/\\t/g, '\t');
+          // 把 content: "..." 里未转义的换行符 escape 掉
+          const loose = sanitized.replace(
+            /"(content|warning|defendant)"\s*:\s*"((?:[^"\\\\]|[\\s\\S])*?)"/g,
+            (_m: string, key: string, val: string) => {
+              const escaped = val
+                .replace(/\\\\/g, '\\\\')
+                .replace(/\\n/g, '\\n')
+                .replace(/\\r/g, '\\r')
+                .replace(/\\t/g, '\\t');
+              return '"' + key + '":\"' + escaped + '\"';
+            }
+          );
+          candidate = JSON.parse(loose);
+        } catch {}
+      }
+      // Step 3: 极宽松正则 fallback — 从 markdown 字符串里提取所有 case 块
+      if (!Array.isArray(candidate) || candidate.length < 2) {
+        candidate = extractCasesByRegex(trimmed);
+      }
+      if (Array.isArray(candidate) && candidate.length >= 2 && candidate[0]?.case_index !== undefined) {
+        console.log('\u2705 FORMAT: MULTI-CASE JSON array (' + candidate.length + ' cases)');
+        return { format: 'multi-case', data: { ...data, _multiCase: candidate } };
       }
     }
   }
