@@ -158,6 +158,9 @@ export function SummaryPanel({
   const [summaryPhase, setSummaryPhase] = useState<'idle'|'single'|'map'|'reduce'|'final'>('idle');
   // §152 P1-1: 进度 (0-100), summary-phase event 同时 phase + progress
   const [summaryProgress, setSummaryProgress] = useState(0);
+  // §170.5: 记录"上次 phase event 收到时间" — 心跳只在上次 event 10s 没新 event 才 +1
+  // 防止 phase event (map 进入 progress=0 → map 走完 progress=0.5) 和心跳 (5s +5) 冲突造成 0-100% 循环
+  const lastPhaseEventAtRef = useRef<number>(0);
   // §135: 历史摘要弹窗
   const [historyOpen, setHistoryOpen] = useState(false);
   // §128: 让"摘要设置 → AI 模型" 真正打开 ModelSettingsModal 对话框 (而不是空回调)
@@ -184,6 +187,7 @@ export function SummaryPanel({
     let unlisten: (() => void) | undefined;
     void listen<{ meeting_id: string; phase: 'single'|'map'|'reduce'|'final'; progress: number }>('summary-phase', (event) => {
       if (event.payload.meeting_id !== meeting.id) return;
+      lastPhaseEventAtRef.current = Date.now();
       setSummaryPhase(event.payload.phase);
       // §152 P1-1: progress 0.0-1.0 -> 0-100 整数
       const pct = Math.max(0, Math.min(100, Math.round((event.payload.progress || 0) * 100)));
@@ -212,17 +216,27 @@ export function SummaryPanel({
     }
   }, [summaryStatus]);
 
-  // §170: Tauri 2 macOS webview 已知 IPC 事件丢包, summary-phase event 偶尔丢.
-  // 加 5s 心跳 fallback — 即使 phase event 静默丢, 进度条也能动起来, 用户不至于看 11 分钟 0% 转圈.
+  // §170.5: 心跳 fallback — 解决 Tauri 2 macOS webview IPC 事件丢包
+  // 关键: 进度条只允许 forward (单调增), 收到 phase event 直接覆盖 (它是 ground truth),
+  // 收到 phase event 后 10s 内不触发心跳, 避免 phase event 进入新 chunk (progress=0)
+  // 把用户已经看习惯的 90% 拉回 0%, 造成 0-100% 循环.
   useEffect(() => {
     if (summaryStatus !== 'processing' && summaryStatus !== 'regenerating') {
       return;
     }
+    // 启动时重置"上次 phase event 时间" 为很久以前, 确保 phase event 没 emit 也能立刻触发
+    lastPhaseEventAtRef.current = 0;
     const timer = setInterval(() => {
+      const since = Date.now() - lastPhaseEventAtRef.current;
+      if (since < 10_000) {
+        // 最近 10s 收到过 phase event, 信任它, 不动进度
+        return;
+      }
       setSummaryProgress((prev) => {
         // 阶段不确定时, 慢慢往上爬 (95% 封顶留给 phase event 接管最后一公里)
-        const next = Math.min(95, prev + 5);
-        return next;
+        // 用 max 单调增: 心跳不能把进度拉低
+        const next = Math.min(95, prev + 1);
+        return next > prev ? next : prev;
       });
     }, 5000);
     return () => clearInterval(timer);

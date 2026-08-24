@@ -2002,7 +2002,7 @@ ANCHORS = [
      r"§170 修复: 之前从 BlockNote aiSummary 结构"),
     ("170_5s_heartbeat_progress",
      "frontend/src/components/MeetingDetails/SummaryPanel.tsx",
-     r"§170: Tauri 2 macOS webview 已知 IPC 事件丢包"),
+     r"§170.5: 心跳 fallback — 解决 Tauri 2 macOS webview IPC 事件丢包"),
     ("170_invoke_heartbeat",
      "frontend/src/hooks/meeting-details/useSummaryGeneration.ts",
      r"§170: 心跳 fallback"),
