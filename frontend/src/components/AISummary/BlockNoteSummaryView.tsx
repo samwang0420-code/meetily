@@ -42,6 +42,17 @@ function detectSummaryFormat(data: any): { format: SummaryFormat; data: any } {
   if (!data) {
     return { format: 'legacy', data: null };
   }
+  // §170.7 DEBUG: trace what data structure we received
+  console.log('[§170.7 DEBUG] detectSummaryFormat input:', {
+    type: typeof data,
+    keys: Object.keys(data || {}),
+    markdownType: typeof data?.markdown,
+    markdownLen: typeof data?.markdown === 'string' ? data.markdown.length : 0,
+    markdownPrefix: typeof data?.markdown === 'string' ? data.markdown.slice(0, 50) : null,
+    hasSummaryJson: Array.isArray(data?.summary_json),
+    hasMultiCase: Array.isArray(data?._multiCase),
+  });
+
 
   // Priority 1: BlockNote format (has summary_json)
   if (data.summary_json && Array.isArray(data.summary_json)) {
