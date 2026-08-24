@@ -91,7 +91,7 @@ function detectSummaryFormat(data: any): { format: SummaryFormat; data: any } {
   // §170.7 修复: 先尝试宽松 JSON 解析 (替换转义符), 失败再用正则逐个 case 提取.
   if (typeof data?.markdown === 'string') {
     const trimmed = data.markdown.trimStart();
-    if (trimmed.startsWith('[{')) {
+    if (/^\[\s*\{/.test(trimmed)) {
       // Step 1: 严格 JSON.parse (干净数据)
       let candidate: any = null;
       try { candidate = JSON.parse(trimmed); } catch {}

@@ -99,7 +99,7 @@ function detectMultiCaseSummary(aiSummary: any): { isMultiCase: boolean; caseCou
   const rawMarkdown: string = typeof aiSummary.markdown === 'string'
     ? aiSummary.markdown
     : (typeof (aiSummary as any)?.result?.markdown === 'string' ? (aiSummary as any).result.markdown : '');
-  if (!rawMarkdown.trimStart().startsWith('[{')) return { isMultiCase: false, caseCount: 0 };
+  if (!/^\[\s*\{/.test(rawMarkdown.trimStart())) return { isMultiCase: false, caseCount: 0 };
   try {
     const parsed = JSON.parse(rawMarkdown.trimStart());
     if (Array.isArray(parsed) && parsed.length >= 2 && parsed[0]?.case_index !== undefined) {
