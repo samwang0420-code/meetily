@@ -70,7 +70,7 @@ export interface SummaryResponse {
 }
 
 // BlockNote-specific types
-export type SummaryFormat = 'legacy' | 'markdown' | 'blocknote';
+export type SummaryFormat = 'legacy' | 'markdown' | 'blocknote' | 'multi-case';
 
 export interface BlockNoteBlock {
   id: string;

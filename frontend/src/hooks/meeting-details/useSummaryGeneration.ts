@@ -170,6 +170,17 @@ export function useSummaryGeneration({
         transcriptTexts?.length ? transcriptTexts : [transcriptText]
       )) || 'zh';
 
+      // §170: 心跳 fallback — invoke 静默卡住时给用户视觉反馈
+      //        invokeWithTimeout 30s timeout 后会 retry 一次 (总共 ~60s), 后端 LLM 推理慢时
+      //        invoke 实际没超时但用户觉得卡死. 加一个 5s 心跳 toast 提示"请求中".
+      const heartbeatTimer = setInterval(() => {
+        safeToast.info(t('summary.requesting') || '请求中...', {
+          description: t('summary.invoke_heartbeat') || '正在等待后端响应 (LLM 推理可能较慢)',
+          duration: 2000,
+        });
+      }, 8000);
+      let result: any;
+      try {
       // §160 B: 30s timeout + 1 retry, 防 Tauri 2 macOS webview 偶发 IPC 静默丢消息
       // §169: 用户主动重新生成 → force_fresh=true, 后端 bypass summary cache, 真调 LLM
       // §169.1: Tauri v2 invoke 默认不自动转换 camelCase ↔ snake_case,
@@ -178,7 +189,7 @@ export function useSummaryGeneration({
       //         同时双发 camelCase `forceFresh` 给后端双名接收兜底
       // §169.2: regenerationFlag 强制 prompt 头部注入"重新生成 N 次"标识,
       //         即使 cache 命中也确保 LLM 看到显式 regenerate 标记
-      const result = await invokeWithTimeout('api_process_transcript', {
+      result = await invokeWithTimeout('api_process_transcript', {
         text: transcriptText,
         model: modelConfig.provider,
         modelName: modelConfig.model,
@@ -203,7 +214,10 @@ export function useSummaryGeneration({
             duration: 2000,
           });
         },
-      }) as any;
+      });
+      } finally {
+        clearInterval(heartbeatTimer);
+      }
 
       const process_id = result.process_id;
       console.log('Process ID:', process_id);

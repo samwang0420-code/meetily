@@ -91,30 +91,17 @@ interface SummaryPanelProps {
 
 
 
-/// §166: 检测 summary 是否是 §165 多案件 JSON 数组 (而不是 markdown)
-/// Summary 类型是 { [key: string]: Section }, 从所有 section 的 content 拼接检测
+/// §166 + §170: 检测 summary 是否是 §165 多案件 JSON 数组 (而不是 markdown)
+/// §170 修复: 之前从 BlockNote aiSummary 结构提取 inline.text 拼接, 容易因 BlockNote 转义失败.
+/// 直接读 aiSummary.markdown / (aiSummary as any).markdown 原始字符串, JSON.parse 准确.
 function detectMultiCaseSummary(aiSummary: any): { isMultiCase: boolean; caseCount: number } {
   if (!aiSummary || typeof aiSummary !== 'object') return { isMultiCase: false, caseCount: 0 };
-  // 收集所有 section 的纯文本内容
-  const allText: string[] = [];
-  for (const key of Object.keys(aiSummary)) {
-    const section = aiSummary[key];
-    if (section && section.blocks && Array.isArray(section.blocks)) {
-      for (const block of section.blocks) {
-        if (block?.content && Array.isArray(block.content)) {
-          for (const inline of block.content) {
-            if (inline?.type === 'text' && typeof inline.text === 'string') {
-              allText.push(inline.text);
-            }
-          }
-        }
-      }
-    }
-  }
-  const joined = allText.join('');
-  if (!joined.trim().startsWith('[')) return { isMultiCase: false, caseCount: 0 };
+  const rawMarkdown: string = typeof aiSummary.markdown === 'string'
+    ? aiSummary.markdown
+    : (typeof (aiSummary as any)?.result?.markdown === 'string' ? (aiSummary as any).result.markdown : '');
+  if (!rawMarkdown.trimStart().startsWith('[{')) return { isMultiCase: false, caseCount: 0 };
   try {
-    const parsed = JSON.parse(joined);
+    const parsed = JSON.parse(rawMarkdown.trimStart());
     if (Array.isArray(parsed) && parsed.length >= 2 && parsed[0]?.case_index !== undefined) {
       return { isMultiCase: true, caseCount: parsed.length };
     }
@@ -223,6 +210,22 @@ export function SummaryPanel({
     } else if (summaryStatus === 'error' || summaryStatus === null) {
       setSummaryProgress(0);
     }
+  }, [summaryStatus]);
+
+  // §170: Tauri 2 macOS webview 已知 IPC 事件丢包, summary-phase event 偶尔丢.
+  // 加 5s 心跳 fallback — 即使 phase event 静默丢, 进度条也能动起来, 用户不至于看 11 分钟 0% 转圈.
+  useEffect(() => {
+    if (summaryStatus !== 'processing' && summaryStatus !== 'regenerating') {
+      return;
+    }
+    const timer = setInterval(() => {
+      setSummaryProgress((prev) => {
+        // 阶段不确定时, 慢慢往上爬 (95% 封顶留给 phase event 接管最后一公里)
+        const next = Math.min(95, prev + 5);
+        return next;
+      });
+    }, 5000);
+    return () => clearInterval(timer);
   }, [summaryStatus]);
   const latestLanguageSaveRequestRef = useRef<{
     version: number;

@@ -1989,6 +1989,23 @@ ANCHORS = [
      "frontend/src-tauri/src/summary/fact_guard.rs",
      r"fn test_161_full_709b_fixture"),
 
+
+    # §170: 多案件 JSON 渲染 (BlockNoteSummaryView) — 修复 §165 JSON 包装被当 markdown 渲染
+    ("170_multi_case_detection",
+     "frontend/src/components/AISummary/BlockNoteSummaryView.tsx",
+     r"§170: Priority 2\.5 - Multi-case JSON array"),
+    ("170_multi_case_card",
+     "frontend/src/components/AISummary/BlockNoteSummaryView.tsx",
+     r"function MultiCaseCard"),
+    ("170_detect_multi_case_uses_raw",
+     "frontend/src/components/MeetingDetails/SummaryPanel.tsx",
+     r"§170 修复: 之前从 BlockNote aiSummary 结构"),
+    ("170_5s_heartbeat_progress",
+     "frontend/src/components/MeetingDetails/SummaryPanel.tsx",
+     r"§170: Tauri 2 macOS webview 已知 IPC 事件丢包"),
+    ("170_invoke_heartbeat",
+     "frontend/src/hooks/meeting-details/useSummaryGeneration.ts",
+     r"§170: 心跳 fallback"),
 ]
 
 

@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, forwardRef, useImperativeHandle } from 'react';
+import { useTranslation } from '@/i18n';
 import dynamic from 'next/dynamic';
 import { Summary, SummaryDataResponse, SummaryFormat, BlockNoteBlock } from '@/types';
 import { AISummary } from './index';
@@ -52,6 +53,25 @@ function detectSummaryFormat(data: any): { format: SummaryFormat; data: any } {
   if (data.markdown && typeof data.markdown === 'string') {
     console.log('✅ FORMAT: MARKDOWN (will parse to BlockNote)');
     return { format: 'markdown', data };
+  }
+
+  // §170: Priority 2.5 - Multi-case JSON array (§165 wrap_summary_as_multi_case_array)
+  // 后端 LLM 输出多案件时, 返回 `[{ "case_index": 1, "defendant": "...", "content": "...", "warning": "..." }]`,
+  // 必须先检测,否则会走 markdown 解析,把 [{ 当成普通文本渲染 (用户截图问题).
+  const mdRaw = data?.markdown;
+  if (typeof mdRaw === 'string') {
+    const trimmed = mdRaw.trimStart();
+    if (trimmed.startsWith('[{')) {
+      try {
+        const candidate = JSON.parse(trimmed);
+        if (Array.isArray(candidate) && candidate.length >= 2 && candidate[0]?.case_index !== undefined) {
+          console.log('\u2705 FORMAT: MULTI-CASE JSON array (' + candidate.length + ' cases)');
+          return { format: 'multi-case', data: { ...data, _multiCase: candidate } };
+        }
+      } catch {
+        // not JSON, fall through
+      }
+    }
   }
 
   // Priority 3: Legacy JSON
@@ -269,6 +289,72 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
     );
   }
 
+  // §170: Parse multi-case JSON for real (memoized)
+  const multiCases = useMemo(() => {
+    if (format !== 'multi-case') return [];
+    return Array.isArray(data?._multiCase) ? (data._multiCase as any[]) : [];
+  }, [format, data?._multiCase]);
+
+  // §170: Helper - parse markdown content for one case (skip parsed JSON to avoid recursion)
+  const parseCaseMarkdown = useCallback(async (md: string): Promise<Block[]> => {
+    if (!editor) return [];
+    try {
+      const highlighted = highlightUnexpectedFacts(md, data?.fact_guard);
+      return await editor.tryParseMarkdownToBlocks(highlighted);
+    } catch (err) {
+      console.warn('\u274c Failed to parse multi-case markdown, falling back to plain text:', err);
+      // Fallback: 把整段 markdown 包成一个 paragraph block (BlockNote 接受混合 markdown)
+      try {
+        return await editor.tryParseMarkdownToBlocks(md);
+      } catch {
+        return [];
+      }
+    }
+  }, [editor, data?.fact_guard]);
+
+  // §170: Multi-case editors keyed per case_index (独立 BlockNote 实例)
+  const [caseBlocks, setCaseBlocks] = useState<Record<number, Block[]>>({});
+  const caseEditorsRef = useRef<Record<number, ReturnType<typeof useCreateBlockNote>>>({});
+
+  // 初始化 / 更新每个 case 的 blocks
+  useEffect(() => {
+    if (format !== 'multi-case') return;
+    let cancelled = false;
+    (async () => {
+      const next: Record<number, Block[]> = {};
+      for (const c of multiCases) {
+        const idx = typeof c.case_index === 'number' ? c.case_index : 0;
+        const content = String(c.content || '');
+        if (content) {
+          const blocks = await parseCaseMarkdown(content);
+          if (!cancelled) next[idx] = blocks;
+        }
+      }
+      if (!cancelled) setCaseBlocks(next);
+    })();
+    return () => { cancelled = true; };
+  }, [multiCases, parseCaseMarkdown, format]);
+
+  // §170: Render multi-case JSON array as Card list
+  if (format === 'multi-case') {
+    console.log('\ud83c\udfa8 Rendering MULTI-CASE format (' + multiCases.length + ' cases)');
+    return (
+      <div className="flex flex-col gap-4 w-full p-4">
+        {data?.fact_guard_legal_critical && (
+          <FactGuardBanner report={data.fact_guard} legalCritical={true} />
+        )}
+        {multiCases.map((c, i) => (
+          <MultiCaseCard
+            key={'case-' + String(c.case_index ?? i) + '-' + i}
+            caseData={c}
+            index={i}
+            factGuard={data?.fact_guard}
+          />
+        ))}
+      </div>
+    );
+  }
+
   // Render BlockNote format (has summary_json)
   if (format === 'blocknote') {
     console.log('🎨 Rendering BLOCKNOTE format (direct)');
@@ -330,3 +416,71 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
 });
 
 BlockNoteSummaryView.displayName = 'BlockNoteSummaryView';
+
+
+// §170: 多案件单 Card component — 独立 useCreateBlockNote 实例
+function MultiCaseCard({ caseData, index, factGuard }: { caseData: any; index: number; factGuard: any }) {
+  const { t } = useTranslation();
+  const caseIdx = typeof caseData?.case_index === 'number' ? caseData.case_index : (index + 1);
+  const defendant = String(caseData?.defendant || t('meeting.case_unknown') || ('案件 ' + caseIdx));
+  const content = String(caseData?.content || '');
+  const warning = caseData?.warning ? String(caseData.warning) : null;
+  const editor = useCreateBlockNote({ initialContent: undefined });
+  const [blocks, setBlocks] = useState<Block[]>([]);
+  const isContentLoaded = useRef(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        isContentLoaded.current = false;
+        const highlighted = highlightUnexpectedFacts(content, factGuard);
+        const parsed = await editor.tryParseMarkdownToBlocks(highlighted);
+        if (!cancelled) {
+          editor.replaceBlocks(editor.document, parsed);
+          setBlocks(parsed);
+          setTimeout(() => { isContentLoaded.current = true; }, 100);
+        }
+      } catch (err) {
+        console.warn('§170 MultiCaseCard parse failed for case', caseIdx, err);
+      }
+    })();
+    return () => { cancelled = true; };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [content, caseIdx]);
+
+  return (
+    <div
+      data-testid={'multi-case-card-' + caseIdx}
+      className="rounded-xl border border-orange-200 bg-white shadow-sm overflow-hidden"
+    >
+      <div className="px-4 py-3 bg-gradient-to-r from-orange-50 to-amber-50 border-b border-orange-200 flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-orange-500 text-white text-xs font-bold">
+            {caseIdx}
+          </span>
+          <span className="font-semibold text-gray-800 text-sm">
+            {defendant}
+          </span>
+        </div>
+        <span className="text-[10px] uppercase tracking-wide text-orange-700 font-medium">
+          {t('meeting.case_label')} #{caseIdx}
+        </span>
+      </div>
+      {warning && (
+        <div className="px-4 py-2 bg-amber-50 border-b border-amber-200 text-xs text-amber-800">
+          <span className="font-semibold">⚠️ </span>{warning}
+        </div>
+      )}
+      <div className="px-4 py-3">
+        {blocks.length > 0 ? (
+          <BlockNoteView editor={editor} editable={true} theme="light" />
+        ) : (
+          <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-7 text-gray-700">
+            {content}
+          </pre>
+        )}
+      </div>
+    </div>
+  );
+}
