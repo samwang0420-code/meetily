@@ -2692,3 +2692,83 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - commit §182: `codex/accuracy-experiment` HEAD 即将新增
 - `outputs/§182-数字一致性+模板错配+待查明过滤+时间线冲突-2026-08-25.md` (Codex 副本)
 - `~/Documents/Obsidian Vault/项目/3-离线会记/§182-...md` (Obsidian 主份, 双写 `diff -q` 验证一致)
+
+## §183 二审案件立场标注 + 时间线覆盖度 — P1/P2 摘要规范补充 (2026-08-25 立)
+
+**触发事故**: 用户 8/25 反馈"魏某专利侵权及恶意诉讼案二审判决书"摘要 2 类问题:
+- **P1 立场标注不一致**: 摘要写"原告/上诉人：魏立秋" 错误并列. 魏某一审是被告 (被徐氏起诉恶意诉讼)、二审是上诉人, 不应并列 "原告/上诉人". 正确: "上诉人(一审被告): 魏立秋"、"被上诉人(一审原告): 徐氏米业".
+- **P2 时间线事件遗漏**: 事实时间线段漏掉"五三四八号案" (长春中院第一次起诉后撤诉). 两次起诉是徐氏米业论证"恶意"的关键事实, 不能漏.
+
+**与 §182 的关系**: §182 落 4 类 (数字/模板/待查/时间线冲突). §183 补 2 类 (立场标注/时间线覆盖度).
+
+### 修复策略 (P1+P2 同步落地)
+
+#### §183 P1-1 后处理: 立场标注规范化
+- 实现位置: `frontend/src-tauri/src/summary/hard_post_process.rs::check_party_role_labeling`
+- `PARTY_ROLE_BLACKLIST`: 6 种模糊并列 (原告/上诉人 / 上诉人/原告 / 原告/被上诉人 等)
+- `APPELLATE_KEYWORDS`: 10 个二审上下文关键词 (二审/上诉人/被上诉人/终审等)
+- 主函数检测:
+  1. transcript 含 二审关键词 → `is_appellate=true`
+  2. summary 含 blacklist pattern → `matched_blacklist` 报警
+  3. 即使不在 blacklist, 二审案件 summary 含 "原告" 但无 "被上诉人" 或 "一审原告" → 提示检查
+- 测试 (3 个 §183 P1): `detects "原告/上诉人"`, `clean appellant`, `first trial civil case no appellate`
+
+#### §183 P1-2 prompt 强化: 法律模板
+- `frontend/src-tauri/templates/court_hearing.json` 案件基本信息段 instruction 注入 §183 规则:
+  - 二审案件当事人严格格式: `上诉人 (一审被告): <姓名>` + `被上诉人 (一审原告): <姓名>`
+  - 严禁并列模糊 (原告/上诉人 等)
+  - 一审案件保留 "原告/被告" 格式
+- 时间线覆盖度: transcript 案件编号 (五三四八号案 / 二十八号案 / 第123号 等) 必须 verbatim 出现在事实时间线段
+
+#### §183 P2 后处理: 时间线覆盖度
+- 实现位置: `frontend/src-tauri/src/summary/hard_post_process.rs::check_timeline_completeness`
+- `CASE_ID_RE`: 中/阿数字 + "号案|号判决|号裁定|号书"
+- 检测 transcript 案件编号集合 vs summary 集合
+- 集合差 = `missing_case_ids` → 报警"可能是时间线事件漏掉"
+- 测试 (3 个 §183 P2): `catches_missing_case_number` (用户真实事故模拟) + `full_coverage` + `chinese_and_arabic`
+
+#### §183 UI 组件 (2 个新 banner)
+- `frontend/src/components/AISummary/NumberGuardBanner.tsx`:
+  - `PartyRoleBanner` (红色 #ef4444) — 立场标注不规范
+  - `TimelineCoverageBanner` (蓝色 #2563eb) — 时间线覆盖度不足
+- `frontend/src/components/AISummary/BlockNoteSummaryView.tsx`: 3 个 format 路径 (multi-case/blocknote/markdown) 都接入新 banner
+
+#### service.rs 接入
+- `build_summary_result_json_with_facts` 同时跑 6 个 check (4 个 §182 + 2 个 §183)
+- result JSON 字段: `number_consistency` / `party_role` / `timeline_coverage` + 各自的 `has_*_issue` bool 标志
+
+**铁律 (§183 立)**:
+1. **二审案件必须显式标注 "上诉人(一审X告)"** — 后处理关键词检测 + prompt 模板规则双重保险
+2. **时间线覆盖度 = transcript 案件编号 verbatim 出现在 summary 事实时间线段** — 案件编号是高精度唯一标识符, 误判率低
+3. **黑/红/蓝 banner 颜色按严重度分级** — 立场标注 (红) > 数字一致性 (黄) > 时间线覆盖度 (蓝)
+4. **每次新 §X 检查必须加 guard anchor** (§56 §92 强化) — 13 个 §183 anchor 让任何 commit 漏掉立刻报警
+
+**§37 6 步硬闸门 (本节)**:
+- ✅ cargo test --lib summary::hard_post_process: **28/28 PASS** (22 §182 + 6 §183)
+- ✅ cargo check --lib: 0 errors
+- ✅ tsc --noEmit: 0 errors
+- ✅ check_historical_fixes.py: **608/608 PASS** (596 §182 + 12 §183)
+- ⏳ cargo build --release: 待跑
+- ⏳ sync_app_bundle.sh: 待跑
+- ⏳ GUI 端到端: 用户 §15 必做
+
+**§15 GUI 验收 (用户必做)**:
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+```
+打开"魏某专利侵权及恶意诉讼案二审判决书"重新生成摘要后:
+1. 红色 PartyRoleBanner — 若仍含"原告/上诉人"则提示模糊立场
+2. 蓝色 TimelineCoverageBanner — 若 transcript 含 "五三四八号案" 但 summary 漏掉则提示
+
+**与既有 §X 的关系**:
+- §138 P1 verbatim + §141 VERBATIM → §183 立场 + 时间线覆盖度, 进一步完善
+- §161 法律 5 铁律 → §183 P1 立场标注 = 角色严谨性的延伸
+- §182 数字/模板/待查/时间线冲突 → §183 立场/时间线覆盖度 = 互补的两类质量检查
+- §170 多案件 JSON 渲染 → §183 在单案件也有效 (本案是单案件)
+- §169 regenerate bypass cache → §183 配合: 重新生成必跑新 check
+
+**关联**:
+- commit §183: `codex/accuracy-experiment` HEAD 即将新增
+- `outputs/§183-二审案件立场标注+时间线覆盖度-2026-08-25.md` (Codex 副本)
+- `~/Documents/Obsidian Vault/项目/3-离线会记/§183-...md` (Obsidian 主份, 双写 `diff -q` 验证)

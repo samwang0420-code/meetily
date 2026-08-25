@@ -433,7 +433,99 @@ pub fn filter_pending_items(transcript: &str, pending_section: &str) -> PendingF
     report
 }
 
-/// §182 P0-3: 数字一致性校验结果
+/// §183 P1-1: 模糊立场表述 — 检测"原告/上诉人"等错误并列
+/// 用户 8/25 反馈"魏某专利侵权及恶意诉讼案":
+///   - 摘要写"原告/上诉人：魏立秋", 但魏某一审是被告、二审是上诉人, 不是并列
+///   - 应强制输出"上诉人(一审被告): 魏立秋"、"被上诉人(一审原告): 徐氏米业"
+const PARTY_ROLE_BLACKLIST: &[&str] = &[
+    "原告/上诉人", "上诉人/原告",
+    "原告/被告/上诉人", "上诉人/被告/原告",
+    "原告/被上诉人", "被上诉人/原告",
+];
+
+const APPELLATE_KEYWORDS: &[&str] = &[
+    "二审", "上诉人", "被上诉人", "上诉", "二审法院",
+    "二审庭审", "二审判决", "二审审理",
+    "终审", "终审法院",
+];
+
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
+pub struct PartyRoleReport {
+    pub is_appellate: bool,
+    pub matched_blacklist: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+pub fn check_party_role_labeling(transcript: &str, summary: &str) -> PartyRoleReport {
+    let mut report = PartyRoleReport::default();
+    report.is_appellate = APPELLATE_KEYWORDS.iter().any(|k| transcript.contains(k) || summary.contains(k));
+    for pattern in PARTY_ROLE_BLACKLIST {
+        if summary.contains(pattern) {
+            report.matched_blacklist.push((*pattern).to_string());
+            report.warnings.push(format!(
+                "摘要出现模糊立场表述 '{}' — 二审案件应写'上诉人(一审X告)'/'被上诉人(一审X告)', 不要并列'原告/上诉人'",
+                pattern
+            ));
+        }
+    }
+    if report.is_appellate && report.matched_blacklist.is_empty() {
+        let summary_has_appellant = APPELLATE_KEYWORDS.iter().any(|k| summary.contains(k));
+        let summary_has_plaintiff = summary.contains("原告") && !summary.contains("被上诉人");
+        if summary_has_appellant && summary_has_plaintiff && !summary.contains("一审原告") {
+            report.warnings.push(format!(
+                "二审案件 summary 含'原告'字但未使用'一审原告'/'被上诉人'格式 — 请人工核对立场标注"
+            ));
+        }
+    }
+    report
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
+pub struct TimelineCompletenessReport {
+    pub transcript_case_ids: Vec<String>,
+    pub summary_case_ids: Vec<String>,
+    pub missing_case_ids: Vec<String>,
+    pub coverage_warnings: Vec<String>,
+}
+
+pub fn check_timeline_completeness(transcript: &str, summary: &str) -> TimelineCompletenessReport {
+    let mut report = TimelineCompletenessReport::default();
+    static CASE_ID_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(
+            r"(?x)
+            \d{2,}\s*号(?:案|判决|裁定|书)
+            |
+            [零一二三四五六七八九十百千]+(?:[零一二三四五六七八九十百千]+)?\s*号(?:案|判决|裁定|书)
+        ",
+        )
+        .unwrap()
+    });
+    report.transcript_case_ids = CASE_ID_RE
+        .find_iter(transcript)
+        .map(|m| normalize_token(m.as_str()))
+        .collect();
+    report.transcript_case_ids.sort();
+    report.transcript_case_ids.dedup();
+    report.summary_case_ids = CASE_ID_RE
+        .find_iter(summary)
+        .map(|m| normalize_token(m.as_str()))
+        .collect();
+    report.summary_case_ids.sort();
+    report.summary_case_ids.dedup();
+    let summary_set: std::collections::BTreeSet<String> = report.summary_case_ids.iter().cloned().collect();
+    for id in &report.transcript_case_ids {
+        if !summary_set.contains(id) {
+            report.missing_case_ids.push(id.clone());
+            report.coverage_warnings.push(format!(
+                "案件编号 '{}' 在 transcript 中出现但 summary 遗漏 — 可能是时间线事件漏掉 (e.g. 漏掉第一次起诉)",
+                id
+            ));
+        }
+    }
+    report
+}
+
+
 /// §182 P0-3: 数字一致性校验结果
 #[derive(Debug, Clone, Serialize, PartialEq)]
 pub struct NumberConsistencyReport {
@@ -741,6 +833,72 @@ mod tests {
 2. 是否需要现场勘查补充";
         let report = filter_pending_items("", pending);
         assert!(!report.apparent_false_positive.is_empty(), "应识别已庭审查清项");
+    }
+
+        #[test]
+    fn section_183_p1_detect_appellant_role_blacklist() {
+        // 用户真实事故 8/25: 摘要写"原告/上诉人：魏立秋" 是错误并列
+        let summary = "案件基本信息：原告/上诉人：魏立秋, 被上诉人(一审原告)：徐氏米业公司";
+        let transcript = "二审庭审中, 上诉人魏立秋不服一审判决提起上诉";
+        let report = check_party_role_labeling(transcript, summary);
+        assert!(report.is_appellate, "transcript 含'上诉人/二审' 应识别为二审");
+        assert!(!report.matched_blacklist.is_empty(), "应识别'原告/上诉人'模糊表述");
+        assert!(
+            report.warnings.iter().any(|w| w.contains("模糊立场表述")),
+            "警告应说明模糊立场问题: {:?}",
+            report.warnings
+        );
+    }
+
+    #[test]
+    fn section_183_p1_clean_appellate_label() {
+        // 正确格式: "上诉人(一审被告): 魏立秋" + "被上诉人(一审原告): 徐氏米业"
+        let summary = "案件基本信息：上诉人(一审被告)：魏立秋, 被上诉人(一审原告)：徐氏米业公司";
+        let transcript = "二审庭审中, 上诉人魏立秋不服一审判决提起上诉";
+        let report = check_party_role_labeling(transcript, summary);
+        assert!(report.is_appellate, "transcript 应识别为二审");
+        assert!(report.matched_blacklist.is_empty(), "正确格式不应触发");
+        assert!(report.warnings.is_empty(), "正确格式不应报警: {:?}", report.warnings);
+    }
+
+    #[test]
+    fn section_183_p1_first_trial_civil_case_no_appellate() {
+        // 一审案件, summary 含"原告" 是正常的
+        let summary = "案件基本信息：原告：徐氏米业, 被告：魏立秋";
+        let transcript = "一审庭审中, 徐氏米业起诉魏立秋恶意诉讼";
+        let report = check_party_role_labeling(transcript, summary);
+        assert!(!report.is_appellate, "一审不应该是 appellate");
+        assert!(report.matched_blacklist.is_empty(), "一审/原告 是正常用法");
+    }
+
+    #[test]
+    fn section_183_p2_catches_missing_case_number() {
+        // 用户真实事故 8/25: 漏"五三四八号案"第一次起诉 (长春中院)
+        let transcript = "2021年9月魏某在长春中院起诉徐氏米业(五三四八号案), 主动撤诉。2022年7月再次在松原中院起诉(二十八号案)";
+        let summary = "2022年7月魏某向松原市中级人民法院起诉徐氏米业(二十八号案)";
+        let report = check_timeline_completeness(transcript, summary);
+        assert_eq!(report.transcript_case_ids.len(), 2, "transcript 应含 2 个案号");
+        assert_eq!(report.missing_case_ids.len(), 1, "summary 应漏 1 个案号");
+        assert!(report.missing_case_ids.iter().any(|m| m.contains("五三四八")), "漏掉的应是五三四八号案");
+    }
+
+    #[test]
+    fn section_183_p2_full_coverage() {
+        // 完整覆盖: 所有 case_id 都出现 (transcript 和 summary 用同一种"号案"形式)
+        let transcript = "案号五三四八号案, 案号二十八号案";
+        let summary = "本案涉及五三四八号案和二十八号案两起诉讼";
+        let report = check_timeline_completeness(transcript, summary);
+        assert!(report.missing_case_ids.is_empty(), "完整覆盖不应报警: {:?}", report.missing_case_ids);
+    }
+
+    #[test]
+    fn section_183_p2_extracts_chinese_numerals_and_arabic() {
+        let transcript = "依据五三四八号判决书, 另案二十八号判决";
+        let summary = "";  // 空 summary: 全部 missing
+        let report = check_timeline_completeness(transcript, summary);
+        assert!(report.transcript_case_ids.len() >= 2, "应抽到中文案号");
+        assert!(report.summary_case_ids.is_empty(), "空 summary 应无案号");
+        assert!(report.coverage_warnings.len() >= 2, "应报警 2 个缺失");
     }
 
         #[test]

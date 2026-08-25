@@ -197,3 +197,93 @@ export const TimelineConflictBanner: React.FC<TimelineConflictBannerProps> = ({ 
     </div>
   );
 };
+
+
+interface PartyRoleBannerProps {
+  /// §183 P1: 立场标注检测
+  report?: {
+    is_appellate?: boolean;
+    matched_blacklist?: string[];
+    warnings?: string[];
+  };
+}
+
+export const PartyRoleBanner: React.FC<PartyRoleBannerProps> = ({ report }) => {
+  const { t } = useTranslation();
+  if (!report) return null;
+  const warnings = report.warnings ?? [];
+  if (warnings.length === 0) return null;
+  return (
+    <div
+      role="alert"
+      data-testid="party-role-banner"
+      style={{
+        margin: '12px 0',
+        padding: '14px 16px',
+        borderRadius: 8,
+        border: '1px solid #ef4444',
+        background: '#fef2f2',
+        color: '#7f1d1d',
+        fontSize: 13,
+        lineHeight: 1.6,
+      }}
+    >
+      <div style={{ fontWeight: 600, marginBottom: 8 }}>
+        ⚠️ {t('summary.party_role_183.banner_title') || '立场标注不规范 — 二审案件格式错误'}
+      </div>
+      <ul style={{ margin: 0, paddingLeft: 18 }}>
+        {warnings.slice(0, 4).map((w, i) => (
+          <li key={i} style={{ fontSize: 12 }}>{w}</li>
+        ))}
+      </ul>
+      <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
+        💡 正确格式: 二审案件应当事人格式写"上诉人(一审被告): &lt;姓名&gt;"/"被上诉人(一审原告): &lt;姓名&gt;"
+      </div>
+    </div>
+  );
+};
+
+interface TimelineCoverageBannerProps {
+  /// §183 P2: 时间线覆盖度检测
+  report?: {
+    transcript_case_ids?: string[];
+    summary_case_ids?: string[];
+    missing_case_ids?: string[];
+    coverage_warnings?: string[];
+  };
+}
+
+export const TimelineCoverageBanner: React.FC<TimelineCoverageBannerProps> = ({ report }) => {
+  const { t } = useTranslation();
+  if (!report) return null;
+  const warnings = report.coverage_warnings ?? [];
+  if (warnings.length === 0) return null;
+  return (
+    <div
+      role="alert"
+      data-testid="timeline-coverage-banner"
+      style={{
+        margin: '12px 0',
+        padding: '14px 16px',
+        borderRadius: 8,
+        border: '1px solid #2563eb',
+        background: '#eff6ff',
+        color: '#1e3a8a',
+        fontSize: 13,
+        lineHeight: 1.6,
+      }}
+    >
+      <div style={{ fontWeight: 600, marginBottom: 8 }}>
+        ⚠️ {t('summary.timeline_coverage_183.banner_title') || '时间线覆盖度不足 — 案件编号遗漏'}
+      </div>
+      <ul style={{ margin: 0, paddingLeft: 18 }}>
+        {warnings.slice(0, 5).map((w, i) => (
+          <li key={i} style={{ fontSize: 12 }}>{w}</li>
+        ))}
+      </ul>
+      <div style={{ marginTop: 8, fontSize: 12, opacity: 0.85 }}>
+        💡 transcript 中所有案件编号 (五三四八号案 / 二十八号案等) 应 verbatim 出现在事实时间线段
+      </div>
+    </div>
+  );
+};

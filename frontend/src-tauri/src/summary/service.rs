@@ -204,6 +204,10 @@ fn build_summary_result_json_with_facts(
     }
     // §182: 数字一致性校验 (民事赔偿 4 要素错位 / 大单位幻觉报警)
     let number_report = hpp::check_number_consistency(_number_consistency_transcript, final_markdown);
+    // §183 P1: 立场标注规范化 (二审案件"原告/上诉人"模糊表述检测)
+    let party_role_report = hpp::check_party_role_labeling(_number_consistency_transcript, final_markdown);
+    // §183 P2: 时间线覆盖度检测 (transcript 案件编号是否 verbatim 出现在 summary)
+    let timeline_coverage_report = hpp::check_timeline_completeness(_number_consistency_transcript, final_markdown);
     if let serde_json::Value::Object(map) = &mut payload {
         map.insert(
             "number_consistency".into(),
@@ -212,6 +216,22 @@ fn build_summary_result_json_with_facts(
         map.insert(
             "has_number_hallucination".into(),
             serde_json::Value::Bool(!number_report.category_mismatches.is_empty() || !number_report.unexpected_numbers.is_empty()),
+        );
+        map.insert(
+            "party_role".into(),
+            serde_json::to_value(&party_role_report).unwrap_or(serde_json::Value::Null),
+        );
+        map.insert(
+            "has_party_role_issue".into(),
+            serde_json::Value::Bool(!party_role_report.matched_blacklist.is_empty() || (party_role_report.is_appellate && !party_role_report.warnings.is_empty())),
+        );
+        map.insert(
+            "timeline_coverage".into(),
+            serde_json::to_value(&timeline_coverage_report).unwrap_or(serde_json::Value::Null),
+        );
+        map.insert(
+            "has_timeline_coverage_issue".into(),
+            serde_json::Value::Bool(!timeline_coverage_report.missing_case_ids.is_empty()),
         );
     }
     payload
