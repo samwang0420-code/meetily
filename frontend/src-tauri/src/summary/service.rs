@@ -9,6 +9,8 @@ use crate::summary::processor::{
     extract_meeting_name_from_markdown, generate_meeting_summary, language_name_from_code,
 };
 use crate::summary::fact_guard::{highlight_unexpected_facts, normalize_name_drift, validate_summary, FactGuardReport};
+use crate::summary::hard_post_process as hpp;
+
 use crate::summary::commands::StructuredTranscriptEvidence;
 use crate::summary::templates::{self, Template};
 use crate::ollama::metadata::ModelMetadataCache;
@@ -170,7 +172,7 @@ fn build_summary_result_json(
     source: SummaryCacheSource,
     output_language: Option<&str>,
 ) -> serde_json::Value {
-    build_summary_result_json_with_facts(final_markdown, english_markdown, source, output_language, None)
+    build_summary_result_json_with_facts(final_markdown, english_markdown, source, output_language, None, "")
 }
 
 fn build_summary_result_json_with_facts(
@@ -179,6 +181,7 @@ fn build_summary_result_json_with_facts(
     source: SummaryCacheSource,
     output_language: Option<&str>,
     fact_report: Option<&FactGuardReport>,
+    _number_consistency_transcript: &str,
 ) -> serde_json::Value {
     let mut payload = serde_json::json!({
         "markdown": strip_title_if_present(final_markdown),
@@ -198,6 +201,18 @@ fn build_summary_result_json_with_facts(
             map.insert("fact_guard_attribution_confusion".into(), serde_json::Value::Bool(!report.attribution_confusion.is_empty()));
             map.insert("fact_guard_name_normalized".into(), serde_json::to_value(&report.name_normalized).unwrap_or(serde_json::Value::Null));
         }
+    }
+    // §182: 数字一致性校验 (民事赔偿 4 要素错位 / 大单位幻觉报警)
+    let number_report = hpp::check_number_consistency(_number_consistency_transcript, final_markdown);
+    if let serde_json::Value::Object(map) = &mut payload {
+        map.insert(
+            "number_consistency".into(),
+            serde_json::to_value(&number_report).unwrap_or(serde_json::Value::Null),
+        );
+        map.insert(
+            "has_number_hallucination".into(),
+            serde_json::Value::Bool(!number_report.category_mismatches.is_empty() || !number_report.unexpected_numbers.is_empty()),
+        );
     }
     payload
 }
@@ -752,12 +767,15 @@ impl SummaryService {
                     }
                 }
 
+                // §182: number_consistency 用 evidence_text (等同 raw transcript) 作为 cross-check 基准
+                let transcript_for_number_check = evidence_text.as_str();
                 let result_json = build_summary_result_json_with_facts(
                     &final_markdown,
                     &english_markdown,
                     cache_source,
                     summary_language.as_deref(),
                     Some(&fact_report),
+                    transcript_for_number_check,
                 );
 
                 // Update database with completed status.

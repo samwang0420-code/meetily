@@ -11,6 +11,7 @@ import { BlockNoteView } from '@blocknote/shadcn';
 import { blocksToMarkdownSafely } from '@/lib/blocknote-markdown';
 import { highlightUnexpectedFacts } from '@/lib/highlight_facts';
 import { FactGuardBanner } from './FactGuardBanner';
+import { NumberGuardBanner, TemplateMismatchBanner, PendingFilterBanner, TimelineConflictBanner } from './NumberGuardBanner';
 import "@blocknote/shadcn/style.css";
 
 // Dynamically import BlockNote Editor to avoid SSR issues
@@ -395,6 +396,11 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
         {data?.fact_guard_legal_critical && (
           <FactGuardBanner report={data.fact_guard} legalCritical={true} />
         )}
+        {/* §182: 数字一致性 / 模板错配 / 待查明事项真伪过滤 / 时间线冲突 — 4 个 banner */}
+        <NumberGuardBanner report={data?.number_consistency} />
+        <TemplateMismatchBanner report={data?.template_mismatch} />
+        <PendingFilterBanner report={data?.pending_filter} />
+        <TimelineConflictBanner report={data?.timeline_conflict} />
         {multiCaseWarning && (
           <div className="px-4 py-3 bg-amber-50 border-b border-amber-200 text-sm text-amber-900">
             <div className="font-semibold mb-1">{'\u26a0\ufe0f'} {'\u68c0\u6d4b\u5230\u591a\u6bb5\u72ec\u7acb\u5185\u5bb9'} ({multiCases.length} {'\u4e2a\u6848\u4ef6'})</div>
@@ -423,6 +429,11 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
             legalCritical={true}
           />
         )}
+        {/* §182: 数字一致性 / 模板错配 / 待查明事项真伪过滤 / 时间线冲突 — 4 个 banner */}
+        <NumberGuardBanner report={data?.number_consistency} />
+        <TemplateMismatchBanner report={data?.template_mismatch} />
+        <PendingFilterBanner report={data?.pending_filter} />
+        <TimelineConflictBanner report={data?.timeline_conflict} />
         {/* §141.7: 隐藏 banner — 用户 8/20 反馈"华而不实",只保留 D 方案黄底高亮 (highlightUnexpectedFacts) */}
         {/* 恢复: git log -p 取回这一行 + i18n banner_* keys 都保留在 zh.ts/en.ts */}
         <div className="w-full">
@@ -451,6 +462,11 @@ export const BlockNoteSummaryView = forwardRef<BlockNoteSummaryViewRef, BlockNot
             legalCritical={true}
           />
         )}
+        {/* §182: 数字一致性 / 模板错配 / 待查明事项真伪过滤 / 时间线冲突 — 4 个 banner */}
+        <NumberGuardBanner report={data?.number_consistency} />
+        <TemplateMismatchBanner report={data?.template_mismatch} />
+        <PendingFilterBanner report={data?.pending_filter} />
+        <TimelineConflictBanner report={data?.timeline_conflict} />
         {/* §141.7: 同上 — 隐藏 banner,只保留黄底高亮 D 方案 */}
         <div className="w-full">
           <BlockNoteView

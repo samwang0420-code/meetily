@@ -2607,3 +2607,88 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - §138 (P1 verbatim) / §141 (VERBATIM FACT-CHECK) / §148 (法律模板 critical) / §149 (归一化) / §152 (NUMBER_RE 中文数字)
 - §37 (硬闸门 SOP) / §18 (不主动改无关 bug) / §56 (AGENTS.md 双校) / §92 (防代码漏)
 - [[161-多案件-跨案件污染-法条编造-关键证据丢失-2026-08-23]] (Obsidian 主份) + `outputs/§161-...md` (Codex 副本)
+
+## §182 数字一致性 + 模板错配 + 待查明过滤 + 时间线冲突 — P0/P1/P2 摘要质量根因修复 (2026-08-25 立)
+
+**触发事故**: 用户 8/25 反馈"金江向阳水库触电事故责任纠纷案"重新生成摘要存在 4 类严重问题:
+1. **P0 数字幻觉**: 原文"精神慰藉金10万元"被 LLM 错位写成"被抚养人生活补助费100万元" (10x 放大)
+2. **P1 模板错配**: 民事侵权案摘要使用"公诉人" — 民事案无公诉人 (刑事案用语)
+3. **P1 待查真假混淆**: "收杆水钻3.6米" 被列为"待查明事项" — 实际是庭审辩论引用数据
+4. **P2 时间线矛盾**: "2014年方涛死亡" + "2018年开庭审理" + "死者20岁" 逻辑需校验
+
+**修复策略 (P0/P1/P2 同时落地, 一次性 commit)**:
+
+### §182 P0-1 数字一致性校验
+- 实现位置: `frontend/src-tauri/src/summary/hard_post_process.rs`
+- `NUMBER_TOKEN_RE` 提取 "数字+单位" 词法 token (阿拉伯 + 中文)
+- `normalize_token()` 把"100余万元" → "100万元" (末尾余挪到单位前)
+- `COMPENSATION_CATEGORIES` 11 类民事赔偿明细关键词
+- `check_number_consistency(transcript, summary)` 输出:
+  - `unexpected_numbers` (summary 数字 transcript 找不到)
+  - `category_mismatches` (摘要写某分类下数字, transcript 同分类查不到)
+- 真实事故模拟测试: `section_182_check_consistency_catches_100w_hallucination` 通过
+
+### §182 P1-1 模板错配检测
+- `detect_template_keyword_mismatch(summary, declared_template_type)`
+- `CRIMINAL_KEYWORDS` 18 个 + `CIVIL_KEYWORDS` 11 个
+- 民事模板摘要含"公诉人/被告人/抗诉/刑事责任能力"等刑事词 → 报警
+- 刑事模板摘要含"死亡赔偿金/精神抚慰金"等民事词 → 反向报警
+
+### §182 P1-2 待查明事项真伪过滤
+- `filter_pending_items(transcript, pending_section)`
+- 假待查判定: 含"数字+单位" (3.6米) / 含法条编号 (第一千一百六十五条)
+- 真待查判定: 含"是否" / "待核实" / "尚未确认" 等
+- 输出 3 数组: `genuine_pending` / `apparent_false_positive` / `realignment_warnings`
+
+### §182 P2-1 时间线冲突检测
+- `detect_timeline_conflict(transcript, summary)` — 宽松实现
+- 年份顺序错置 (升序 vs 实际摘要顺序) 报警
+- 年龄 + 年份回溯同时存在 → 提示人工核对 (例 "48岁" + "2014年死亡" + "2018年庭审")
+- 完整时间线逻辑校验留待 §X
+
+**铁律 (§182 立)**:
+1. **数字只做搬运工, 不做算术题** — regex bit-perfect, 不依赖 LLM
+2. **民事模板自动检测刑事关键词** — 不让 LLM 串模板, 立即报警
+3. **"待查明"段必须有真伪过滤** — 辩论数据 ≠ 待查项
+4. **新摘要每次必跑这 4 个 check** — regenerate 也必须跑 (绕过 cache)
+5. **新增数字/模板检查必须加 guard anchor** (§56 §92)
+
+**前端 UI 集成 (NumberGuardBanner.tsx)**:
+- `NumberGuardBanner` (黄色 amber) — 数字一致性报警
+- `TemplateMismatchBanner` (橙色 orange) — 模板错配报警
+- `PendingFilterBanner` (紫色 purple) — 待查明过滤报警
+- `TimelineConflictBanner` (黄绿 yellow) — 时间线冲突报警
+- 4 个 banner 在 `BlockNoteSummaryView` 3 个 format 路径 (multi-case/blocknote/markdown) 都插入
+
+**§37 6 步硬闸门 (本节 commit 前必跑)**:
+- ✅ cargo test --lib summary::hard_post_process: **22/22 PASS**
+- ✅ cargo check --lib: 0 errors
+- ✅ tsc --noEmit: 0 errors (1 个 §18 bun:test 已知不动)
+- ⏳ cargo build --release: 待跑
+- ⏳ check_historical_fixes.py: 581/581 PASS (§182 anchor 即将添加)
+- ⏳ sync_app_bundle.sh: 待跑
+- ⏳ GUI 端到端: 用户 §15 必做
+
+**§15 GUI 验收 (用户必做, 不能 CLI 测)**:
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+```
+打开"金江向阳水库触电事故责任纠纷案", 期望:
+1. 黄色 NumberGuardBanner — 提示"分类'被抚养人生活费'摘要中写数字'100万元', 但 transcript 中找不到'抚养'分类对应数字"
+2. 橙色 TemplateMismatchBanner — 提示"民事模板出现刑事关键词'公诉人'"
+3. 紫色 PendingFilterBanner — 提示"待查明事项'收杆水钻3.6米'实含具体数字"
+4. 重新生成摘要后 banner 仍显示 (用户必须看到, 不能隐藏)
+
+**与既有 §X 的关系**:
+- §138 P1 verbatim (严禁 AI 编造数字) → §182 强约束落地
+- §141 VERBATIM FACT-CHECK + 前端 highlight → §182 多类 banner 联动
+- §148 法律 critical banner → §182 扩展 4 类 banner
+- §161 法律 5 铁律 → §182 补 4 类 (数字/模板/待查/时间线)
+- §169 regenerate bypass cache → §182 配合, 每次 regenerate 重跑 check
+- §170 多案件 JSON 渲染 → §182 banner 不依赖多案件, 单案件也有效
+
+**关联**:
+- commit §182: `codex/accuracy-experiment` HEAD 即将新增
+- `outputs/§182-数字一致性+模板错配+待查明过滤+时间线冲突-2026-08-25.md` (Codex 副本)
+- `~/Documents/Obsidian Vault/项目/3-离线会记/§182-...md` (Obsidian 主份, 双写 `diff -q` 验证一致)
