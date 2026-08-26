@@ -796,6 +796,30 @@ impl SummaryService {
                     );
                     final_markdown = truncated_md;
                 }
+                // §184.5 bullet 列表 dedup (时间线 bullet 也去重, 不只表格)
+                let (bullet_deduped_md, bullet_report) = hpp::dedup_bullet_list_items(&final_markdown);
+                if bullet_report.items_removed > 0 {
+                    info!(
+                        "§184.5 dedup_bullet_list_items: removed {} bullets ({}/{} kept) for meeting_id={}",
+                        bullet_report.items_removed,
+                        bullet_report.total_items_after,
+                        bullet_report.total_items_before,
+                        meeting_id
+                    );
+                    final_markdown = bullet_deduped_md;
+                }
+                // §184.6 角色冲突检测 (报告, 不修 — 让用户判断)
+                let role_conflict_report = hpp::detect_party_role_conflict(&final_markdown);
+                if !role_conflict_report.conflicts.is_empty() {
+                    warn!(
+                        "§184.6 detect_party_role_conflict: {} conflicts for meeting_id={}",
+                        role_conflict_report.conflicts.len(),
+                        meeting_id
+                    );
+                    for c in &role_conflict_report.conflicts {
+                        warn!("§184.6 conflict: {}", c);
+                    }
+                }
                 info!("Final markdown generated ({} chars)", final_markdown.len());
 
                 if let Some(name) = extract_meeting_name_from_markdown(&final_markdown)

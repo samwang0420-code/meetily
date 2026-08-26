@@ -747,6 +747,211 @@ pub fn truncate_raw_transcript_leak(md: &str) -> (String, RawTranscriptLeakRepor
 
 
 
+
+// ============================================================================
+// §184.5 + §184.6 退化硬保护扩展 (2026-08-26 立)
+// ============================================================================
+//
+// 触发: 用户 8/26 14:14 反馈 "多处重复" — 附件 meeting-8ce922f9 (方涛触电身亡案)
+//       摘要 4 类硬退化 (在 §184.1/§184.2 已修 markdown table + raw transcript
+//       后, 仍暴露 2 个未覆盖场景):
+//         (a) 时间线 bullet 列表重复 — "2018 年 7 月 14 日" 4 行内容大量重复
+//             §184.1 dedup_markdown_table_rows 只处理 `|---|` 表格,
+//             不处理 `- **时间**: ...` 或 `* **时间**: ...` bullet 列表
+//         (b) 角色冲突 — 案件基本信息段 "原告: 温明仁(水库承包经营者)"
+//             同一段后面又有 "被告: 温明仁" — 同一主体被标为不同身份
+//         (c) 庭审阶段 + 庭审进程 段内容大量重复
+//         (d) 民事案件用 "公诉人/辩护人/自首" 刑事术语 (§182 已检测, 但 §184.6 加严)
+// ============================================================================
+
+/// §184.5 bullet 列表 dedup 报告
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
+pub struct BulletDedupReport {
+    pub items_removed: usize,
+    pub total_items_before: usize,
+    pub total_items_after: usize,
+}
+
+/// §184.5 bullet 列表 dedup
+/// 检测 markdown bullet 列表 (`- ...` 或 `* ...`), 主键 = 行首到第一个 ':' 的内容
+/// (去空白 + 去 `==⚠️xxx⚠️==` 标记 + 去中文/英文括号内容)
+/// 用户 8/26 case: 时间线 8 条 bullet, 实际只有 4 个独立事件 (2018-07-14 × 4 行内容重复)
+pub fn dedup_bullet_list_items(md: &str) -> (String, BulletDedupReport) {
+    let mut out = String::with_capacity(md.len());
+    let mut report = BulletDedupReport::default();
+    let mut seen: Vec<String> = Vec::new();
+    let mut consecutive_bullets = 0u32;
+
+    for line in md.lines() {
+        let trimmed = line.trim_start();
+        let is_bullet = trimmed.starts_with("- ") || trimmed.starts_with("* ");
+        if is_bullet {
+            consecutive_bullets += 1;
+            report.total_items_before += 1;
+            // 主键: 行首到第一个 ':' 的内容 (去除 ==⚠️xxx⚠️== 高亮标记)
+            let body = if let Some(stripped) = trimmed.strip_prefix("- ").or_else(|| trimmed.strip_prefix("* ")) {
+                stripped
+            } else {
+                trimmed
+            };
+            let key_part = body.split(':').next().unwrap_or(body);
+            let key = normalize_bullet_key(key_part);
+            if seen.iter().any(|k| k == &key) {
+                report.items_removed += 1;
+                continue; // 跳过重复行
+            }
+            seen.push(key);
+            report.total_items_after += 1;
+            out.push_str(line);
+            out.push('\n');
+        } else {
+            // 非 bullet 行: 重置 seen (避免跨段误判)
+            // 但保留跨段去重 (有些场景希望全文去重), 这里选择"连续 bullet 段" 内去重
+            if !trimmed.is_empty() && consecutive_bullets > 0 {
+                // 非空非 bullet 行: 重置 seen + counter
+                seen.clear();
+                consecutive_bullets = 0;
+            } else if trimmed.is_empty() {
+                // 空行也重置
+                seen.clear();
+                consecutive_bullets = 0;
+            }
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    (out, report)
+}
+
+/// §184.5 bullet key 规范化
+/// - 去前后空白
+/// - 去 ==⚠️xxx⚠️== (BlockNote 高亮标记)
+/// - 去中英文括号内容 (e.g. "(水库承包经营者)")
+/// - 全角→半角冒号 (避免 ": " / "：" 错位)
+fn normalize_bullet_key(s: &str) -> String {
+    let mut s = s.trim().to_string();
+    // 去 ==⚠️...⚠️== 高亮标记
+    while let Some(start) = s.find("==⚠️") {
+        if let Some(end) = s.find("⚠️==") {
+            s = format!("{}{}", &s[..start], &s[end + "⚠️==".len()..]);
+        } else {
+            break;
+        }
+    }
+    // 去全角→半角
+    s = s.replace("\u{FF1A}", ":");
+    // 去括号内容 (中英文)
+    let mut result = String::with_capacity(s.len());
+    let mut in_paren: usize = 0;
+    let mut paren_chars = Vec::new();
+    for c in s.chars() {
+        if c == '(' || c == '（' {
+            in_paren += 1;
+            paren_chars.push(c);
+        } else if c == ')' || c == '）' {
+            in_paren = in_paren.saturating_sub(1);
+            paren_chars.pop();
+        } else if in_paren == 0 {
+            result.push(c);
+        }
+    }
+    result.trim().to_string()
+}
+
+/// §184.6 角色冲突检测报告
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
+pub struct PartyRoleConflictReport {
+    pub conflicts: Vec<String>,
+    pub warnings: Vec<String>,
+}
+
+/// §184.6 角色冲突检测
+/// 同一段 markdown 中, 同一主体被标注为多个不同身份
+/// (e.g. "原告: 温明仁" + "被告: 温明仁" 在同一案件基本信息段)
+/// 主键 = 主体姓名 (去掉身份前缀和括号)
+/// 检测方式: 按段 (## 或空行) 分割, 每段内统计 主体 → 身份 映射
+pub fn detect_party_role_conflict(md: &str) -> PartyRoleConflictReport {
+    let mut report = PartyRoleConflictReport::default();
+    const ROLE_KEYWORDS: &[&str] = &["原告", "被告", "上诉人", "被上诉人", "公诉人", "辩护人", "证人", "被告人", "犯罪嫌疑人"];
+    // 段分割: ## 标题 或连续空行
+    let sections: Vec<&str> = md.split(|c| c == '\n').collect();
+    // 简单按段扫: 维护当前段 (主体 → 角色集合)
+    use std::collections::HashMap;
+    let mut current_section = String::new();
+    let mut party_roles: HashMap<String, Vec<String>> = HashMap::new();
+
+    for line in md.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with("## ") || trimmed.starts_with("# ") {
+            // 段切换, 检查上一段冲突
+            for (party, roles) in party_roles.iter() {
+                let unique_roles: std::collections::BTreeSet<&String> = roles.iter().collect();
+                if unique_roles.len() > 1 {
+                    let conflict_str = format!("段 '{}' 中 '{}' 被标注为 {} 种身份: {:?}",
+                        current_section, party, unique_roles.len(), roles);
+                    report.conflicts.push(conflict_str.clone());
+                    report.warnings.push(format!(
+                        "⚠️ 角色冲突: 同一主体 '{}' 在同一段中以多种身份出现 ({:?}) — 请人工核对",
+                        party, roles
+                    ));
+                }
+            }
+            party_roles.clear();
+            current_section = trimmed.to_string();
+            continue;
+        }
+        // 检测 "身份: 主体" 模式 (e.g. "原告: 温明仁", "被告: 任和供电分公司")
+        for role_key in ROLE_KEYWORDS {
+            if let Some(idx) = trimmed.find(&format!("{}:", role_key)) {
+                // 提取冒号后的主体
+                let after = &trimmed[idx + role_key.len() + 1..];
+                // 主体可能在 () 前或行末
+                let party = if let Some(paren_idx) = after.find('(') {
+                    after[..paren_idx].trim()
+                } else if let Some(paren_idx) = after.find('（') {
+                    after[..paren_idx].trim()
+                } else {
+                    after.trim()
+                };
+                // 跳过空 / 太长的 (e.g. "案件基本信息")
+                if !party.is_empty() && party.chars().count() <= 30 {
+                    party_roles.entry(party.to_string()).or_insert_with(Vec::new).push(role_key.to_string());
+                }
+            }
+            // 检测 "身份: ... 主体..." 反向 (e.g. "被告 (任和供电分公司)")
+            if let Some(idx) = trimmed.find(&format!("{} (", role_key)) {
+                let after = &trimmed[idx + role_key.len() + 2..];
+                let party = if let Some(paren_idx) = after.find(')') {
+                    after[..paren_idx].trim()
+                } else if let Some(paren_idx) = after.find('）') {
+                    after[..paren_idx].trim()
+                } else {
+                    after.trim()
+                };
+                if !party.is_empty() && party.chars().count() <= 30 {
+                    party_roles.entry(party.to_string()).or_insert_with(Vec::new).push(role_key.to_string());
+                }
+            }
+        }
+    }
+    // 末段检查
+    for (party, roles) in party_roles.iter() {
+        let unique_roles: std::collections::BTreeSet<&String> = roles.iter().collect();
+        if unique_roles.len() > 1 {
+            let conflict_str = format!("段 '{}' 中 '{}' 被标注为 {} 种身份: {:?}",
+                current_section, party, unique_roles.len(), roles);
+            report.conflicts.push(conflict_str.clone());
+            report.warnings.push(format!(
+                "⚠️ 角色冲突: 同一主体 '{}' 在同一段中以多种身份出现 ({:?}) — 请人工核对",
+                party, roles
+            ));
+        }
+    }
+    report
+}
+
+
+
 // ============================================================================
 // Tests
 // ============================================================================
@@ -1103,6 +1308,85 @@ mod tests {
         let (out, report) = truncate_raw_transcript_leak(md);
         assert_eq!(report.segments_truncated, 0);
         assert_eq!(out, md);
+    }
+
+
+
+    // ============================================================
+    // §184.5 bullet_list_dedup 测试
+    // ============================================================
+
+    #[test]
+    fn section_184_5_dedup_bullet_removes_duplicate_dates() {
+        // User 8/26 case: 时间线 6 条 bullet, 4 行 2018-07-14 重复 → 应剩 3 (1 + 1 + 1)
+        let md = "* 2018 年 7 月 14 日: 方涛在攀枝花市仁和区金江镇向阳水库钓鱼时，鱼线触碰高压电线导致触电身亡\n* 2018 年 7 月 14 日: 方涛父亲==⚠️方定福⚠️==接到消息后赶到现场\n* 2018 年 8 月 29 日: 四川省攀枝花市仁和区人民法院公开开庭审理此案\n* 2017 年 8 月 26 日: 四川省攀枝花市仁和区人民法院曾发生类似高压电击死亡事故\n* 2018 年 7 月 14 日: 方涛因鱼线触碰高压线触电身亡\n* 2018 年 7 月 14 日: 方涛父亲==⚠️方定福⚠️==在收到方涛去世消息后前往";
+        let (out, report) = dedup_bullet_list_items(md);
+        // 6 bullets, 4 个 2018-07-14 重复 → 剩 3 (1 + 1 + 1)
+        assert_eq!(report.total_items_before, 6);
+        assert_eq!(report.total_items_after, 3, "应留 3 个独立日期 (1 + 8月29日 + 8月26日)");
+        assert_eq!(report.items_removed, 3);
+    }
+
+    #[test]
+    fn section_184_5_dedup_bullet_handles_no_bullets() {
+        let md = "normal paragraph 1\nnormal paragraph 2";
+        let (out, report) = dedup_bullet_list_items(md);
+        assert_eq!(report.items_removed, 0);
+        assert!(out.contains("normal paragraph 1"));
+        assert!(out.contains("normal paragraph 2"));
+    }
+
+    #[test]
+    fn section_184_5_dedup_handles_dash_bullets() {
+        let md = "- time1: event A\n- time2: event B\n- time1: event A again";
+        let (_out, report) = dedup_bullet_list_items(md);
+        assert_eq!(report.total_items_before, 3);
+        assert_eq!(report.items_removed, 1);
+        assert_eq!(report.total_items_after, 2);
+    }
+
+    #[test]
+    fn section_184_5_dedup_resets_between_paragraphs() {
+        // 段间应该重置 dedup (避免跨段误删)
+        let md = "## Section 1\n- 2018: event A\n- 2018: event A\n\n## Section 2\n- 2018: event A again";
+        let (_out, report) = dedup_bullet_list_items(md);
+        // 段 1 内去重: 2018 出现 2 次 → 删 1; 段 2 重置, 2018 出现 1 次 → 保留
+        assert_eq!(report.total_items_before, 3);
+        assert_eq!(report.items_removed, 1);
+        assert_eq!(report.total_items_after, 2);
+    }
+
+    // ============================================================
+    // §184.6 detect_party_role_conflict 测试
+    // ============================================================
+
+    #[test]
+    fn section_184_6_detect_party_role_conflict_same_party_two_roles() {
+        // User 8/26 case: 案件基本信息段 "原告: 温明仁" + "被告: 温明仁"
+        let md = "## 案件基本信息\n\n* 被告: 攀枝花供电公司\n* 原告: 温明仁（水库承包经营者）\n* 被告: 任和供电分公司\n* 被告: 温明仁\n* 证人: 金江镇政府";
+        let report = detect_party_role_conflict(md);
+        assert!(!report.conflicts.is_empty(), "应检测到冲突: {:?}", report.conflicts);
+        assert!(
+            report.conflicts.iter().any(|c| c.contains("温明仁")),
+            "冲突应包含 '温明仁': {:?}",
+            report.conflicts
+        );
+    }
+
+    #[test]
+    fn section_184_6_no_conflict_when_consistent() {
+        let md = "## 案件基本信息\n\n* 原告: 徐氏米业\n* 被告: 魏某";
+        let report = detect_party_role_conflict(md);
+        assert!(report.conflicts.is_empty(), "一致标注不应触发冲突: {:?}", report.conflicts);
+    }
+
+    #[test]
+    fn section_184_6_detect_parenthetical_role() {
+        // 另一种格式: "被告 (任和供电分公司)"
+        let md = "## 当事人\n\n* 原告: 徐氏米业\n* 被告 (任和供电分公司)\n* 被告 (任和供电分公司)";
+        let report = detect_party_role_conflict(md);
+        // 同一主体多次出现同身份不应算冲突
+        assert!(report.conflicts.is_empty(), "同一主体重复同身份不应触发冲突: {:?}", report.conflicts);
     }
 
 
