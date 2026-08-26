@@ -2847,3 +2847,72 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - §169 (regenerate 强制 bypass cache) / §169.1 (effective_temperature) / §182 (摘要质量硬约束) / §183 (立场标注 + 时间线覆盖度)
 - §37 (硬闸门) / §56 (AGENTS.md 双校) / §92 (决策迁移) / §15 (GUI 验收)
 
+### §184.5 + §184.6 bullet dedup + 角色冲突检测 (2026-08-26 14:14 立)
+
+**触发**: 用户 8/26 14:14 反馈"多处重复", 附件 meeting-8ce922f9 (方涛触电身亡案民事赔偿纠纷) 摘要 4 类硬退化 (§184.1/§184.2 已修 markdown table + raw transcript 后仍暴露):
+
+| 退化类型 | 8/26 方涛案表现 | §184.1/§184.2 修复? |
+|---|---|---|
+| 时间线 bullet 列表重复 | "2018 年 7 月 14 日" 出现 4 行内容大量重复 | ❌ 未修 (只处理 `|---|` 表格) |
+| 案件基本信息段角色冲突 | "原告: 温明仁(水库承包经营者)" + "被告: 温明仁" 同一段同主体多身份 | ❌ 未修 |
+| 庭审阶段 + 庭审进程段重复 | 同一时间点描述重复 | ❌ 未修 |
+| 民事案件用刑事术语 | "公诉人/辩护人/自首" | §182 detect_template_keyword_mismatch 已检测,加严 |
+
+**修复 (2 件)**:
+- **§184.5 `dedup_bullet_list_items(md: &str) -> (String, BulletDedupReport)`**
+  - 检测 markdown bullet 列表 (`- ...` 或 `* ...`)
+  - 主键 = 行首到第一个 `:` 的内容 (去空白 + 去 `==⚠️xxx⚠️==` BlockNote 高亮 + 去括号内容)
+  - 段间重置 `seen` (避免跨段误删)
+  - 用户 8/26 方涛案: 6 bullet → 留 3 唯一日期 (2018-07-14 / 2018-08-29 / 2017-08-26)
+- **§184.6 `detect_party_role_conflict(md: &str) -> PartyRoleConflictReport`** (报告, 不修)
+  - 按 `##` 段分割, 段内统计 `主体 → 角色集合`
+  - 同一主体多身份 → `conflicts + warnings` (让用户判断, 因为"原告/被告温明仁"也可能是转程序/补充起诉等)
+  - 角色关键词: 原告 / 被告 / 上诉人 / 被上诉人 / 公诉人 / 辩护人 / 证人 / 被告人 / 犯罪嫌疑人
+
+**实现位置**:
+- `frontend/src-tauri/src/summary/hard_post_process.rs:779-925` — `dedup_bullet_list_items` + `detect_party_role_conflict` + 2 个 Report struct + 7 个 §184.5/§184.6 单测
+- `frontend/src-tauri/src/summary/service.rs:798-820` — 在 §184.2 truncate 后立即应用 §184.5 dedup + §184.6 detect
+- `scripts/check_historical_fixes.py:2114-2122` — 4 个 §184.5/§184.6 锚点 (615 → 619 PASS)
+
+**§37 6 步硬闸门**:
+- ✅ cargo check --lib: 0 errors (13 warnings §18 不动)
+- ✅ cargo test --lib: 470 passed / 1 failed (§18 fact_guard::test_161_full_709b_fixture 已知 flaky) / 3 ignored
+- ✅ check_historical_fixes.py: **619/619 PASS** (615 → 619, +4 §184.5/§184.6 anchor)
+- ✅ cargo build --release: 1m37s, binary 55M mtime 12:46
+- ✅ sync_app_bundle.sh: 3 binary 全部 sync
+- ⏳ 用户 §15 GUI 验收
+
+**§15 GUI 验收 (用户必做)**:
+1. `killall meetily 2>/dev/null`
+2. `bash scripts/sync_app_bundle.sh` (已自动跑,确认 mtime 12:46)
+3. `open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'`
+4. 打开"方涛触电身亡案民事赔偿纠纷" (meeting-8ce922f9) → 点"重新生成"
+5. **期望**:
+   - 时间线 bullet 列表无重复日期 (2018-07-14 唯一 1 行)
+   - 案件基本信息段无 "原告/被告: 温明仁" 冲突 (或保留但 §184.6 warn 到日志)
+   - 庭审阶段 + 庭审进程 段内容不再重复
+   - 后端日志含 `§184.5 dedup_bullet_list_items: removed N bullets`
+
+**铁律 (任何 v0.X 演进适用)**:
+1. **bullet 列表 dedup 必须按主键拼接去空白** — 同 §184.1 表格思路, 段内去重避免误删跨段同名
+2. **角色冲突只报告不修** — "原告/被告温明仁"也可能是程序变更/补充起诉, 应让人工判断
+3. **§184 修复后, §184.5/§184.6 是 §184.1/§184.2 的必要补充** — bullet 列表是模板时间线段常用格式, 不覆盖 = 半成品
+4. **detect_* 函数 vs fix_* 函数职责分离** — §184.6 detect_party_role_conflict 只报告, §184.5 dedup_bullet_list_items 直接修
+
+**与 §184 §183 §182 关系**:
+- §184.1 (table dedup) + §184.5 (bullet dedup) 互补, 不可互相替代
+- §182 detect_template_keyword_mismatch 检测刑事/民事术语错配 → §184.6 同段多身份冲突, 都是"硬约束检测"
+- §183 撤回 instruction 注入 (description 末尾) 保留 — 解决 prompt 过大问题, 但不解决 §184.5/§184.6 暴露的 bug
+
+**已知边界 (按 §18 不主动改)**:
+- 13 cargo warnings (§18 不动)
+- 1 个 bun:test tsc error (§18 不动)
+- fact_guard::test_161_full_709b_fixture flaky (§18 已知, stash 验证非 §184 引入)
+- detect_party_role_conflict 只报告不修 — "程序变更"场景需人工判断
+
+**关联**:
+- [[184.5-184.6-bullet去重+角色冲突检测-2026-08-26]] (Obsidian) / `outputs/§184.5-184.6-bullet去重+角色冲突检测-2026-08-26.md` (Codex)
+- §184 (markdown table dedup + raw transcript 截断 + temperature 0.3) / §184.1 / §184.2
+- §169.1 (effective_temperature) / §182 (摘要质量硬约束) / §183 (立场标注 + 时间线覆盖度)
+- §37 (硬闸门) / §56 (AGENTS.md 双校) / §92 (决策迁移) / §15 (GUI 验收)
+
