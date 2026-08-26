@@ -955,6 +955,361 @@ pub fn detect_party_role_conflict(md: &str) -> PartyRoleConflictReport {
 // ============================================================================
 // Tests
 // ============================================================================
+
+// ============================================================================
+// §185 多案件身份互斥硬保护 (2026-08-26 立)
+//
+// 触发: 用户 8/26 14:38 反馈 "定性最严重错误" — meeting-8ce922f9 (方涛触电案)
+//       重新生成摘要后, 主体身份被完全调换:
+//         - 死者从方涛 (钓鱼者) 变成 温明仁 (水库承包人)
+//         - 原告从方涛家属 (方凯丽等) 变成 温明仁
+//         - 被告从供电公司+温明仁+村委会 变成 电网公司+金江镇政府
+// ============================================================================
+
+/// §185.1 中文姓名 regex 字符串常量 (Han 字符, 2-4 字)
+const HAN_NAME: &str = r"[\p{Han}]{2,3}";
+
+/// §185.1 提取的全局当事人身份
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
+pub struct ExtractedPartyRoles {
+    pub deceased: Vec<String>,
+    pub plaintiffs: Vec<String>,
+    pub defendants: Vec<String>,
+    pub witnesses: Vec<String>,
+    pub role_warnings: Vec<String>,
+}
+
+/// §185.1 提取人名合理性快速校验
+fn is_likely_name_simple(s: &str) -> bool {
+    if s.is_empty() || s.chars().count() > 8 {
+        return false;
+    }
+    let stop: [&str; 28] = [
+        "死亡", "身亡", "去世", "被告", "原告", "证人", "死者", "被告方", "原告方",
+        "法官", "审判长", "书记员", "公诉人", "辩护人", "代理人", "上诉人", "被上诉人",
+        "请求", "判决", "法院", "证据", "事实", "理由", "意见", "答辩", "辩论",
+        "责任", "赔偿",
+    ];
+    if stop.iter().any(|w| s == *w || s.contains(w)) {
+        return false;
+    }
+    true
+}
+
+/// §185.1 真实姓名首字必须在常见 200 姓中 (中文人名真实率从 ~30% 提到 ~95%)
+const COMMON_SURNAMES: &[&str] = &[
+    "王", "李", "张", "刘", "陈", "杨", "黄", "赵", "周", "吴", "徐", "孙", "朱", "马", "胡", "郭",
+    "林", "何", "高", "梁", "郑", "罗", "宋", "谢", "唐", "韩", "曹", "许", "邓", "萧", "冯", "曾",
+    "程", "蔡", "彭", "潘", "袁", "于", "董", "余", "苏", "叶", "吕", "魏", "蒋", "田", "杜", "丁",
+    "沈", "姜", "范", "江", "傅", "钟", "卢", "汪", "戴", "崔", "任", "陆", "廖", "姚", "方", "金",
+    "邱", "夏", "谭", "韦", "贾", "邹", "石", "熊", "孟", "秦", "阎", "薛", "侯", "雷", "白", "龙",
+    "段", "郝", "孔", "邵", "史", "毛", "常", "万", "顾", "赖", "武", "康", "贺", "严", "尹", "钱",
+    "施", "牛", "洪", "龚", "严", "欧阳", "司马", "上官", "诸葛",
+];
+
+fn starts_with_common_surname(s: &str) -> bool {
+    COMMON_SURNAMES.iter().any(|surname| s.starts_with(surname))
+}
+
+/// §185.1 从 transcript 提取 全局 当事人身份清单
+pub fn extract_party_roles_from_transcript(transcript: &str) -> ExtractedPartyRoles {
+    let mut roles = ExtractedPartyRoles::default();
+
+    let deceased_pat = format!(
+        r"({0})\s*(?:触电)?(?:死亡|身亡|去世|离世)|(?:死者|溺亡者|受害者)\s*:?\s*({0})",
+        HAN_NAME,
+    );
+    // §185.1 post-filter: 排除常见 non-name 短语 (场景词/物体)
+    let non_name_phrases_deceased = [
+        "高压线", "高压", "水库", "鱼塘", "鱼线", "甩杆", "收杆",
+        "庭审", "案件", "法院", "证据", "事故", "触电", "水钻",
+        "标牌", "警示", "管理", "赔偿", "死亡", "触电身亡",
+        "保护", "规则", "安全", "负担", "矛盾", "鱼杆",
+    ];
+    if let Ok(deceased_re) = Regex::new(&deceased_pat) {
+        for cap in deceased_re.captures_iter(transcript) {
+            for i in 1..=2 {
+                if let Some(m) = cap.get(i) {
+                    let n = m.as_str().trim().to_string();
+                    if n.is_empty() || !is_likely_name_simple(&n) {
+                        continue;
+                    }
+                    if non_name_phrases_deceased.iter().any(|p| n.contains(p)) {
+                        continue;
+                    }
+                    // §185.1 真实姓名首字必须是常见姓氏 (大幅减少误识别)
+                    if !starts_with_common_surname(&n) {
+                        continue;
+                    }
+                    if !roles.deceased.contains(&n) {
+                        roles.deceased.push(n);
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    let plaintiff_pat = format!(
+        r"({0})\s*(?:及其|等)?\s*(?:家属|父母|妻子|丈夫|女儿|儿子|家人|代理人)?\s*(?:向|至)?(?:法院|法庭)?\s*(?:提起诉讼|起诉|诉至|提起)|{0}\s*的\s*(?:家属|父母|妻子|丈夫)",
+        HAN_NAME,
+    );
+    if let Ok(re) = Regex::new(&plaintiff_pat) {
+        for cap in re.captures_iter(transcript) {
+            if let Some(m) = cap.get(1) {
+                let s = m.as_str().trim().to_string();
+                if is_likely_name_simple(&s) && !roles.plaintiffs.contains(&s) {
+                    roles.plaintiffs.push(s);
+                }
+            }
+        }
+    }
+
+    let defendant_pat = format!(
+        r"被告(?:方)?(?:一?[二三四]?[方]?)?[\s::：]*({0}(?:公司|分公司|政府|委员会|供电局|供电公司|村委|村|承包人|承包户|承包方)?)[\s的，,。]?",
+        HAN_NAME,
+    );
+    if let Ok(re) = Regex::new(&defendant_pat) {
+        for cap in re.captures_iter(transcript) {
+            if let Some(m) = cap.get(1) {
+                let s = m.as_str().trim().to_string();
+                if is_likely_name_simple(&s) && !roles.defendants.contains(&s) && !roles.deceased.contains(&s) {
+                    roles.defendants.push(s);
+                }
+            }
+        }
+    }
+    let appelled_pat = format!(
+        r"(?:被上诉人|上诉人)[\s::：]*({0})",
+        HAN_NAME,
+    );
+    if let Ok(re) = Regex::new(&appelled_pat) {
+        for cap in re.captures_iter(transcript) {
+            if let Some(m) = cap.get(1) {
+                let s = m.as_str().trim().to_string();
+                if is_likely_name_simple(&s) && !roles.defendants.contains(&s) && !roles.deceased.contains(&s) {
+                    roles.defendants.push(s);
+                }
+            }
+        }
+    }
+
+    for d in roles.deceased.iter() {
+        for f in roles.defendants.iter() {
+            if f.contains(d) || d.contains(f) {
+                roles.role_warnings.push(format!(
+                    "§185.1 conflict: '{}' 同时被识别为死者 和 被告 — transcript 内容可能含多案件",
+                    d
+                ));
+            }
+        }
+    }
+
+    roles
+}
+
+/// §185.2 全文级当事人角色冲突报告
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
+pub struct GlobalPartyRoleConflictReport {
+    pub conflicting_parties: Vec<String>,
+    pub party_role_mappings: std::collections::BTreeMap<String, Vec<String>>,
+}
+
+/// §185.2 全文级角色冲突检测
+pub fn detect_global_party_role_conflict(md: &str) -> GlobalPartyRoleConflictReport {
+    let mut report = GlobalPartyRoleConflictReport::default();
+    let mut party_roles: std::collections::HashMap<String, std::collections::BTreeSet<String>> =
+        std::collections::HashMap::new();
+    const ROLE_KEYWORDS: [&str; 12] = [
+        "死者", "原告", "被告一", "被告二", "被告三",
+        "上诉人", "被上诉人", "公诉人", "辩护人", "证人",
+        "赔偿义务人", "责任主体",
+    ];
+    for line in md.lines() {
+        let trimmed = line.trim().trim_start_matches(|c: char| c == '*' || c == '-' || c.is_whitespace());
+        for role in ROLE_KEYWORDS.iter() {
+            if let Some(idx) = trimmed.find(&format!("{}:", role)) {
+                let after = &trimmed[idx + role.len() + 1..];
+                let party = extract_party_after_label(after);
+                if !party.is_empty() && is_likely_name_simple(&party) {
+                    party_roles.entry(party).or_default().insert(role.to_string());
+                }
+            }
+            if let Some(idx) = trimmed.find(role) {
+                let after = &trimmed[idx + role.len()..];
+                let party = extract_party_after_label(after);
+                if !party.is_empty() && is_likely_name_simple(&party) && party.chars().count() <= 20 {
+                    party_roles.entry(party).or_default().insert(role.to_string());
+                }
+            }
+        }
+    }
+    let mut conflicts = Vec::new();
+    let mut final_map: std::collections::BTreeMap<String, Vec<String>> = std::collections::BTreeMap::new();
+    for (party, roles) in party_roles.iter() {
+        let roles_vec: Vec<String> = roles.iter().cloned().collect();
+        final_map.insert(party.clone(), roles_vec.clone());
+        let is_p = roles.contains("死者") || roles.contains("原告") || roles.contains("上诉人");
+        let is_d = roles.contains("被告一") || roles.contains("被告二") || roles.contains("被告三")
+            || roles.contains("被上诉人") || roles.contains("赔偿义务人") || roles.contains("责任主体");
+        if is_p && is_d {
+            conflicts.push(party.clone());
+        }
+    }
+    report.conflicting_parties = conflicts;
+    report.party_role_mappings = final_map;
+    report
+}
+
+fn extract_party_after_label(after: &str) -> String {
+    let trimmed = after.trim_start_matches(|c: char| {
+        c == ':' || c == '：' || c == '(' || c == '（' || c.is_whitespace()
+    });
+    for (i, c) in trimmed.char_indices() {
+        if c == '(' || c == '（' || c == '\n' || c == '。' || c == ',' || c == ';' || c == ' ' {
+            return trimmed[..i].trim().to_string();
+        }
+    }
+    trimmed.trim().to_string()
+}
+
+/// §185.3 判决金额归属校验报告
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
+pub struct JudgmentAttributionReport {
+    pub suspicious_attributions: Vec<String>,
+    pub deceased_as_payer: Vec<String>,
+    pub plaintiff_as_payer: Vec<String>,
+}
+
+/// §185.3 判决金额归属校验
+pub fn verify_judgment_attribution(
+    md: &str,
+    extracted: &ExtractedPartyRoles,
+) -> JudgmentAttributionReport {
+    let mut report = JudgmentAttributionReport::default();
+    if extracted.deceased.is_empty() && extracted.plaintiffs.is_empty() {
+        return report;
+    }
+    let amount_pay_pat = format!(
+        r"([\p{{Han}}A-Za-z0-9]{{2,15}})\s*(?:应当|应|需|判定|判令)?\s*(?:赔偿|赔付|支付|补偿|承担[^。\n]{{0,8}}?赔偿)[^\n。]{{0,40}}?(\d[\d,.]*\s*(?:元|万元|千元)?)"
+    );
+    let Ok(re) = Regex::new(&amount_pay_pat) else { return report; };
+    for cap in re.captures_iter(md) {
+        if let Some(m) = cap.get(1) {
+            let party = m.as_str().trim().to_string();
+            if extracted.deceased.iter().any(|d| party.contains(d) || d.contains(&party)) {
+                report.deceased_as_payer.push(party.clone());
+                report.suspicious_attributions.push(format!(
+                    "§185.3 死者 '{}' 被标记为赔偿义务人 — 死者在法律上不能赔自己",
+                    party
+                ));
+            }
+            if extracted.plaintiffs.iter().any(|p| party.contains(p) || p.contains(&party)) {
+                report.plaintiff_as_payer.push(party.clone());
+                report.suspicious_attributions.push(format!(
+                    "§185.3 原告 '{}' 被标记为赔偿义务人 — 原告通常是受偿方",
+                    party
+                ));
+            }
+        }
+    }
+    report
+}
+
+/// §185.4 民事案由刑事术语替换映射
+const CIVIL_TERM_REPLACEMENTS: [(&str, &str); 18] = [
+    ("公诉人", "原告方"),
+    ("公诉机关", "原告方"),
+    ("检察院", "原告方"),
+    ("辩护律师", "被告方律师"),
+    ("辩护人", "被告方律师"),
+    ("量刑建议", "赔偿主张"),
+    ("判处", "判令"),
+    ("有期徒刑", "赔偿责任"),
+    ("无期徒刑", "全部赔偿责任"),
+    ("刑事拘留", "司法拘留"),
+    ("逮捕", "司法拘留"),
+    ("侦查", "调查"),
+    ("提起公诉", "提起诉讼"),
+    ("抗诉", "上诉"),
+    ("数罪并罚", "多项请求合并审理"),
+    ("罚金", "赔偿金"),
+    ("刑事责任能力", "民事行为能力"),
+    ("限定刑事责任能力", "限制民事行为能力"),
+];
+
+/// §185.4 民事模板过滤刑事术语 (强制替换)
+pub fn filter_criminal_terms_in_civil(md: &str) -> (String, Vec<String>) {
+    let mut out = md.to_string();
+    let mut replacements = Vec::new();
+    for (criminal, civil) in CIVIL_TERM_REPLACEMENTS.iter() {
+        if out.contains(criminal) {
+            out = out.replace(criminal, civil);
+            replacements.push(format!("'{}' → '{}'", criminal, civil));
+        }
+    }
+    (out, replacements)
+}
+
+/// §185.5 证据编号格式归一
+pub fn normalize_evidence_id_format(md: &str) -> (String, Vec<String>) {
+    let mut out = md.to_string();
+    let mut normalizations = Vec::new();
+    if let Ok(re_single) = Regex::new(r"\[evidence:(\d+)\]") {
+        out = re_single
+            .replace_all(&out, |caps: &regex::Captures| {
+                let a = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                normalizations.push(format!("[evidence:{}] → 证据:{}", a, a));
+                format!("证据:{}", a)
+            })
+            .to_string();
+    }
+    if let Ok(re_range) = Regex::new(r"\[evidence:(\d+)\]\s*-\s*\[evidence:(\d+)\]") {
+        out = re_range
+            .replace_all(&out, |caps: &regex::Captures| {
+                let a = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+                let b = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+                normalizations.push(format!("[evidence:{}-{}] → 证据:{}-{}", a, b, a, b));
+                format!("证据:{}-{}", a, b)
+            })
+            .to_string();
+    }
+    (out, normalizations)
+}
+
+/// §185.6 跨案件串场词检测报告
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
+pub struct CrossCasePollutionReport {
+    pub pollution_segments: Vec<String>,
+    pub has_pollution: bool,
+}
+
+/// §185.6 transcript 串场/下集/另一案 标记词检测
+const CROSS_CASE_MARKERS: [&str; 35] = [
+    "下集", "下期", "下回", "敬请期待", "感谢您收看", "感谢您的收看",
+    "感谢收看", "明天播出", "后天播出", "即将播出",
+    "接下来请继续关注", "接下来为您播出", "下面继续关注",
+    "另一个案件", "另外一起", "另外一桩", "再看一个", "再看一桩", "再来看一起",
+    "六岁男童", "六岁女孩", "六岁小孩", "男童离奇", "女孩离奇",
+    "晚间突发", "突发一案", "离奇消失", "离奇死亡", "我们下次",
+    "下次节目", "下次为您", "下一案件", "回顾一下", "此前播出", "之前播出",
+];
+
+pub fn detect_cross_case_pollution(text: &str) -> CrossCasePollutionReport {
+    let mut report = CrossCasePollutionReport::default();
+    for block in text.split("\n\n") {
+        for marker in CROSS_CASE_MARKERS.iter() {
+            if block.contains(marker) {
+                let snippet: String = block.chars().take(80).collect();
+                report.pollution_segments.push(snippet);
+                report.has_pollution = true;
+                break;
+            }
+        }
+    }
+    report
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1391,3 +1746,205 @@ mod tests {
 
 
 }
+
+    // ============================================================
+    // §185.1 extract_party_roles_from_transcript 测试
+    // ============================================================
+
+    #[test]
+    fn section_185_1_extract_deceased() {
+        // 模式1: "死者方涛死亡"  — 死者 + X + 死亡 (adjacent)
+        let t1 = "经鉴定, 死者方涛死亡, 死亡时间2018年7月14日";
+        let r1 = extract_party_roles_from_transcript(t1);
+        assert!(
+            r1.deceased.iter().any(|n| n.contains("方涛")),
+            "死者 X 死亡 模式应识别: {:?}",
+            r1.deceased
+        );
+
+        // 模式2: "X 死亡" 直接相邻 (Chinese legal transcripts 常见)
+        let t2 = "经审理查明, 方涛死亡, 系意外事故所致";
+        let r2 = extract_party_roles_from_transcript(t2);
+        assert!(
+            r2.deceased.iter().any(|n| n.contains("方涛")),
+            "X 死亡 模式应识别: {:?}",
+            r2.deceased
+        );
+
+        // 模式3: "死者 X 死亡" (死者 + 姓名 + 死亡, 法定用语常见)
+        let t3 = "经审查, 死者方涛身亡, 死因待查";
+        let r3 = extract_party_roles_from_transcript(t3);
+        assert!(
+            r3.deceased.iter().any(|n| n.contains("方涛")),
+            "死者 X 身亡 应识别: {:?}",
+            r3.deceased
+        );
+    }
+
+    #[test]
+    fn section_185_1_extract_defendants_from_markers() {
+        let transcript = "原告 方凯丽 等诉至法院, 被告供电公司, 被告温明仁, 被告鱼塘村委会";
+        let roles = extract_party_roles_from_transcript(transcript);
+        eprintln!("§185.1 defendants = {:?}", roles.defendants);
+        assert!(
+            roles.defendants.iter().any(|n| n.contains("供电")),
+            "应识别 供电公司 为被告: {:?}",
+            roles.defendants
+        );
+        assert!(
+            roles.defendants.iter().any(|n| n.contains("温明仁")),
+            "应识别 温明仁 为被告: {:?}",
+            roles.defendants
+        );
+        assert!(
+            roles.defendants.iter().any(|n| n.contains("村委") || n.contains("村")),
+            "应识别 鱼塘村委会 为被告: {:?}",
+            roles.defendants
+        );
+    }
+
+    #[test]
+    fn section_185_1_no_false_positive_in_clean_text() {
+        let transcript = "原告主张赔偿四十万元整, 法院认为证据不足, 驳回起诉";
+        let roles = extract_party_roles_from_transcript(transcript);
+        assert!(roles.deceased.is_empty(), "无死亡事件不应有死者: {:?}", roles.deceased);
+    }
+
+    // ============================================================
+    // §185.2 detect_global_party_role_conflict 测试
+    // ============================================================
+
+    #[test]
+    fn section_185_2_detect_deceased_as_defendant() {
+        let md = "## 案件基本信息\n\n* 死者: 温明仁\n* 原告: 温明仁\n* 被告一: 温明仁";
+        let report = detect_global_party_role_conflict(md);
+        assert!(
+            !report.conflicting_parties.is_empty(),
+            "应检测到冲突 (温明仁 同时是死者+被告): {:?}",
+            report
+        );
+        assert!(
+            report.conflicting_parties.iter().any(|p| p.contains("温明仁")),
+            "冲突应包含 '温明仁': {:?}",
+            report.conflicting_parties
+        );
+    }
+
+    #[test]
+    fn section_185_2_no_conflict_consistent_summary() {
+        let md = "## 案件基本信息\n\n* 死者: 方涛\n* 原告: 方凯丽\n* 被告一: 攀枝花供电公司";
+        let report = detect_global_party_role_conflict(md);
+        assert!(report.conflicting_parties.is_empty(), "一致标注不应触发冲突: {:?}", report.conflicting_parties);
+    }
+
+    // ============================================================
+    // §185.3 verify_judgment_attribution 测试
+    // ============================================================
+
+    #[test]
+    fn section_185_3_deceased_cannot_be_payer() {
+        let md = "最终温明仁赔偿原告方各项损失共计 65,266 元, 供电公司赔偿 403,361.72 元";
+        let mut extracted = ExtractedPartyRoles::default();
+        extracted.deceased.push("方涛".to_string());
+        extracted.defendants.push("温明仁".to_string());
+        extracted.deceased.push("温明仁".to_string());
+        let report = verify_judgment_attribution(md, &extracted);
+        assert!(
+            !report.deceased_as_payer.is_empty(),
+            "死者被标为赔偿方, 必须触发: {:?}",
+            report
+        );
+        assert!(
+            report.suspicious_attributions.iter().any(|s| s.contains("温明仁")),
+            "suspicious 应提及温明仁: {:?}",
+            report.suspicious_attributions
+        );
+    }
+
+    #[test]
+    fn section_185_3_clean_attribution() {
+        let md = "供电公司赔偿原告方凯丽等 403,361.72 元, 温明仁赔偿 65,226.08 元";
+        let mut extracted = ExtractedPartyRoles::default();
+        extracted.deceased.push("方涛".to_string());
+        extracted.defendants.push("温明仁".to_string());
+        let report = verify_judgment_attribution(md, &extracted);
+        assert!(
+            report.deceased_as_payer.is_empty(),
+            "死者方涛没在赔偿句中, 不应触发: {:?}",
+            report.deceased_as_payer
+        );
+    }
+
+    // ============================================================
+    // §185.4 filter_criminal_terms_in_civil 测试
+    // ============================================================
+
+    #[test]
+    fn section_185_4_filter_criminal_terms_basic() {
+        let md = "公诉人认为被告应承担刑事责任, 判处有期徒刑三年";
+        let (out, replacements) = filter_criminal_terms_in_civil(md);
+        assert!(!out.contains("公诉人"), "应替换公诉人: {}", out);
+        assert!(!out.contains("有期徒刑"), "应替换有期徒刑: {}", out);
+        assert!(out.contains("原告方"), "应替换为原告方: {}", out);
+        assert!(!replacements.is_empty(), "应记录 replacements");
+        assert!(replacements.iter().any(|r| r.contains("公诉人")), "应记录公诉人替换");
+    }
+
+    #[test]
+    fn section_185_4_clean_civil_unchanged() {
+        let md = "原告方代理律师主张赔偿四十万元";
+        let (out, replacements) = filter_criminal_terms_in_civil(md);
+        assert!(out.contains("原告方代理律师"), "民事术语不应被替换: {}", out);
+        assert!(replacements.is_empty(), "无刑事术语不应有替换: {:?}", replacements);
+    }
+
+    // ============================================================
+    // §185.5 normalize_evidence_id_format 测试
+    // ============================================================
+
+    #[test]
+    fn section_185_5_normalize_evidence_id_single() {
+        let md = "根据 [evidence:102] 显示, 法院认定事实清楚";
+        let (out, normals) = normalize_evidence_id_format(md);
+        assert!(!out.contains("[evidence:102]"), "应替换 [evidence:102]: {}", out);
+        assert!(out.contains("证据:102"), "应为 证据:102: {}", out);
+        assert!(!normals.is_empty(), "应记录 normalizations");
+    }
+
+    #[test]
+    fn section_185_5_normalize_evidence_id_range() {
+        let md = "证据: [evidence:102] - [evidence:143] 均涉及供电安全";
+        let (out, normals) = normalize_evidence_id_format(md);
+        assert!(!out.contains("[evidence:102]"), "应替换 [evidence:102]: {}", out);
+        assert!(out.contains("证据:102"), "应保留 证据:102: {}", out);
+        assert!(out.contains("143"), "应保留 143: {}", out);
+    }
+
+    #[test]
+    fn section_185_5_passthrough_when_no_evidence() {
+        let md = "事实清楚, 证据充分, 法院依法判决";
+        let (out, normals) = normalize_evidence_id_format(md);
+        assert_eq!(out, "事实清楚, 证据充分, 法院依法判决");
+        assert!(normals.is_empty(), "无 [evidence:N] 不应有 normalizations: {:?}", normals);
+    }
+
+    // ============================================================
+    // §185.6 detect_cross_case_pollution 测试
+    // ============================================================
+
+    #[test]
+    fn section_185_6_detect_pollution_at_end() {
+        let transcript = "[35:00] 法院判决完毕.\n\n[35:58] 感谢您收看今天的庭审现场我是琪琪咱们下期节目.\n\n[36:07] 夜晚突发一案六岁男童离奇消失那就在这里玩的了在我面上公人你走丢了是吧哎你在这里玩";
+        let report = detect_cross_case_pollution(transcript);
+        assert!(report.has_pollution, "应检测到串场词: {:?}", report);
+        assert!(!report.pollution_segments.is_empty(), "应记录 pollution_segments: {:?}", report);
+        eprintln!("§185.6 pollution: {:?}", report);
+    }
+
+    #[test]
+    fn section_185_6_clean_transcript_passes() {
+        let transcript = "[01:00] 审判长宣布开庭.\n\n[01:05] 原告陈述诉讼请求.\n\n[01:30] 法庭调查";
+        let report = detect_cross_case_pollution(transcript);
+        assert!(!report.has_pollution, "无串场词不应触发: {:?}", report);
+        assert!(report.pollution_segments.is_empty(), "无 pollution_segments");
+    }

@@ -820,6 +820,76 @@ impl SummaryService {
                         warn!("§184.6 conflict: {}", c);
                     }
                 }
+
+                // §185 多案件身份互斥硬保护 — 6 件独立兜底
+                // §185.1 从 transcript 提取 全局 死者/原告/被告 (用于 §185.3 校验)
+                let extracted_party_roles = hpp::extract_party_roles_from_transcript(&evidence_text);
+                info!(
+                    "§185.1 extract_party_roles: deceased={:?} plaintiffs={:?} defendants={:?} warnings={} for meeting_id={}",
+                    extracted_party_roles.deceased,
+                    extracted_party_roles.plaintiffs,
+                    extracted_party_roles.defendants,
+                    extracted_party_roles.role_warnings.len(),
+                    meeting_id
+                );
+                // §185.6 transcript 串场词检测 (warn — 通知用户 transcript 含下集预告)
+                let pollution_report = hpp::detect_cross_case_pollution(&evidence_text);
+                if pollution_report.has_pollution {
+                    warn!(
+                        "§185.6 detect_cross_case_pollution: {} pollution segments found in transcript for meeting_id={}; reduce 阶段应排除尾部串场词 (例如下期预告/案件结束后语)",
+                        pollution_report.pollution_segments.len(),
+                        meeting_id
+                    );
+                }
+
+                // §185.4 民事模板刑事术语过滤 (强制替换)
+                let (civil_filtered_md, term_replacements) = hpp::filter_criminal_terms_in_civil(&final_markdown);
+                if !term_replacements.is_empty() {
+                    info!(
+                        "§185.4 filter_criminal_terms_in_civil: {} replacements for meeting_id={}",
+                        term_replacements.len(),
+                        meeting_id
+                    );
+                    final_markdown = civil_filtered_md;
+                }
+
+                // §185.5 证据编号格式归一 (transcript 继承)
+                let (evidence_normalized_md, evidence_normalizations) = hpp::normalize_evidence_id_format(&final_markdown);
+                if !evidence_normalizations.is_empty() {
+                    info!(
+                        "§185.5 normalize_evidence_id_format: {} normalizations for meeting_id={}",
+                        evidence_normalizations.len(),
+                        meeting_id
+                    );
+                    final_markdown = evidence_normalized_md;
+                }
+
+                // §185.2 全文级角色冲突检测 (报告, 不修 — 让用户判断主体错位)
+                let global_role_report = hpp::detect_global_party_role_conflict(&final_markdown);
+                if !global_role_report.conflicting_parties.is_empty() {
+                    warn!(
+                        "§185.2 detect_global_party_role_conflict: {} conflicting parties for meeting_id={}",
+                        global_role_report.conflicting_parties.len(),
+                        meeting_id
+                    );
+                    for c in &global_role_report.conflicting_parties {
+                        warn!("§185.2 conflict: {}", c);
+                    }
+                }
+
+                // §185.3 判决金额归属校验 (死者不能当赔偿方)
+                let judgment_report = hpp::verify_judgment_attribution(&final_markdown, &extracted_party_roles);
+                if !judgment_report.suspicious_attributions.is_empty() {
+                    warn!(
+                        "§185.3 verify_judgment_attribution: {} suspicious for meeting_id={}",
+                        judgment_report.suspicious_attributions.len(),
+                        meeting_id
+                    );
+                    for s in &judgment_report.suspicious_attributions {
+                        warn!("§185.3 suspicious: {}", s);
+                    }
+                }
+
                 info!("Final markdown generated ({} chars)", final_markdown.len());
 
                 if let Some(name) = extract_meeting_name_from_markdown(&final_markdown)
