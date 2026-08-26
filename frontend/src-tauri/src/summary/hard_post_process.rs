@@ -613,6 +613,141 @@ fn normalize_token(tok: &str) -> String {
 
 
 // ============================================================================
+// §184 退化硬保护 (2026-08-26 立)
+//
+// 触发: 用户 8/26 反馈 "这个生成的质量一次不如一次了" — 同 transcript
+//       (meeting-911f52ae 专利侵权纠纷庭审) 8/18 已知好评 vs 8/25 13:12
+//       退化版对比, 4 类硬退化:
+//         (a) 表格行重复 (2022 年 9 月 23 日 × 4 行)
+//         (b) raw transcript 漏到证据字段 (魏某于开庭时三知具... 二二二十院院...)
+//         (c) 整段 raw transcript 塞进 "被上诉人主张"
+//         (d) 时间线数据错位 (案件基本信息段 2018 启动 + 2019 起诉)
+//       根因 3 重叠:
+//         - §169.1 effective_temperature=0.7 for regenerate 让 LLM 输出不稳定
+//         - §182 加的 check_* 函数只检测不修复, 表格重复/raw 漏出都没有后处理
+//         - §183 instruction 注入让 prompt 过大, qwen3.5:2b 注意力分散
+//
+// 修复策略 (3 件独立兜底):
+//   §184.1 markdown table 行 dedup — 主列 1+2+3 拼接相同 → 留首行
+//   §184.2 raw transcript 截断 — "的/啊/嗯/呃/哦" 6+ 连续 → 截断
+//   §184.3 降 effective_temperature 0.7 → 0.3 for regenerate (在 service.rs)
+//   §184.4 撤回 court_hearing.json §183 instruction 注入 (改 description 末尾)
+// ============================================================================
+
+/// §184.1 markdown table 行 dedup 报告
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
+pub struct TableDedupReport {
+    pub rows_removed: usize,
+    pub total_rows_before: usize,
+    pub total_rows_after: usize,
+}
+
+/// §184.1 markdown table 行 dedup
+/// 检测一个 markdown 表格块 (以 |---| 行为界), 若连续 >= 2 行的"主列内容"
+/// (列 1+2+3 拼接) 完全相同 → 留首行, 删除重复行.
+pub fn dedup_markdown_table_rows(md: &str) -> (String, TableDedupReport) {
+    let mut out = String::with_capacity(md.len());
+    let mut report = TableDedupReport::default();
+    let lines: Vec<&str> = md.lines().collect();
+    let mut i = 0;
+    while i < lines.len() {
+        if lines[i].trim_start().starts_with('|')
+            && i + 1 < lines.len()
+            && lines[i + 1].trim_start().starts_with('|')
+            && lines[i + 1].contains("---")
+        {
+            let mut table_lines: Vec<&str> = vec![lines[i], lines[i + 1]];
+            let mut j = i + 2;
+            while j < lines.len() && lines[j].trim_start().starts_with('|') {
+                table_lines.push(lines[j]);
+                j += 1;
+            }
+            let header = table_lines[0];
+            let separator = table_lines[1];
+            let data_rows = &table_lines[2..];
+            report.total_rows_before += data_rows.len();
+            let mut seen: Vec<String> = Vec::with_capacity(data_rows.len());
+            let mut kept_rows: Vec<&str> = Vec::with_capacity(data_rows.len());
+            for row in data_rows {
+                let cells: Vec<&str> = row.split('|').collect();
+                let key = if cells.len() >= 5 {
+                    format!("{}|{}|{}",
+                        cells[1].trim(),
+                        cells[2].trim(),
+                        cells[3].trim())
+                } else {
+                    row.trim().to_string()
+                };
+                if seen.contains(&key) {
+                    report.rows_removed += 1;
+                } else {
+                    seen.push(key);
+                    kept_rows.push(row);
+                }
+            }
+            report.total_rows_after += kept_rows.len();
+            out.push_str(header);
+            out.push('\n');
+            out.push_str(separator);
+            out.push('\n');
+            for row in &kept_rows {
+                out.push_str(row);
+                out.push('\n');
+            }
+            i = j;
+        } else {
+            out.push_str(lines[i]);
+            out.push('\n');
+            i += 1;
+        }
+    }
+    (out, report)
+}
+
+/// §184.2 raw transcript leak 报告
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
+pub struct RawTranscriptLeakReport {
+    pub segments_truncated: usize,
+    pub total_chars_removed: usize,
+}
+
+/// §184.2 raw transcript leak 检测 + 截断
+/// ASR 错位的典型特征: 6+ 连续 "的"/"啊"/"嗯"/"呃"/"哦" 出现在 summary 里 → LLM 把 raw transcript 字面段塞进了输出.
+/// 截断策略: 从第一个 6+ 连续字符段开始, 删除其到行尾的所有内容.
+pub fn truncate_raw_transcript_leak(md: &str) -> (String, RawTranscriptLeakReport) {
+    let mut report = RawTranscriptLeakReport::default();
+    let re = Regex::new(r"(的|啊|嗯|呃|哦){6,}").unwrap();
+    let mut out = String::with_capacity(md.len());
+    let mut truncated = false;
+    for line in md.lines() {
+        if let Some(mat) = re.find(line) {
+            let truncated_line = &line[..mat.start()];
+            let cleaned = if truncated_line.len() > 200 {
+                format!("{}…(原始转录错位内容已截断)", &truncated_line[..200])
+            } else if truncated_line.is_empty() {
+                "…(原始转录错位内容已截断)".to_string()
+            } else {
+                format!("{}…(原始转录错位内容已截断)", truncated_line)
+            };
+            report.segments_truncated += 1;
+            report.total_chars_removed += line.len() - cleaned.len();
+            out.push_str(&cleaned);
+            out.push('\n');
+            truncated = true;
+        } else {
+            out.push_str(line);
+            out.push('\n');
+        }
+    }
+    if !truncated {
+        return (md.to_string(), report);
+    }
+    (out, report)
+}
+
+
+
+// ============================================================================
 // Tests
 // ============================================================================
 #[cfg(test)]
@@ -909,4 +1044,66 @@ mod tests {
         assert!(!is_cjk('1'));
         assert!(!is_cjk(' '));
     }
+
+
+    // ===== §184 退化硬保护测试 (2026-08-26) =====
+
+    #[test]
+    fn section_184_dedup_removes_identical_rows() {
+        let md = "| a | b | c | d |\n|---|---|---|---|\n| 2018 | A | x | 1 |\n| 2018 | A | x | 1 |\n| 2019 | B | y | 2 |";
+        let (out, report) = dedup_markdown_table_rows(md);
+        assert_eq!(report.total_rows_before, 3);
+        assert_eq!(report.total_rows_after, 2);
+        assert_eq!(report.rows_removed, 1);
+        assert!(out.contains("| 2018 | A | x |"));
+        assert!(out.contains("| 2019 | B | y |"));
+    }
+
+    #[test]
+    fn section_184_dedup_keeps_distinct_rows() {
+        let md = "| a | b | c | d |\n|---|---|---|---|\n| 2018 | A | x | 1 |\n| 2019 | B | y | 2 |\n| 2020 | C | z | 3 |";
+        let (_out, report) = dedup_markdown_table_rows(md);
+        assert_eq!(report.rows_removed, 0);
+        assert_eq!(report.total_rows_after, 3);
+    }
+
+    #[test]
+    fn section_184_dedup_handles_no_tables() {
+        let md = "no table here\njust plain text";
+        let (out, _report) = dedup_markdown_table_rows(md);
+        assert_eq!(_report.rows_removed, 0);
+        // 函数对非表格行会原样输出 + 添加 \n (行为差异)
+        assert!(out.contains("no table here"));
+        assert!(out.contains("just plain text"));
+    }
+
+    #[test]
+    fn section_184_dedup_user_real_case() {
+        // User 8/26 case: 7 rows where 2022 judge row repeats 4 times
+        let md = "| t | s | e | r |\n|---|---|---|---|\n| 2018 | W | start | 1 |\n| 2019 | W | sue | 2 |\n| 2022 | C | judge | 4 |\n| 2022 | C | judge | 4 |\n| 2022 | C | judge | 4 |\n| 2022 | C | judge | 4 |\n| 2020 | C | notify | 5 |";
+        let (_out, report) = dedup_markdown_table_rows(md);
+        assert_eq!(report.total_rows_before, 7);
+        assert_eq!(report.rows_removed, 3);
+        assert_eq!(report.total_rows_after, 4);
+    }
+
+    #[test]
+    fn section_184_truncate_catches_asr_leak() {
+        // User 8/26 case: 6+ continuous "的" → ASR leak
+        let md = "evidence text AAAAAA的的确确的的的的的的的的的的的的的的的的的的的的的的的的的的的的的的的的的的的的的的 end";
+        let (out, report) = truncate_raw_transcript_leak(md);
+        assert!(report.segments_truncated >= 1);
+        assert!(report.total_chars_removed > 0);
+        assert!(out.contains("(原始转录错位内容已截断)"));
+    }
+
+    #[test]
+    fn section_184_truncate_no_leak_passes_through() {
+        let md = "normal summary text, no leak";
+        let (out, report) = truncate_raw_transcript_leak(md);
+        assert_eq!(report.segments_truncated, 0);
+        assert_eq!(out, md);
+    }
+
+
 }

@@ -2772,3 +2772,78 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - commit §183: `codex/accuracy-experiment` HEAD 即将新增
 - `outputs/§183-二审案件立场标注+时间线覆盖度-2026-08-25.md` (Codex 副本)
 - `~/Documents/Obsidian Vault/项目/3-离线会记/§183-...md` (Obsidian 主份, 双写 `diff -q` 验证)
+
+## §184 摘要退化硬保护 (2026-08-26 立)
+
+**触发**: 用户 8/26 反馈"这个生成的质量一次不如一次了"。附件 `~/Downloads/专利侵权纠纷庭审摘要_2026-08-18_summary.txt` 显示严重退化, 同 transcript (meeting-911f52ae 专利侵权纠纷庭审) 8/18 已知好评 vs 8/25 13:12 退化版对比, 4 类硬退化:
+
+| 退化类型 | 8/18 好评版 | 8/25 13:12 退化版 |
+|---|---|---|
+| 时间线表 | 5 行, 不重复 | 7 行, 4 行重复 ("2022 年 9 月 23 日" × 4) |
+| 庭审进程段 | 含 "开庭宣读 / 法庭调查 / 法庭辩论" | 整个段消失 |
+| 案件基本信息 证据字段 | 简洁 | raw transcript 塞进 (魏某于开庭时三知具... 二二二十院院...) |
+| 数字准确性 | "8 万元 / 10 万元 / 11.5 万元" 准确 | 数字堆叠且上下文错位 |
+
+**根因 3 重叠**:
+1. **§169.1 effective_temperature=0.7 for regenerate** — qwen3.5:2b 在 0.7 temperature 下输出不稳定, 表格行重复 + raw transcript 漏出 + 缺段
+2. **§182 check_* 函数只检测不修复** — 数字一致性 / 模板错配 / 待查明过滤 / 时间线冲突 4 个 check 报告到 banner, 但**没真正修改 final_markdown**
+3. **§183 instruction 注入让 prompt 过大** — `案件基本信息` 段 instruction 末尾塞了 §183 两条规则 (~150 字), qwen3.5:2b 注意力分散
+
+**修复策略 (3 件独立兜底)**:
+- **§184.1 markdown table 行 dedup** — `dedup_markdown_table_rows` 在 `final_markdown` 计算后立即应用, 主列 (列 1+2+3) 拼接相同 → 留首行
+- **§184.2 raw transcript leak 截断** — `truncate_raw_transcript_leak` 检测 6+ 连续 `的/啊/嗯/呃/哦` 字面段 → 截断并加 `(原始转录错位内容已截断)` 提示
+- **§184.3 降 effective_temperature** — `§169.1` 0.7 → §184.3 0.3 (介于 §163 默认 0.1 与 §169.1 原 0.7 之间, 既保留一定随机性, 又能保证输出结构稳定)
+- **§184.4 撤回 court_hearing.json §183 instruction 注入** — §183 规则改放在 `description` 末尾而不是 instruction, 不污染 prompt 主指令 (instruction 是 LLM 每段都读的; description 是模板介绍, 不会污染主指令)
+
+**实现位置**:
+- `frontend/src-tauri/src/summary/hard_post_process.rs:611-738` — `dedup_markdown_table_rows` + `truncate_raw_transcript_leak` + `TableDedupReport` + `RawTranscriptLeakReport` + 6 个 §184 单测
+- `frontend/src-tauri/src/summary/service.rs:776-797` — 在 final_markdown 计算完后立即应用 dedup + truncate
+- `frontend/src-tauri/src/summary/service.rs:686-700` — `§184.3 effective_temperature` 改 0.3
+- `frontend/src-tauri/templates/court_hearing.json` — `description` 末尾追加 `【§184 立场标注 + 时间线覆盖度】`, 撤回 `案件基本信息` 段 instruction 中的 `【§183】` 注入
+- `scripts/check_historical_fixes.py:2095-2114` — 7 个 §184 锚点 (dedup 函数 + 调用 + truncate 函数 + 调用 + temperature 0.3 + description 含 §184 + instruction 撤回)
+
+**§37 6 步硬闸门**:
+- ✅ tsc --noEmit: 0 errors (1 个 §18 bun:test 跳过)
+- ✅ next build: OK (60s)
+- ✅ cargo test --lib: 463 passed / 1 failed (§18 fact_guard::test_161_full_709b_fixture 已知 flaky, stash 验证非 §184 引入) / 3 ignored
+- ✅ check_historical_fixes.py: **615/615 PASS** (608 → 615, +7 §184 anchor)
+- ⏳ cargo build --release (进行中)
+- ⏳ sync_app_bundle.sh (build 后)
+
+**§15 GUI 验收 (用户必做, 不能 CLI 测)**:
+1. `killall meetily 2>/dev/null`
+2. `bash scripts/sync_app_bundle.sh`
+3. `open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'`
+4. 打开 "专利侵权纠纷庭审摘要" (meeting-911f52ae) → 点 "重新生成"
+5. **期望**:
+   - 进度条 0% → 100% 在 ~5 min 内完成
+   - 时间线表无重复行 (dedup 后 5-7 行唯一)
+   - 案件基本信息段无 raw transcript 漏出 (truncate 后干净)
+   - 后端日志含 `§184.1 dedup_markdown_table_rows: removed N rows` 或 `§184.2 truncate_raw_transcript_leak: truncated M segments`
+   - 如果 §184.1/§184.2 实际触发 → 警告横幅 (后续加 banner UI)
+6. DB 验证: `summary_processes` 新行 chunk_count 应在 4-7 范围, processing_time 在 200-600s 之间
+
+**铁律 (任何 v0.X 演进适用)**:
+
+1. **markdown table 行 dedup 必须靠主列拼接** — 不能用全行 hash (微小标点差异就算不同), 必须按业务决定的"主列"拼接去空白比较
+2. **raw transcript 截断要保留前后文** — 不能直接删整段, 应该保留前面有意义的内容 + 加 `(原始转录错位内容已截断)` 提示
+3. **regenerate temperature 不能太高** — qwen3.5:2b 在 0.7+ temperature 下输出不稳定, 0.3 是当前最优 (兼顾稳定性 + 与上次输出有差异)
+4. **§183 instruction 注入教训** — 后续所有模板 instruction 段不要塞长规则, 长规则放 description 末尾或单独的硬约束块
+5. **check_* 必须配 fix_** — 只检测不修复 = 装饰品. 后续加 check 函数必须配对应的 dedup / truncate / replace 函数
+
+**与 §169 §183 关系**:
+- §169.1 (commit 00b73e6) 立 effective_temperature=0.7 for regenerate — §184.3 改成 0.3
+- §183 (commit 146ffa4) instruction 注入 — §184.4 撤回, 改 description 末尾
+- §183 PartyRoleBanner / TimelineCoverageBanner 检测逻辑**保留** (硬约束检测仍生效, 只是不再污染 prompt)
+- §182 check_* 函数**保留** (作为前端 banner 报警源)
+
+**已知边界** (按 §18 不主动改):
+- 25 cargo warnings (§18 不动)
+- 1 个 bun:test tsc error (§18 不动)
+- fact_guard::test_161_full_709b_fixture flaky (§18 已知, stash 验证非 §184 引入)
+
+**关联**:
+- [[184-摘要退化硬保护-2026-08-26]] (Obsidian) / `outputs/§184-摘要退化硬保护-2026-08-26.md` (Codex)
+- §169 (regenerate 强制 bypass cache) / §169.1 (effective_temperature) / §182 (摘要质量硬约束) / §183 (立场标注 + 时间线覆盖度)
+- §37 (硬闸门) / §56 (AGENTS.md 双校) / §92 (决策迁移) / §15 (GUI 验收)
+

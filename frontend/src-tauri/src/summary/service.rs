@@ -680,20 +680,22 @@ impl SummaryService {
             );
         }));
 
-        // §169.3: regenerate 路径 + 本地 LLM (Ollama/BuiltInAI) → 强制注入 temperature=0.7
+        // §184.3: regenerate 路径 + 本地 LLM (Ollama/BuiltInAI) → 强制注入 temperature=0.3
         //         首次生成保留 None (用 model card 默认).
         //         CustomOpenAI 仍用 custom_openai_temperature (用户已设).
-        //         0.7 是 §163 默认 0.1 与 Ollama 默认 0.8 之间的折中:
-        //         既保留一定稳定性, 又能让 regenerate 输出明显不同于上次的版本.
+        //         0.3 是 §163 默认 0.1 与 §169.1 原 0.7 之间的折中:
+        //         §169.1 0.7 让 regenerate 输出过随机, 导致用户 8/26 反馈"质量一次不如一次"
+        //         (表格行重复 / raw transcript 漏出 / 缺段). 0.3 既保留一定随机性
+        //         让 regenerate 输出不同于上次, 又能保证输出结构稳定.
         let effective_temperature: Option<f32> = if regeneration_flag
             && matches!(provider, LLMProvider::Ollama | LLMProvider::BuiltInAI)
         {
-            Some(0.7_f32)
+            Some(0.3_f32)
         } else {
             custom_openai_temperature
         };
         info!(
-            "§169.3 effective_temperature={:?} (regeneration_flag={}, provider={:?}, custom_openai_temperature={:?})",
+            "§184.3 effective_temperature={:?} (regeneration_flag={}, provider={:?}, custom_openai_temperature={:?})",
             effective_temperature, regeneration_flag, provider, custom_openai_temperature
         );
 
@@ -772,6 +774,28 @@ impl SummaryService {
                     "✓ Successfully processed {} chunks for meeting_id: {}. Duration: {:.2}s",
                     num_chunks, meeting_id, duration
                 );
+                // §184: 退化硬保护 — markdown table dedup + raw transcript 截断
+                let (deduped_md, dedup_report) = hpp::dedup_markdown_table_rows(&final_markdown);
+                if dedup_report.rows_removed > 0 {
+                    info!(
+                        "§184.1 dedup_markdown_table_rows: removed {} rows ({}/{} kept) for meeting_id={}",
+                        dedup_report.rows_removed,
+                        dedup_report.total_rows_after,
+                        dedup_report.total_rows_before,
+                        meeting_id
+                    );
+                    final_markdown = deduped_md;
+                }
+                let (truncated_md, leak_report) = hpp::truncate_raw_transcript_leak(&final_markdown);
+                if leak_report.segments_truncated > 0 {
+                    warn!(
+                        "§184.2 truncate_raw_transcript_leak: truncated {} segments ({} chars removed) for meeting_id={} -- LLM output had raw ASR leak",
+                        leak_report.segments_truncated,
+                        leak_report.total_chars_removed,
+                        meeting_id
+                    );
+                    final_markdown = truncated_md;
+                }
                 info!("Final markdown generated ({} chars)", final_markdown.len());
 
                 if let Some(name) = extract_meeting_name_from_markdown(&final_markdown)
