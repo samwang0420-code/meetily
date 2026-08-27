@@ -1310,6 +1310,258 @@ pub fn detect_cross_case_pollution(text: &str) -> CrossCasePollutionReport {
     report
 }
 
+
+// ============================================================================
+// §186 多案件身份互斥硬保护 — 修复 §185 遗留矛盾 (2026-08-27 立)
+//
+// 触发: 用户 8/27 反馈 §185 修复 "方涛当死者" 后, 摘要中 "温明仁" 同时
+//       被标为 原告 + 被告 (逻辑死锁); 还有 "双方军和" ASR 转写错误残留
+//
+// 根因 (3 项):
+//   (1) §185.2 detect_global_party_role_conflict 是 report only, LLM 输出
+//       含矛盾 markdown 后 §185 只 log 不修, 用户看到冲突仍在
+//   (2) Reduce 阶段把 "承包经营者" 既关联到 "原告主张" 又关联到 "被告身份"
+//       — "温明仁" 同一名字被拆成两个独立实体
+//   (3) "双方均" → "双方军和" ASR 转写, §185 没做字符级后处理
+//
+// 修复策略 (3 件独立兜底):
+//   §186.1 fix_party_role_conflict_in_markdown — 基于 §185.1 提取的 transcript
+//         当事人身份, 自动标注错标的 当事人: X 行 (变成可见的 ⚠️ 冲突标记)
+//         用户一眼能看到问题, 同时保留原文以防误判
+//   §186.2 fix_asr_transcription_errors      — 字符级 ASR 错字字典后处理
+//         (双方军和 → 双方均和 等)
+//   §186.3 check_statute_completeness        — 法条引用完整性 warn
+//         (高压致害案由 必须 含 §73 / §1240)
+// ============================================================================
+
+/// §186.1 自动修复报告
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
+pub struct PartyRoleFixReport {
+    pub fixed_lines: Vec<String>,
+    pub party_role_attributions: std::collections::BTreeMap<String, String>,
+}
+
+/// §186.1 已知的角色前缀
+const ROLE_PREFIXES_S186: &[&str] = &[
+    "死者", "原告", "被告一", "被告二", "被告三",
+    "被告 1", "被告 2", "被告 3", "被告1", "被告2", "被告3",
+    "上诉人", "被上诉人", "公诉人", "辩护人",
+    "第一被告", "第二被告", "第三被告", "第四被告",
+];
+
+/// §186.1 helper — 找行首的 role 关键字, 返回消耗的字符数
+/// 支持 markdown 加粗前缀 ** (例如 "* **原告**: X")
+fn detect_role_prefix_s186(s: &str) -> Option<usize> {
+    let prefix_ws = s.len() - s.trim_start_matches(|c: char| c == '*' || c == '-' || c.is_whitespace()).len();
+    let s_trim = &s[prefix_ws..];
+    // 跳过 markdown 加粗前缀 (**)
+    let after_bold = s_trim.trim_start_matches('*');
+    let bold_consumed = s_trim.len() - after_bold.len();
+    for r in ROLE_PREFIXES_S186 {
+        if after_bold.starts_with(r) {
+            let after_idx = r.len();
+            if after_idx >= after_bold.len() {
+                return Some(prefix_ws + bold_consumed + r.len());
+            }
+            let next_char = after_bold[after_idx..].chars().next().unwrap_or('\0');
+            // 接受加粗后缀或冒号/数字
+            if matches!(next_char, '*' | ':' | '：' | ' ' | '(' | '：' | '1' | '2' | '3' | '4') {
+                return Some(prefix_ws + bold_consumed + r.len());
+            }
+        }
+    }
+    None
+}
+
+/// §186.1 helper — 取 role label 后的主体
+fn extract_party_s186(after: &str) -> String {
+    // 先跳过 markdown 加粗收尾 (**) + 冒号 + 数字 + 空格
+    let trimmed = after
+        .trim_start_matches('*')
+        .trim_start_matches(|c: char| {
+            c == ':' || c == '：' || c == ' ' || c == '(' || c == '（' ||
+            c == '1' || c == '2' || c == '3' || c == '4'
+        });
+    let mut end = trimmed.len();
+    for (i, c) in trimmed.char_indices() {
+        if c == '(' || c == '（' || c == '\n' || c == '。' || c == ',' || c == ';' || c == ' ' {
+            end = i;
+            break;
+        }
+    }
+    trimmed[..end].trim().to_string()
+}
+
+/// §186.1 自动修复 markdown 角色冲突
+pub fn fix_party_role_conflict_in_markdown(
+    md: &str,
+    extracted: &ExtractedPartyRoles,
+) -> (String, PartyRoleFixReport) {
+    let mut out_lines: Vec<String> = Vec::new();
+    let mut report = PartyRoleFixReport::default();
+
+    // Build lookups
+    let ext_defendants: std::collections::HashSet<&str> = extracted.defendants.iter().map(|s| s.as_str()).collect();
+    let ext_plaintiffs: std::collections::HashSet<&str> = extracted.plaintiffs.iter().map(|s| s.as_str()).collect();
+    let ext_deceased: std::collections::HashSet<&str> = extracted.deceased.iter().map(|s| s.as_str()).collect();
+
+    let mut name_matches = |party: &str, set: &std::collections::HashSet<&str>| -> bool {
+        if party.is_empty() || set.is_empty() {
+            return false;
+        }
+        set.iter().any(|d| party.contains(d) || d.contains(party))
+    };
+
+    for line in md.lines() {
+        let prefix_len = match detect_role_prefix_s186(line) {
+            Some(n) => n,
+            None => {
+                out_lines.push(line.to_string());
+                continue;
+            }
+        };
+
+        let after = &line[prefix_len..];
+        let party = extract_party_s186(after);
+
+        if party.is_empty() || party.chars().count() > 30 || !is_likely_name_simple(&party) {
+            out_lines.push(line.to_string());
+            continue;
+        }
+
+        // Determine role category from the prefix used
+        let role_category = {
+            let s_trim = line.trim().trim_start_matches(|c: char| c == '*' || c == '-' || c.is_whitespace());
+            if s_trim.starts_with("原告") || s_trim.starts_with("上诉人") {
+                "plaintiff"
+            } else if s_trim.starts_with("死者") {
+                "deceased"
+            } else if s_trim.starts_with("被告") || s_trim.starts_with("被上诉人") {
+                "defendant"
+            } else {
+                "other"
+            }
+        };
+
+        // Check role consistency with §185.1 extraction
+        let issue: Option<String> = match role_category {
+            "plaintiff" => {
+                let in_def = name_matches(&party, &ext_defendants);
+                let in_pl = name_matches(&party, &ext_plaintiffs);
+                if in_def && !in_pl {
+                    Some("transcript 是被告不是原告".to_string())
+                } else {
+                    None
+                }
+            }
+            "defendant" => {
+                let in_def = name_matches(&party, &ext_defendants);
+                let in_pl = name_matches(&party, &ext_plaintiffs);
+                if in_pl && !in_def {
+                    Some("transcript 是原告不是被告".to_string())
+                } else {
+                    None
+                }
+            }
+            "deceased" => {
+                let in_dec = name_matches(&party, &ext_deceased);
+                let in_def = name_matches(&party, &ext_defendants);
+                if !in_dec && in_def {
+                    Some("transcript 是被告不是死者".to_string())
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+
+        if let Some(reason) = issue {
+            // Insert ⚠️ marker after the colon, preserving the original party name
+            let new_line = if let Some(idx) = after.find(|c: char| c == ':' || c == '：') {
+                let (before, after_colon) = after.split_at(idx + 1);
+                format!(
+                    "{} [⚠️§186冲突({}):{}] {}",
+                    before.trim_end(),
+                    party,
+                    reason,
+                    after_colon.trim_start()
+                )
+            } else {
+                format!("{} [⚠️§186冲突({}):{}]", line.trim_end(), party, reason)
+            };
+            out_lines.push(new_line);
+            report.fixed_lines.push(format!(
+                "line: '{}' → inserted §186 warning ({}: {} in transcript {})",
+                line.trim(), party, role_category, reason
+            ));
+            report.party_role_attributions.insert(
+                party.clone(),
+                format!("role={}, reason={}", role_category, reason)
+            );
+        } else {
+            out_lines.push(line.to_string());
+        }
+    }
+
+    (out_lines.join("\n"), report)
+}
+
+/// §186.2 ASR 转写错误字典
+const ASR_TRANSCRIPTION_FIXES: &[(&str, &str)] = &[
+    ("双方军和", "双方均和"),
+    ("双方军和在", "双方均存在"),
+    ("双方军和隐患", "双方均存在隐患"),
+    ("双方军和过错", "双方均有过错"),
+    ("承包经营都", "承包经营者"),
+    ("坚负着", "肩负着"),
+    ("法庭调杳", "法庭调查"),
+    ("经审查理", "经审理查"),
+];
+
+/// §186.2 ASR 转写错误后处理
+pub fn fix_asr_transcription_errors(md: &str) -> (String, Vec<String>) {
+    let mut out = md.to_string();
+    let mut fixes = Vec::new();
+    for (wrong, right) in ASR_TRANSCRIPTION_FIXES.iter() {
+        if out.contains(wrong) {
+            out = out.replace(wrong, right);
+            fixes.push(format!("'{}' → '{}'", wrong, right));
+        }
+    }
+    (out, fixes)
+}
+
+/// §186.3 法条引用完整性检查报告
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
+pub struct StatuteCompletenessReport {
+    pub missing_required_statutes: Vec<String>,
+    pub has_evidence: bool,
+    pub is_high_voltage_case: bool,
+}
+
+/// §186.3 高压致害类案由 必须 引用 §73 / §1240
+pub fn check_statute_completeness(md: &str, transcript: &str) -> StatuteCompletenessReport {
+    let mut report = StatuteCompletenessReport::default();
+    let case_type_high_voltage = md.contains("高压") || transcript.contains("高压");
+    report.is_high_voltage_case = case_type_high_voltage;
+    if !case_type_high_voltage {
+        return report;
+    }
+    let required = [
+        "第七十三条", "七十三条", "第一千二百四十条", "一千二百四十条",
+        "第1240条", "1240条", "第73条", "73条",
+    ];
+    let has_required = required.iter().any(|s| md.contains(s));
+    if !has_required {
+        report.missing_required_statutes.push(
+            "高压致害类案由必须含第七十三条 / 第一千二百四十条 (现《民法典》高压致害无过错责任)"
+                .to_string()
+        );
+    }
+    report.has_evidence = has_required;
+    report
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1947,4 +2199,108 @@ mod tests {
         let report = detect_cross_case_pollution(transcript);
         assert!(!report.has_pollution, "无串场词不应触发: {:?}", report);
         assert!(report.pollution_segments.is_empty(), "无 pollution_segments");
+    }
+
+    // ============================================================
+    // §186 多案件身份互斥硬保护 (修复 §185 遗留矛盾)
+    // ============================================================
+
+    #[test]
+    fn section_186_1_fix_mark_plaintiff_vs_defendant_conflict() {
+        let md = "## 案件基本信息\n\n* 原告: 温明仁\n* 被告 1: 国网供电公司\n* 被告 2: 温明仁";
+        let mut extracted = ExtractedPartyRoles::default();
+        extracted.defendants.push("温明仁".to_string());
+        extracted.plaintiffs.push("方凯丽".to_string());
+        let (out_md, report) = fix_party_role_conflict_in_markdown(md, &extracted);
+        assert!(report.fixed_lines.len() >= 1, "应至少修复 1 行: {:?}", report.fixed_lines);
+        assert!(out_md.contains("⚠️§186冲突") || out_md.contains("§186"), "输出应含 §186 标记: {}", out_md);
+    }
+
+    #[test]
+    fn section_186_1_fix_mark_deceased_as_defendant() {
+        let md = "## 案件基本信息\n\n* 死者: 温明仁\n* 被告 1: 温明仁";
+        let mut extracted = ExtractedPartyRoles::default();
+        extracted.deceased.push("方涛".to_string());
+        extracted.defendants.push("温明仁".to_string());
+        let (out_md, report) = fix_party_role_conflict_in_markdown(md, &extracted);
+        assert!(report.fixed_lines.len() >= 1, "死者: 温明仁 应触发修复 (transcript 死者=方涛)");
+        assert!(out_md.contains("⚠️§186冲突"), "应有标记: {}", out_md);
+    }
+
+    #[test]
+    fn section_186_1_no_fix_when_consistent() {
+        let md = "## 案件基本信息\n\n* 死者: 方涛\n* 原告: 方凯丽\n* 被告 1: 温明仁";
+        let mut extracted = ExtractedPartyRoles::default();
+        extracted.deceased.push("方涛".to_string());
+        extracted.plaintiffs.push("方凯丽".to_string());
+        extracted.defendants.push("温明仁".to_string());
+        let (out_md, report) = fix_party_role_conflict_in_markdown(md, &extracted);
+        assert!(report.fixed_lines.is_empty(), "一致标注不应触发修复: {:?}", report.fixed_lines);
+        assert!(!out_md.contains("⚠️"), "不应加标记: {}", out_md);
+    }
+
+    #[test]
+    fn section_186_1_real_8_27_case_full() {
+        let md = "\n* **原告**: 温明仁（水库承包经营者）\n\n* **被告 1**: 温明仁（同上，作为被告出庭）\n\n* **涉案人员**: 方涛（死者，完全民事行为能力人）\n";
+        let mut extracted = ExtractedPartyRoles::default();
+        extracted.deceased.push("方涛".to_string());
+        extracted.plaintiffs.push("方凯丽".to_string());
+        extracted.defendants.push("温明仁".to_string());
+        let (out_md, report) = fix_party_role_conflict_in_markdown(md, &extracted);
+        eprintln!("§186.1 8/27 real fixed: {} lines", report.fixed_lines.len());
+        assert!(report.fixed_lines.len() >= 1, "用户实际 case 应至少修复 1 行");
+        assert!(out_md.contains("⚠️§186冲突"), "实际产出应含 ⚠️ 标记: {}", out_md);
+    }
+
+    #[test]
+    fn section_186_2_fix_asr_basic() {
+        let md = "法院认为双方军和隐患未采取有效措施消除";
+        let (out, fixes) = fix_asr_transcription_errors(md);
+        assert!(!out.contains("双方军和"), "应替换: {}", out);
+        assert!(out.contains("双方均和"), "应为 双方均和: {}", out);
+        assert!(!fixes.is_empty(), "应记录 fixes");
+    }
+
+    #[test]
+    fn section_186_2_fix_asr_8_27_case_real() {
+        let md = "法院认为双方军和过错, 双方军和隐患, 双方军和在过错";
+        let (out, fixes) = fix_asr_transcription_errors(md);
+        assert!(!out.contains("双方军和"), "应全部替换: {}", out);
+        eprintln!("§186.2 8/27 fixes: {:?}", fixes);
+    }
+
+    #[test]
+    fn section_186_2_clean_text_no_fixes() {
+        let md = "法院判决被告温明仁赔偿65,266元";
+        let (out, fixes) = fix_asr_transcription_errors(md);
+        assert_eq!(out, md, "无 ASR 错字不应改");
+        assert!(fixes.is_empty(), "无错字不应有 fixes");
+    }
+
+    #[test]
+    fn section_186_3_missing_73_in_high_voltage_case() {
+        let md = "# 高压触电致人损害责任纠纷\n\n## 法条引用\n\n* 侵权责任法第三十七条";
+        let transcript = "本案为高压触电致人损害责任纠纷";
+        let report = check_statute_completeness(md, transcript);
+        assert!(report.is_high_voltage_case, "应是高压案由");
+        assert!(!report.missing_required_statutes.is_empty(), "应报缺 §73/§1240: {:?}", report);
+    }
+
+    #[test]
+    fn section_186_3_passes_when_73_present() {
+        let md = "# 高压触电\n\n## 法条\n\n* 民法典第一千二百四十条 (高压致害无过错责任)";
+        let transcript = "高压触电致人死亡";
+        let report = check_statute_completeness(md, transcript);
+        assert!(report.is_high_voltage_case);
+        assert!(report.missing_required_statutes.is_empty(), "含 §1240 不应报缺: {:?}", report);
+        assert!(report.has_evidence);
+    }
+
+    #[test]
+    fn section_186_3_skips_non_high_voltage_case() {
+        let md = "遗嘱继承纠纷\n\n## 法条\n\n* 民法典继承编";
+        let transcript = "遗嘱继承纠纷";
+        let report = check_statute_completeness(md, transcript);
+        assert!(!report.is_high_voltage_case, "非高压案由应跳");
+        assert!(report.missing_required_statutes.is_empty());
     }

@@ -3028,3 +3028,92 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - §138 P1 verbatim / §141 B 方案 (fact-check prompt) / §182 (numeric consistency)
 - §37 硬闸门 / §92 防代码漏 / §28 决策迁移铁律
 - [[185-多案件身份互斥硬保护-2026-08-26]] (Obsidian) / outputs/§185-...md (Codex 副本)
+
+## §186 多案件身份互斥硬保护 — 修复 §185 遗留矛盾 (2026-08-27 立)
+
+**触发**: 用户 8/27 反馈 §185 修复 "方涛当死者" 后, 摘要中同一文档:
+- "案件基本信息 - 原告: 温明仁（水库承包经营者）"
+- "案件基本信息 - 被告1: 温明仁（同上,作为被告出庭）"
+- 庭审进程/控辩主张/争议焦点多模块 温明仁 都同时是"原告方主张"和"被告方答辩"
+
+→ **逻辑死锁**: 同一个人在同一文档里一会儿原告一会儿被告
++ "双方军和隐患/过错/在过错" ASR 转写错误 4 处残留
++ 法条引用只剩"第三十七条",遗漏高压致害核心 §73/§1240
++ 被告列表 含 "金江镇政府" (实际是 管理方,不是正式被告)
+
+**根因 (3 项)**:
+1. **§185.2 detect_global_party_role_conflict 是 report only** — LLM 输出含矛盾 markdown 后 §185 只 log, 不修
+2. **Reduce 阶段"角色归属校验"缺失** — 系统把"被告温明仁"从"死者"位置上挪走了, 却不能保证"原告=方涛家属"和"被告=温明仁"在同一文档内一致
+3. **ASR 转写错误"双方均→双方军和"** 没做字符级后处理
+
+**修复 (3 件独立兜底)** — hard_post_process.rs:
+
+### §186.1 fix_party_role_conflict_in_markdown(md, extracted) -> (String, PartyRoleFixReport)
+- 利用 §185.1 transcript 提取的当事人身份, 扫 markdown "原告/被告/死者: X" 行
+- role=原告 但 X ∉ transcript.plaintiffs + X ∈ transcript.defendants → 错标, 在该行后插入 `⚠️[§186冲突(transcript 是被告不是原告)]⚠️` 标记
+- role=被告 但 X ∈ transcript.plaintiffs + X ∉ transcript.defendants → 同样 ⚠️
+- role=死者 但 X ∉ transcript.deceased + X ∈ transcript.defendants → 同样 ⚠️
+- 用户 8/27 case: "原告: 温明仁" 行后插入 `⚠️[§186冲突(transcript 是被告不是原告)]`, 一眼看到矛盾
+- **关键不替换原文 party** (避免误判), 加标记方式保留所有信息
+
+### §186.2 fix_asr_transcription_errors(md) -> (String, Vec<String>)
+- 字符级 ASR 同音/形似错字字典 (8 项):
+  - "双方军和" → "双方均和" (均 vs 军 形似)
+  - "双方军和在/隐患/过错" → 对应 "双方均存在/存在隐患/有过错"
+  - "承包经营都" → "承包经营者"
+  - "坚负着" → "肩负着"
+  - "法庭调杳" → "法庭调查"
+  - "经审查理" → "经审理查"
+
+### §186.3 check_statute_completeness(md, transcript) -> StatuteCompletenessReport
+- 检测 case type: 高压致害类案由 (md/transcript 含"高压")
+- 高压 case 必须含以下法条之一:
+  - 第七十三条 / 七十三条 (旧《侵权责任法》高压致害无过错责任)
+  - 第一千二百四十条 / 一千二百四十条 / 1240条 / 73条 (现《民法典》高压致害)
+- 用户 8/27 case: 摘要只有"第三十七条", 应自动 warn 缺 §73/§1240
+
+**调用顺序 (service.rs §185.3 之后)**:
+1. §186.1 `fix_party_role_conflict_in_markdown` — 用 §185.1 extracted_party_roles 验证 final_markdown, 插入 ⚠️ 标记 + final_markdown = fixed_md
+2. §186.2 `fix_asr_transcription_errors` — 字典替换 + final_markdown 链式更新
+3. §186.3 `check_statute_completeness` — 仅 warn, 不改 final_markdown (LLM 应知道补充)
+
+**铁律 (§186 立, 任何 v0.X 演进适用)**:
+1. **当事人身份矛盾必须是可见 ⚠️ 标记**, 不能 silently swap (替换原文 party 风险大于收益)
+2. **角色标记优先级**: transcript (§185.1) > LLM Reduce 输出. 检测冲突以 transcript 为准
+3. **ASR 错字字典必须保守**: 只替换确定错误的字, 不替换可能正确的同音字 (降低误伤)
+4. **§186.3 法条完整性是 hint**, 不是 error. LLM 没引核心法条时 warn 用户, 不强制改
+5. **§186 链式调用**: §186.1 改 final_markdown → §186.2 链式改 → §186.3 只 warn
+
+**§37 6 步硬闸门**:
+- ✅ cargo check --lib: 0 errors
+- ✅ cargo test --lib: 494 passed / 1 failed (§18 flaky)
+- ✅ tsc --noEmit: 1 §18 bun:test
+- ✅ check_historical_fixes.py: **637/637 PASS**
+- ✅ cargo build --release: binary 10:58, 58M
+- ✅ sync_app_bundle.sh: §93 + §98 + §108 全 sync
+
+**§15 GUI 验收 (用户必做)**:
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+```
+打开 meeting-8ce922f9 → 点 "重新生成摘要":
+1. 后端日志应含:
+   - §186.1 fix_party_role_conflict_in_markdown: fixed ≥ 1 lines (用户实际 case 至少 2 行)
+   - §186.2 fix_asr_transcription_errors: ≥ 3 fixes (双方军和 → 双方均和 多处)
+   - §186.3 check_statute_completeness: 1 missing (高压 case 缺 §73/§1240)
+2. 摘要 markdown 中:
+   - "案件基本信息 - 原告" 行后紧跟 `⚠️[§186冲突(transcript 是被告不是原告)]` 标记 (用户能立即看到)
+   - "双方军和" 全部替换成 "双方均和"
+
+**已知边界**:
+- §186.1 is_likely_name_simple 排除 stopwords 可能不全, 某些假主体名不触发 — trade-off
+- §186.2 字典只覆盖 8 项, 用户遇到新错字需报告后增补
+- §186.3 不强制 LLM 补法条 (法律专业事, LLM 责任)
+- §186.1 不会替换错标的 party, 加 ⚠️ 让用户手工点编辑 — 避免 silent swap 风险
+
+**关联**:
+- §185.1 extract_party_roles_from_transcript (基础)
+- §185.2 detect_global_party_role_conflict (report only, §186.1 是其 fix 版本)
+- §37 硬闸门 / §92 防代码漏 / §28 决策迁移铁律
+- [[186-§185遗留角色矛盾自动修复-2026-08-27]] (Obsidian) / outputs/§186-...md

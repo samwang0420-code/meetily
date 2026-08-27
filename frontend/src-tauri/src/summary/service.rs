@@ -890,6 +890,47 @@ impl SummaryService {
                     }
                 }
 
+                // §186 多案件身份互斥硬保护 — 修复 §185 遗留矛盾
+                // §186.1 自动修复 markdown 中"X 同时是原告 + 被告" 角色冲突
+                //   基于 §185.1 transcript 提取, 在错标的 当事人: X 行后插入 ⚠️ 标记
+                //   用户能立即看到 §186 找出的矛盾
+                let (fixed_md, fix_report) = hpp::fix_party_role_conflict_in_markdown(&final_markdown, &extracted_party_roles);
+                if !fix_report.fixed_lines.is_empty() {
+                    warn!(
+                        "§186.1 fix_party_role_conflict_in_markdown: fixed {} lines for meeting_id={}",
+                        fix_report.fixed_lines.len(),
+                        meeting_id
+                    );
+                    for f in &fix_report.fixed_lines {
+                        warn!("§186.1 fixed: {}", f);
+                    }
+                    final_markdown = fixed_md;
+                }
+
+                // §186.2 ASR 转写错误后处理
+                let (asr_fixed_md, asr_fixes) = hpp::fix_asr_transcription_errors(&final_markdown);
+                if !asr_fixes.is_empty() {
+                    info!(
+                        "§186.2 fix_asr_transcription_errors: {} fixes for meeting_id={}",
+                        asr_fixes.len(),
+                        meeting_id
+                    );
+                    final_markdown = asr_fixed_md;
+                }
+
+                // §186.3 法条引用完整性检查 (高压致害类案由必须含 §73/§1240)
+                let statute_report = hpp::check_statute_completeness(&final_markdown, &evidence_text);
+                if !statute_report.missing_required_statutes.is_empty() {
+                    warn!(
+                        "§186.3 check_statute_completeness: {} missing for meeting_id={}",
+                        statute_report.missing_required_statutes.len(),
+                        meeting_id
+                    );
+                    for s in &statute_report.missing_required_statutes {
+                        warn!("§186.3 missing: {}", s);
+                    }
+                }
+
                 info!("Final markdown generated ({} chars)", final_markdown.len());
 
                 if let Some(name) = extract_meeting_name_from_markdown(&final_markdown)
