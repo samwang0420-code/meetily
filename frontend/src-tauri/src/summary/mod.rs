@@ -78,4 +78,4 @@ pub use processor::{
 pub use service::SummaryService;
 
 // §164 hard_post_process — 文档模块 2.4 (2026-08-23 立)
-pub(crate) mod hard_post_process;
+pub mod hard_post_process; // §186 verify: temporarily pub for example/verify_186

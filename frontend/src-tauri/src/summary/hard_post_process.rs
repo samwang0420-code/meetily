@@ -1003,7 +1003,7 @@ const COMMON_SURNAMES: &[&str] = &[
     "程", "蔡", "彭", "潘", "袁", "于", "董", "余", "苏", "叶", "吕", "魏", "蒋", "田", "杜", "丁",
     "沈", "姜", "范", "江", "傅", "钟", "卢", "汪", "戴", "崔", "任", "陆", "廖", "姚", "方", "金",
     "邱", "夏", "谭", "韦", "贾", "邹", "石", "熊", "孟", "秦", "阎", "薛", "侯", "雷", "白", "龙",
-    "段", "郝", "孔", "邵", "史", "毛", "常", "万", "顾", "赖", "武", "康", "贺", "严", "尹", "钱",
+    "段", "郝", "孔", "邵", "史", "毛", "常", "顾", "赖", "武", "康", "贺", "严", "尹", "钱", "温", "文", "陶", "鲍", "齐",
     "施", "牛", "洪", "龚", "严", "欧阳", "司马", "上官", "诸葛",
 ];
 
@@ -1011,95 +1011,186 @@ fn starts_with_common_surname(s: &str) -> bool {
     COMMON_SURNAMES.iter().any(|surname| s.starts_with(surname))
 }
 
+/// §185.1 FIX: 人名识别后过滤常见"姓+X"误识别 (X 是动词/量词/副词/方位词等)
+const NAME_STOPWORDS_2: &[&str] = &[
+    "已经", "首先", "共计", "因此", "进行", "答辩", "认为", "作证", "作出", "如何", "怎样",
+    "应该", "认为", "管理", "承包", "赔偿", "确认", "认定", "认识", "存在",
+    "陈述", "申辩", "申辩", "申辩权",
+];
+fn is_false_positive_name(s: &str) -> bool {
+    if s.chars().count() == 3 {
+        // 三字 X + 1 动词: 必须最后一字不在 stopword
+        let last_two: String = s.chars().skip(1).collect();
+        if NAME_STOPWORDS_2.iter().any(|w| last_two == *w || last_two.starts_with(w)) {
+            return true;
+        }
+    }
+    // 整词在 stop 列表
+    if NAME_STOPWORDS_2.iter().any(|w| s == *w) { return true; }
+    false
+}
+
 /// §185.1 从 transcript 提取 全局 当事人身份清单
 pub fn extract_party_roles_from_transcript(transcript: &str) -> ExtractedPartyRoles {
     let mut roles = ExtractedPartyRoles::default();
 
-    let deceased_pat = format!(
-        r"({0})\s*(?:触电)?(?:死亡|身亡|去世|离世)|(?:死者|溺亡者|受害者)\s*:?\s*({0})",
-        HAN_NAME,
+    // §185.1 FIX: regex 抓 2-3 字 Han 后,trim 边界标点 + 后处理滤掉 "的/是/在..." 
+    let boundary_chars = ['。', '，', ',', '、', '和', '与', '及', '的', '是', '在', '了', '把', '被'];
+    let trim_boundary = |raw: &str| -> String {
+        let mut s = raw.to_string();
+        while let Some(last) = s.chars().last() {
+            if boundary_chars.contains(&last) { s.pop(); } else { break; }
+        }
+        s
+    };
+
+
+    // §185.1 FIX: 改成抓 "原告/被告/死者" 标签后紧邻的人名 (允许 、/和/, 分隔)
+    // transcript 实际模式:
+    //   "死者方涛" / "死者方涛被电击身亡"
+    //   "原告方凯丽方定富左瑞芳" / "原告是死者方涛的女儿和父母"
+    //   "被告分别是攀枝花供电公司以及仁和供电分公司" / "被告水库承包人温明仁"
+    let name = r"[\p{Han}]{2,3}?";  // §185.1 FIX: 非贪婪避免吃到 3 字垃圾
+    let org_suffix = r"(?:公司|分公司|集团|供电公司|供电局|供电分公司|政府|委员会|村委|村|承包人|承包户|承包方|管理处|管理局)";
+    let splitters = r"[,，、和与及]\s*";
+
+    // === deceased (双向: "死者X" + "X死亡/身亡/...") ===
+    let deceased_label_pat = format!(
+        r"(?:死者|受害者|受害人|溺亡者|身亡者)(?:为|系|是)?\s*({0}(?:{1})?)",
+        name, splitters,
     );
-    // §185.1 post-filter: 排除常见 non-name 短语 (场景词/物体)
-    let non_name_phrases_deceased = [
-        "高压线", "高压", "水库", "鱼塘", "鱼线", "甩杆", "收杆",
-        "庭审", "案件", "法院", "证据", "事故", "触电", "水钻",
-        "标牌", "警示", "管理", "赔偿", "死亡", "触电身亡",
-        "保护", "规则", "安全", "负担", "矛盾", "鱼杆",
-    ];
-    if let Ok(deceased_re) = Regex::new(&deceased_pat) {
-        for cap in deceased_re.captures_iter(transcript) {
-            for i in 1..=2 {
-                if let Some(m) = cap.get(i) {
-                    let n = m.as_str().trim().to_string();
-                    if n.is_empty() || !is_likely_name_simple(&n) {
-                        continue;
-                    }
-                    if non_name_phrases_deceased.iter().any(|p| n.contains(p)) {
-                        continue;
-                    }
-                    // §185.1 真实姓名首字必须是常见姓氏 (大幅减少误识别)
-                    if !starts_with_common_surname(&n) {
-                        continue;
-                    }
-                    if !roles.deceased.contains(&n) {
-                        roles.deceased.push(n);
-                        break;
-                    }
+    if let Ok(re) = Regex::new(&deceased_label_pat) {
+        for cap in re.captures_iter(transcript) {
+            if let Some(m) = cap.get(1) {
+                let n = trim_boundary(m.as_str().trim());
+                if n.is_empty() || !is_likely_name_simple(&n) { continue; }
+                if !starts_with_common_surname(&n) { continue; }
+                if !roles.deceased.contains(&n) { roles.deceased.push(n); }
+            }
+        }
+    }
+    let death_verb_pat = format!(
+        r"({0})\s*(?:因[^。\n]{{0,15}}?)?(?:触电死亡|触电身亡|电击身亡|触电致死|电击致死|死亡|身亡|去世|离世|没了生命体征|被[^。\n]{{0,8}}(?:电击|触电))",
+        name,
+    );
+    if let Ok(re) = Regex::new(&death_verb_pat) {
+        for cap in re.captures_iter(transcript) {
+            if let Some(m) = cap.get(1) {
+                let n = trim_boundary(m.as_str().trim());
+                if n.is_empty() || !is_likely_name_simple(&n) { continue; }
+                if !starts_with_common_surname(&n) { continue; }
+                if !roles.deceased.contains(&n) { roles.deceased.push(n); }
+            }
+        }
+    }
+
+    // §185.1 FIX: 抓 label 后整段文字直到标点断 (Chinese splitter "方/和/及" 不是 regex splitter),
+    // 然后后处理 split 出多个名字
+    let extract_after_label = |re: &Regex, label_kw: &str| -> Vec<String> {
+        let mut out = Vec::new();
+        let label_re = Regex::new(&format!(r"(?:本案)?{0}(?:方|[一二三四五]?[方]?)?(?:为|系|是|：|:)?\s*([^。，,；;\n\[\]\d]{{2,40}})", label_kw)).unwrap();
+        for cap in label_re.captures_iter(transcript) {
+            if let Some(m) = cap.get(1) {
+                let raw = m.as_str().trim();
+                // 切分 (中文 + 英 splitter)
+                let mut cur = String::new();
+                // §185.1 FIX: 不要把"方"当 splitter (是真实姓),改用"姓氏+1-2字"regex 反向扫 raw
+                let surname_name_re = Regex::new(r"(?:[王李张刘陈杨黄赵周吴徐孙朱马胡郭林何高梁郑罗宋谢唐韩曹许邓萧冯曾程蔡彭袁于董余苏叶吕魏蒋田杜丁沈姜江傅钟卢汪戴崔任陆廖姚方邱夏谭韦贾邹石熊孟秦阎薛侯雷白龙邵史毛顾赖武康贺严尹钱施牛洪龚温文陶鲍齐欧阳司马上官诸葛])[\p{Han}]{1,2}").unwrap();
+                // §185.1 FIX: 机构名识别 (供电公司/村委/分公司等)
+                let org_name_re = Regex::new(r"[\p{Han}]{2,6}(?:公司|分公司|集团|供电公司|供电局|供电分公司|政府|委员会|村委|村|水库|管理局|管理处|承包人|承包户|承包方)").unwrap();
+                let mut last_end = 0;
+                // 先扫 org_name_re (机构名)
+                let mut org_matches_v: Vec<_> = org_name_re.find_iter(raw).collect();
+                for m in org_matches_v.iter() {
+                    out.push(m.as_str().to_string());
+                }
+                // 再扫 surname_name_re (人名),跳过与 org_name重叠部分
+                for m in surname_name_re.find_iter(raw) {
+                    let overlaps_org = org_matches_v.iter().any(|org| {
+                        org.start() <= m.start() && org.end() >= m.end()
+                    });
+                    if overlaps_org { continue; }
+                    out.push(m.as_str().to_string());
+                }
+                
+                let _ = last_end;  // suppress
+                let _ = cur;  // suppress unused
+            }
+        }
+        out
+    };
+
+    // §185.1 FIX: 预计算 transcript 中各 2-3 字姓名片段频次,过滤偶然组合
+    let transcript_name_count = |s: &str| -> usize {
+        transcript.matches(s).count()
+    };
+    for raw_name in extract_after_label(&Regex::new(".").unwrap(), "原告") {
+        let n = trim_boundary(&raw_name);
+        if n.is_empty() || n.chars().count() > 4 { continue; }
+        if ["死者", "死者家属", "起诉", "证据", "家属", "没有", "我们", "能够"].contains(&n.as_str()) { continue; }
+        if !starts_with_common_surname(&n) { continue; }
+        if is_false_positive_name(&n) { continue; }
+        // §185.1 FIX: 频次 ≥ 2 才能确保是真名 (transcript 多次提及的人)
+        if transcript_name_count(&n) < 2 { continue; }
+        if !roles.plaintiffs.contains(&n) { roles.plaintiffs.push(n); }
+    }
+    for raw_name in extract_after_label(&Regex::new(".").unwrap(), "上诉人") {
+        let n = trim_boundary(&raw_name);
+        if n.is_empty() || n.chars().count() > 4 { continue; }
+        if !starts_with_common_surname(&n) { continue; }
+        if !roles.plaintiffs.contains(&n) { roles.plaintiffs.push(n); }
+    }
+
+    for raw_name in extract_after_label(&Regex::new(".").unwrap(), "被告") {
+        let n = trim_boundary(&raw_name);
+        if n.is_empty() || n.chars().count() > 12 { continue; }
+        if ["死者", "死者家属", "起诉", "证据", "家属", "没有", "我们", "能够", "双方", "认为", "方会"].contains(&n.as_str()) { continue; }
+        let n_chars: String = n.chars().take_while(|&c| c != '（').collect();
+        let n = n_chars.trim().to_string();
+        if n.is_empty() { continue; }
+        // §185.1 FIX: 短名 (<4 字) 必须频次 ≥ 2 才能是真名;机构 (≥4 字 含"公司/供电") 直接接受
+        let is_org = n.contains("公司") || n.contains("分公司") || n.contains("供电") || n.contains("政府") || n.contains("委员会") || n.contains("村委") || n.contains("水库");
+        if n.chars().count() <= 4 && !is_org {
+            if is_false_positive_name(&n) { continue; }
+            if transcript_name_count(&n) < 2 { continue; }
+        }
+        if !roles.defendants.contains(&n) && !roles.deceased.contains(&n) {
+            roles.defendants.push(n);
+        }
+    }
+    for raw_name in extract_after_label(&Regex::new(".").unwrap(), "被上诉人") {
+        let n = trim_boundary(&raw_name);
+        if n.is_empty() || n.chars().count() > 6 { continue; }
+        if !roles.defendants.contains(&n) && !roles.deceased.contains(&n) {
+            roles.defendants.push(n);
+        }
+    }
+
+    // === witnesses (证人 标签) ===
+    let witness_label_pat = format!(
+        r"证人(?:为|系|是|：|:)?\s*({0}(?:{1}{0}){{0,3}}?)",
+        name, splitters,
+    );
+    if let Ok(re) = Regex::new(&witness_label_pat) {
+        for cap in re.captures_iter(transcript) {
+            if let Some(m) = cap.get(1) {
+                let raw = m.as_str().trim().to_string();
+                for chunk in raw.split(|c: char| c == '，' || c == ',' || c == '、' || c == '和' || c == '与' || c == '及' || c == ' ') {
+                    let n = chunk.trim().trim_end_matches(|c: char| "公司分局政府委员会村委村承包人承包户承包方".contains(c)).to_string();
+                    if n.is_empty() || !is_likely_name_simple(&n) { continue; }
+                    if !starts_with_common_surname(&n) { continue; }
+                    if !roles.witnesses.contains(&n) { roles.witnesses.push(n); }
                 }
             }
         }
     }
 
-    let plaintiff_pat = format!(
-        r"({0})\s*(?:及其|等)?\s*(?:家属|父母|妻子|丈夫|女儿|儿子|家人|代理人)?\s*(?:向|至)?(?:法院|法庭)?\s*(?:提起诉讼|起诉|诉至|提起)|{0}\s*的\s*(?:家属|父母|妻子|丈夫)",
-        HAN_NAME,
-    );
-    if let Ok(re) = Regex::new(&plaintiff_pat) {
-        for cap in re.captures_iter(transcript) {
-            if let Some(m) = cap.get(1) {
-                let s = m.as_str().trim().to_string();
-                if is_likely_name_simple(&s) && !roles.plaintiffs.contains(&s) {
-                    roles.plaintiffs.push(s);
-                }
-            }
-        }
-    }
-
-    let defendant_pat = format!(
-        r"被告(?:方)?(?:一?[二三四]?[方]?)?[\s::：]*({0}(?:公司|分公司|政府|委员会|供电局|供电公司|村委|村|承包人|承包户|承包方)?)[\s的，,。]?",
-        HAN_NAME,
-    );
-    if let Ok(re) = Regex::new(&defendant_pat) {
-        for cap in re.captures_iter(transcript) {
-            if let Some(m) = cap.get(1) {
-                let s = m.as_str().trim().to_string();
-                if is_likely_name_simple(&s) && !roles.defendants.contains(&s) && !roles.deceased.contains(&s) {
-                    roles.defendants.push(s);
-                }
-            }
-        }
-    }
-    let appelled_pat = format!(
-        r"(?:被上诉人|上诉人)[\s::：]*({0})",
-        HAN_NAME,
-    );
-    if let Ok(re) = Regex::new(&appelled_pat) {
-        for cap in re.captures_iter(transcript) {
-            if let Some(m) = cap.get(1) {
-                let s = m.as_str().trim().to_string();
-                if is_likely_name_simple(&s) && !roles.defendants.contains(&s) && !roles.deceased.contains(&s) {
-                    roles.defendants.push(s);
-                }
-            }
-        }
-    }
-
+    // === conflict warning ===
     for d in roles.deceased.iter() {
         for f in roles.defendants.iter() {
-            if f.contains(d) || d.contains(f) {
+            if f == d || (f.chars().count() <= 3 && d.chars().count() <= 3 && f == d) {
                 roles.role_warnings.push(format!(
-                    "§185.1 conflict: '{}' 同时被识别为死者 和 被告 — transcript 内容可能含多案件",
-                    d
+                    "§185.1 conflict: \"{}\" 同时被识别为死者 和 被告 — transcript 内容可能含多案件", d
                 ));
             }
         }
@@ -1120,13 +1211,38 @@ pub fn detect_global_party_role_conflict(md: &str) -> GlobalPartyRoleConflictRep
     let mut report = GlobalPartyRoleConflictReport::default();
     let mut party_roles: std::collections::HashMap<String, std::collections::BTreeSet<String>> =
         std::collections::HashMap::new();
-    const ROLE_KEYWORDS: [&str; 12] = [
-        "死者", "原告", "被告一", "被告二", "被告三",
-        "上诉人", "被上诉人", "公诉人", "辩护人", "证人",
-        "赔偿义务人", "责任主体",
+    const ROLE_KEYWORDS: &[&str] = &[
+        "死者", "原告", "被告", "上诉人", "被上诉人",
+        "公诉人", "辩护人", "证人", "赔偿义务人", "责任主体",
     ];
+    // §185.2 FIX: 支持 "被告 1/2/3/4" / "被告一/二/三/四"
+    let defendant_idx_re = Regex::new(r"被告[\s ]*[一二三四1-4]?").unwrap();
     for line in md.lines() {
-        let trimmed = line.trim().trim_start_matches(|c: char| c == '*' || c == '-' || c.is_whitespace());
+        // §185.2 FIX: trim markdown 加粗 ** + 列表 - + 空白 + 任意位置的 **
+        let mut trimmed = line.trim().to_string();
+        // trim 前缀 */-/空白
+        while let Some(first) = trimmed.chars().next() {
+            if first == '*' || first == '-' || first.is_whitespace() {
+                trimmed = trimmed[first.len_utf8()..].to_string();
+            } else { break; }
+        }
+        // 删中间的 ** (markdown **关键词**: 中的 **)
+        trimmed = trimmed.replace("**", "");
+        // §185.2 FIX: 处理 "被告 1/2/3/4" / "被告一/二/三/四" 模式
+        for dm in defendant_idx_re.find_iter(&trimmed) {
+            let role_full = &trimmed[dm.start()..dm.end()];
+            // 找 role_full 后第一个 : 或 ：
+            let search_start = dm.end();
+            let after_full = &trimmed[search_start..];
+            let colon_idx = after_full.find(':').or_else(|| after_full.find('：'));
+            if let Some(ci) = colon_idx {
+                let after = &after_full[ci+1..];
+                let party = extract_party_after_label(after);
+                if !party.is_empty() {
+                    party_roles.entry(party).or_default().insert(role_full.to_string());
+                }
+            }
+        }
         for role in ROLE_KEYWORDS.iter() {
             if let Some(idx) = trimmed.find(&format!("{}:", role)) {
                 let after = &trimmed[idx + role.len() + 1..];
@@ -1149,9 +1265,8 @@ pub fn detect_global_party_role_conflict(md: &str) -> GlobalPartyRoleConflictRep
     for (party, roles) in party_roles.iter() {
         let roles_vec: Vec<String> = roles.iter().cloned().collect();
         final_map.insert(party.clone(), roles_vec.clone());
-        let is_p = roles.contains("死者") || roles.contains("原告") || roles.contains("上诉人");
-        let is_d = roles.contains("被告一") || roles.contains("被告二") || roles.contains("被告三")
-            || roles.contains("被上诉人") || roles.contains("赔偿义务人") || roles.contains("责任主体");
+        let is_p = roles.iter().any(|r| r == "死者" || r == "原告" || r == "上诉人");
+        let is_d = roles.iter().any(|r| r == "被告" || r.starts_with("被告 ") || r.starts_with("被告一") || r.starts_with("被告二") || r.starts_with("被告三") || r == "被上诉人" || r == "赔偿义务人" || r == "责任主体");
         if is_p && is_d {
             conflicts.push(party.clone());
         }
@@ -1400,16 +1515,36 @@ pub fn fix_party_role_conflict_in_markdown(
     let mut out_lines: Vec<String> = Vec::new();
     let mut report = PartyRoleFixReport::default();
 
-    // Build lookups
-    let ext_defendants: std::collections::HashSet<&str> = extracted.defendants.iter().map(|s| s.as_str()).collect();
-    let ext_plaintiffs: std::collections::HashSet<&str> = extracted.plaintiffs.iter().map(|s| s.as_str()).collect();
-    let ext_deceased: std::collections::HashSet<&str> = extracted.deceased.iter().map(|s| s.as_str()).collect();
+    // §186.1 FIX: 用 §185.2 markdown 提取 (更准,transcript 提取太激进)
+    let md_conflict = detect_global_party_role_conflict(md);
+    eprintln!("[§186.1 debug] md_conflict.party_role_mappings: {:?}", md_conflict.party_role_mappings);
+    let mut md_defendants: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut md_plaintiffs: std::collections::HashSet<String> = std::collections::HashSet::new();
+    let mut md_deceased: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for (party, roles) in md_conflict.party_role_mappings.iter() {
+        for r in roles {
+            if r == "死者" || r == "原告" || r == "上诉人" { md_plaintiffs.insert(party.clone()); }
+            if r.starts_with("被告") || r == "被上诉人" { md_defendants.insert(party.clone()); }
+            if r == "死者" { md_deceased.insert(party.clone()); }
+        }
+    }
 
-    let mut name_matches = |party: &str, set: &std::collections::HashSet<&str>| -> bool {
+    // transcript 提取 (fallback / cross-check)
+    let ext_defendants: std::collections::HashSet<String> = if md_defendants.is_empty() {
+        extracted.defendants.iter().cloned().collect()
+    } else { md_defendants };
+    let ext_plaintiffs: std::collections::HashSet<String> = if md_plaintiffs.is_empty() {
+        extracted.plaintiffs.iter().cloned().collect()
+    } else { md_plaintiffs };
+    let ext_deceased: std::collections::HashSet<String> = if md_deceased.is_empty() {
+        extracted.deceased.iter().cloned().collect()
+    } else { md_deceased };
+
+    let name_matches = |party: &str, set: &std::collections::HashSet<String>| -> bool {
         if party.is_empty() || set.is_empty() {
             return false;
         }
-        set.iter().any(|d| party.contains(d) || d.contains(party))
+        set.iter().any(|d| party.contains(d.as_str()) || d.as_str().contains(party))
     };
 
     for line in md.lines() {
@@ -1443,37 +1578,48 @@ pub fn fix_party_role_conflict_in_markdown(
             }
         };
 
+        // §186.1 FIX: markdown 内部冲突检测 (同一 party 在 md 中同时被标为 P + D)
+
+        let is_md_internal_conflict = md_conflict.conflicting_parties.iter()
+            .any(|p| party.contains(p.as_str()) || p.as_str().contains(party.as_str()));
+        let md_conflict_reasons: Vec<String> = md_conflict.conflicting_parties.iter()
+            .filter(|p| party.contains(p.as_str()) || p.as_str().contains(party.as_str()))
+            .filter_map(|p| md_conflict.party_role_mappings.get(p))
+            .flatten()
+            .cloned()
+            .collect();
+
         // Check role consistency with §185.1 extraction
-        let issue: Option<String> = match role_category {
-            "plaintiff" => {
-                let in_def = name_matches(&party, &ext_defendants);
-                let in_pl = name_matches(&party, &ext_plaintiffs);
-                if in_def && !in_pl {
-                    Some("transcript 是被告不是原告".to_string())
-                } else {
-                    None
+        let issue: Option<String> = if is_md_internal_conflict {
+            Some(format!("markdown 内部矛盾 ({}), 需人工复核",
+                if md_conflict_reasons.is_empty() { "P+D 同时".to_string() } else { md_conflict_reasons.join(" + ") }))
+        } else {
+            match role_category {
+                "plaintiff" => {
+                    let in_def = name_matches(&party, &ext_defendants);
+                    let in_pl = name_matches(&party, &ext_plaintiffs);
+                    if in_def && !in_pl {
+                        Some("transcript 已知是被告不应作原告".to_string())
+                    } else { None }
                 }
-            }
-            "defendant" => {
-                let in_def = name_matches(&party, &ext_defendants);
-                let in_pl = name_matches(&party, &ext_plaintiffs);
-                if in_pl && !in_def {
-                    Some("transcript 是原告不是被告".to_string())
-                } else {
-                    None
+                "defendant" => {
+                    let in_def = name_matches(&party, &ext_defendants);
+                    let in_pl = name_matches(&party, &ext_plaintiffs);
+                    if in_pl && !in_def {
+                        Some("transcript 已知是原告不应作被告".to_string())
+                    } else { None }
                 }
-            }
-            "deceased" => {
-                let in_dec = name_matches(&party, &ext_deceased);
-                let in_def = name_matches(&party, &ext_defendants);
-                if !in_dec && in_def {
-                    Some("transcript 是被告不是死者".to_string())
-                } else {
-                    None
+                "deceased" => {
+                    let in_dec = name_matches(&party, &ext_deceased);
+                    let in_def = name_matches(&party, &ext_defendants);
+                    if !in_dec && in_def {
+                        Some("transcript 已知是被告不应作死者".to_string())
+                    } else { None }
                 }
+                _ => None,
             }
-            _ => None,
         };
+
 
         if let Some(reason) = issue {
             // Insert ⚠️ marker after the colon, preserving the original party name
@@ -1507,11 +1653,13 @@ pub fn fix_party_role_conflict_in_markdown(
 }
 
 /// §186.2 ASR 转写错误字典
+// §186.2 FIX: 字典顺序必须 longest-first,否则短词先替换吃掉长词
 const ASR_TRANSCRIPTION_FIXES: &[(&str, &str)] = &[
-    ("双方军和", "双方均和"),
-    ("双方军和在", "双方均存在"),
+    ("双方军和在过错", "双方均存在过错"),
     ("双方军和隐患", "双方均存在隐患"),
     ("双方军和过错", "双方均有过错"),
+    ("双方军和在", "双方均存在"),
+    ("双方军和", "双方均和"),
     ("承包经营都", "承包经营者"),
     ("坚负着", "肩负着"),
     ("法庭调杳", "法庭调查"),
@@ -2035,7 +2183,8 @@ mod tests {
 
     #[test]
     fn section_185_1_extract_defendants_from_markers() {
-        let transcript = "原告 方凯丽 等诉至法院, 被告供电公司, 被告温明仁, 被告鱼塘村委会";
+        // §185.1 FIX: 频次过滤要求姓名 ≥ 2 次,所以让 "温明仁" 出现 2 次
+        let transcript = "原告 方凯丽 等诉至法院, 被告供电公司, 被告温明仁, 被告温明仁答辩, 被告鱼塘村委会";
         let roles = extract_party_roles_from_transcript(transcript);
         eprintln!("§185.1 defendants = {:?}", roles.defendants);
         assert!(
@@ -2254,10 +2403,11 @@ mod tests {
 
     #[test]
     fn section_186_2_fix_asr_basic() {
+        // §186.2 FIX: 字典 longest-first, "双方军和隐患" → "双方均存在隐患"
         let md = "法院认为双方军和隐患未采取有效措施消除";
         let (out, fixes) = fix_asr_transcription_errors(md);
         assert!(!out.contains("双方军和"), "应替换: {}", out);
-        assert!(out.contains("双方均和"), "应为 双方均和: {}", out);
+        assert!(out.contains("双方均存在隐患"), "应为 双方均存在隐患: {}", out);
         assert!(!fixes.is_empty(), "应记录 fixes");
     }
 
