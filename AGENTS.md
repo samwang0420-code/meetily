@@ -3117,3 +3117,58 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - §185.2 detect_global_party_role_conflict (report only, §186.1 是其 fix 版本)
 - §37 硬闸门 / §92 防代码漏 / §28 决策迁移铁律
 - [[186-§185遗留角色矛盾自动修复-2026-08-27]] (Obsidian) / outputs/§186-...md
+
+## §186.1 v2 auto-rename 错标 role label (2026-08-27 立, commit 3768e03)
+
+**触发**: 用户 8/27 反馈 "为什么只是标记, 为什么不直接解决问题呢".
+
+**问题**: §186.1 之前只插入 `⚠️[§186冲突(...)]` 标记, 用户还需自己读上下文判断哪个对哪个错. 用户要的是**直接重命名错标的 role label**, 不只警告.
+
+**修复 (commit 3768e03)**:
+1. **搜整行 `**role**:` 完整模式** (含 closing `**` + 冒号), replace 为 `**warning_inner**:` — 不切片 prefix (prefix_len 切片方案会丢 closing `**` + 冒号到 after, 产生 `**:  双重冒号 bug)
+2. **角色顺序: 长 token 先** (`被告 1` > `被告` > `原告` > `死者`), 防短词抢匹配 (e.g. `**被告 1**:` 必须先匹配 `被告 1`, 不能被 `被告` 先抢)
+3. **Fallback: 无 `**` 角色** (e.g. `* 原告: 温明仁`) — 找 prefix 内 role word, replace 为 bold warning
+4. **Update 4 个 §186.1 test 期望**: `"inserted warning"` → `"AUTO-RENAMED"` + new `§186.1 错标` 标记模式
+
+**auto-rename 格式**:
+```
+原: * **原告**: 温明仁（水库承包经营者）
+新: * **⚠️ §186.1 错标 (transcript 实为 被告)**: 温明仁（水库承包经营者）
+
+原: * **被告 1**: 温明仁（同上，作为被告出庭）
+新: * **⚠️ §186.1 错标 (transcript 实为 被告)**: 温明仁（同上，作为被告出庭）
+```
+
+**优先级 (§186.1 v2)**:
+- transcript ext_defendants > ext_plaintiffs > ext_deceased > "待人工复核"
+
+**§37 6 步硬闸门 (commit 3768e03)**:
+- ✅ cargo check --lib: 0 errors
+- ✅ cargo test --lib: 494 passed / 1 failed (§18 pre-existing fact_guard test_161, 不动)
+- ✅ check_historical_fixes.py: **637/637 PASS**
+- ✅ cargo build --release: 4m12s, binary 55M
+- ✅ sync_app_bundle.sh: §93 + §98 + §108 全 sync
+- ⏳ GUI 端到端 (用户必做 §15)
+
+**铁律**:
+1. **auto-rename 不是 auto-delete** — 保留原文 party name, 只改 role label — 用户看完整上下文, ⚠️ 显眼
+2. **搜整行 `**role**:` 不用 prefix 切片** — closing `**` + 冒号必须 in pattern, 否则双重冒号
+3. **长 token 先** — `被告 1` > `被告` 防止短词抢匹配
+4. **fallback 处理无 bold 角色** — `* 原告: X` 也能 rename
+5. **保留所有 fixed_lines 报告** — `AUTO-RENAMED (X → Y, reason)` 进 fix_report
+
+**§15 GUI 验收 (用户必做)**:
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# 1. 重生成 meeting-8ce922f9 摘要 (8/27 case)
+# 2. 期望: "案件基本信息" 块中原 "原告: 温明仁" + "被告 1: 温明仁" 行
+#    都改为 "* **⚠️ §186.1 错标 (transcript 实为 被告)**: 温明仁..."
+# 3. 不再有 "⚠️[§186冲突(...)]" 行尾追加标记 (旧行为)
+```
+
+**关联**:
+- §186.1 v1 (commit pending, 标记 only)
+- §186.2 ASR 字典 / §186.3 法条完整性 (不动)
+- §28 决策迁移铁律 / §37 硬闸门 / §92 防代码漏
+- [[186.1-auto-rename-错标-role-label-2026-08-27]] (Obsidian) / `outputs/§186.1-auto-rename-...md` (Codex)
