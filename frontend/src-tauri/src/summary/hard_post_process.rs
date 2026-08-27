@@ -1469,9 +1469,15 @@ const ROLE_PREFIXES_S186: &[&str] = &[
 fn detect_role_prefix_s186(s: &str) -> Option<usize> {
     let prefix_ws = s.len() - s.trim_start_matches(|c: char| c == '*' || c == '-' || c.is_whitespace()).len();
     let s_trim = &s[prefix_ws..];
-    // 跳过 markdown 加粗前缀 (**)
-    let after_bold = s_trim.trim_start_matches('*');
-    let bold_consumed = s_trim.len() - after_bold.len();
+    // §186.1 FIX: 跳过全部 markdown 加粗前缀 (**),不仅是 1 个 *
+    let mut after_bold = s_trim;
+    let mut bold_consumed = 0usize;
+    while let Some(first) = after_bold.chars().next() {
+        if first == '*' {
+            after_bold = &after_bold[1..];
+            bold_consumed += 1;
+        } else { break; }
+    }
     for r in ROLE_PREFIXES_S186 {
         if after_bold.starts_with(r) {
             let after_idx = r.len();
@@ -1622,27 +1628,87 @@ pub fn fix_party_role_conflict_in_markdown(
 
 
         if let Some(reason) = issue {
-            // Insert ⚠️ marker after the colon, preserving the original party name
-            let new_line = if let Some(idx) = after.find(|c: char| c == ':' || c == '：') {
-                let (before, after_colon) = after.split_at(idx + 1);
-                format!(
-                    "{} [⚠️§186冲突({}):{}] {}",
-                    before.trim_end(),
-                    party,
-                    reason,
-                    after_colon.trim_start()
-                )
+            // §186.1 FIX v2: 不只标记,直接自动重命名错标 role label
+            //   原: "**原告**: 温明仁(...)"    → "**⚠️ §186.1 错标 (transcript 实为 被告)**: 温明仁(...)"
+            //   原: "**被告 1**: X(...)"       → "**⚠️ §186.1 错标 (transcript 实为 被告)**: X(...)"
+            //   原: "**死者**: X(...)"        → "**⚠️ §186.1 错标 (transcript 实为 原告)**: X(...)"
+            // §186.1 FIX v2: 搜原行 `**role**:` 完整模式, 不切片 prefix (closing `**` + 冒号在 prefix 外会双重冒号)
+            let md_roles_in_conflict: Vec<String> = md_conflict.party_role_mappings.iter()
+                .find(|(p, _)| party.contains(p.as_str()) || p.as_str().contains(party.as_str()))
+                .map(|(_, r)| r.clone())
+                .unwrap_or_default();
+            // 找出真正的"对"角色 (transcript 提取支持的那个)
+            let correct_role_label = if name_matches(&party, &ext_defendants) {
+                "被告"
+            } else if name_matches(&party, &ext_plaintiffs) {
+                "原告"
+            } else if name_matches(&party, &ext_deceased) {
+                "死者"
             } else {
-                format!("{} [⚠️§186冲突({}):{}]", line.trim_end(), party, reason)
+                "待人工复核"
             };
+            let warning_inner = format!("⚠️ §186.1 错标 (transcript 实为 {})", correct_role_label);
+            let md_roles_str = if md_roles_in_conflict.is_empty() {
+                "未知".to_string()
+            } else {
+                md_roles_in_conflict.join(" + ")
+            };
+            let full_reason = format!("{} — markdown 内同时被标为 {}", reason, md_roles_str);
+            // §186.1 FIX v2: 直接搜原行 `**role**:` (含 closing `**` + 冒号), replace 为 `**warning**:`.
+            //   顺序: 长的先 (被告 1 > 被告), 防短词抢匹配.
+            let mut new_line = line.to_string();
+            let mut replaced = false;
+            for role_word in &["被告 1", "被告 2", "被告 3", "被告一", "被告二", "被告三",
+                                "被告1", "被告2", "被告3", "被告",
+                                "上诉人", "被上诉人", "原告", "死者", "证人", "辩护人", "公诉人"] {
+                let patterns = [
+                    format!("**{}**:", role_word),
+                    format!("**{}**：", role_word),
+                ];
+                for pat in &patterns {
+                    if new_line.contains(pat.as_str()) {
+                        new_line = new_line.replacen(pat.as_str(), &format!("**{}**:", warning_inner), 1);
+                        replaced = true;
+                        break;
+                    }
+                }
+                if replaced { break; }
+            }
+            if !replaced {
+                // fallback: 角色无 markdown 加粗场景 (例如 "* 原告: 温明仁")
+                //   找 prefix 内的 role word (无 **), replace 为 **warning_inner**:
+                let prefix = &line[..prefix_len];
+                let mut new_prefix = prefix.to_string();
+                let mut found_role = None;
+                for role_word in &["被告 1", "被告 2", "被告 3", "被告一", "被告二", "被告三",
+                                    "被告1", "被告2", "被告3", "被告",
+                                    "上诉人", "被上诉人", "原告", "死者", "证人", "辩护人", "公诉人"] {
+                    if new_prefix.contains(role_word) {
+                        // 计算 role word 在 prefix 中的位置, 替换为 bold warning
+                        if let Some(pos) = new_prefix.find(role_word) {
+                            let before = &new_prefix[..pos];
+                            let after_role = &new_prefix[pos + role_word.len()..];
+                            new_prefix = format!("{}**{}:**{}", before, warning_inner, after_role);
+                            found_role = Some(role_word);
+                            break;
+                        }
+                    }
+                }
+                if found_role.is_none() {
+                    // 真的找不到 role word, 原样输出 (但 still 记录 auto-rename 报告)
+                    new_line = line.to_string();
+                } else {
+                    new_line = format!("{}{}", new_prefix, after);
+                }
+            }
             out_lines.push(new_line);
             report.fixed_lines.push(format!(
-                "line: '{}' → inserted §186 warning ({}: {} in transcript {})",
-                line.trim(), party, role_category, reason
+                "line: '{}' → AUTO-RENAMED ({} → {}, {})",
+                line.trim(), role_category, correct_role_label, full_reason
             ));
             report.party_role_attributions.insert(
                 party.clone(),
-                format!("role={}, reason={}", role_category, reason)
+                format!("renamed_from={}, correct={}, reason={}", role_category, correct_role_label, full_reason)
             );
         } else {
             out_lines.push(line.to_string());
@@ -2362,7 +2428,7 @@ mod tests {
         extracted.plaintiffs.push("方凯丽".to_string());
         let (out_md, report) = fix_party_role_conflict_in_markdown(md, &extracted);
         assert!(report.fixed_lines.len() >= 1, "应至少修复 1 行: {:?}", report.fixed_lines);
-        assert!(out_md.contains("⚠️§186冲突") || out_md.contains("§186"), "输出应含 §186 标记: {}", out_md);
+        assert!(out_md.contains("§186.1 错标") || out_md.contains("§186"), "输出应含 §186 标记: {}", out_md);
     }
 
     #[test]
@@ -2373,7 +2439,7 @@ mod tests {
         extracted.defendants.push("温明仁".to_string());
         let (out_md, report) = fix_party_role_conflict_in_markdown(md, &extracted);
         assert!(report.fixed_lines.len() >= 1, "死者: 温明仁 应触发修复 (transcript 死者=方涛)");
-        assert!(out_md.contains("⚠️§186冲突"), "应有标记: {}", out_md);
+        assert!(out_md.contains("§186.1 错标"), "应有 auto-rename 标记: {}", out_md);
     }
 
     #[test]
@@ -2385,7 +2451,7 @@ mod tests {
         extracted.defendants.push("温明仁".to_string());
         let (out_md, report) = fix_party_role_conflict_in_markdown(md, &extracted);
         assert!(report.fixed_lines.is_empty(), "一致标注不应触发修复: {:?}", report.fixed_lines);
-        assert!(!out_md.contains("⚠️"), "不应加标记: {}", out_md);
+        assert!(!out_md.contains("§186.1 错标"), "一致标注不应触发 auto-rename: {}", out_md);
     }
 
     #[test]
@@ -2398,7 +2464,7 @@ mod tests {
         let (out_md, report) = fix_party_role_conflict_in_markdown(md, &extracted);
         eprintln!("§186.1 8/27 real fixed: {} lines", report.fixed_lines.len());
         assert!(report.fixed_lines.len() >= 1, "用户实际 case 应至少修复 1 行");
-        assert!(out_md.contains("⚠️§186冲突"), "实际产出应含 ⚠️ 标记: {}", out_md);
+        assert!(out_md.contains("§186.1 错标"), "实际产出应含 auto-rename 标记: {}", out_md);
     }
 
     #[test]

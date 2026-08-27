@@ -35,6 +35,13 @@ fn main() {
     for line in fix_report.fixed_lines.iter().take(10) {
         println!("  - {}", line);
     }
+    // §186.1 FIX: 显示改名后的关键行 (含原告/被告)
+    println!("\n=== 改名后相关行 ===");
+    for line in fixed_md.lines() {
+        if line.contains("温明仁") || line.contains("⚠️") {
+            println!("[RENAMED] <{}>", line);
+        }
+    }
     safe_print("first 2000 chars of fixed_md", &fixed_md, 2000);
 
     let (asr_fixed, asr_fixes) = hpp::fix_asr_transcription_errors(&fixed_md);
