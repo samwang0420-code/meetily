@@ -3470,3 +3470,86 @@ norms count: 1
 - §169 / §169.1 / §169.5 / §169.6 (regenerate 系列, 之前修过 force_fresh/status 重置)
 - [[190.1-qwen3.5:2b-legacy-fallback-2026-08-28]] (Obsidian) / `outputs/§190.1-regenerate-qwen3.5:2b-legacy-fallback-2026-08-28.md` (Codex)
 - §56 / §92 / §151 / §18
+
+## §190.2 高压致害案由 missing 法条 → 自动注入 markdown (2026-08-28 立)
+
+**触发事故**: 用户 8/28 regenerate "法条引用块只列 §37 遗漏 §73/§1240" 报告 "未改进", 但实际 §186.3 `check_statute_completeness` **只 warn 不修改 markdown**, warn 写到后端日志, **不进 markdown**。
+
+**根因**: 用户截图的 result 实际是 8/19 (§186 commit 之前) 旧 regenerate, 没跑新 regenerate。
+
+**修复 (commit `34863e9`)**:
+
+1. **`inject_missing_required_statutes(md, transcript) → (md, count)`** (hard_post_process.rs):
+   - 高压案由 (transcript 含"高压") 检测到缺 §73/§1240 → 自动在 markdown 法条引用块末尾注入 2 条核心法条
+   - 《民法典》第一千二百四十条 (现《民法典》高压致害无过错责任)
+   - 《侵权责任法》第七十三条 (前身)
+   - 已有法条引用块 → 在末尾追加; 没有 → 新建 ## 法条引用块
+
+2. **service.rs wire** (在 §186.3 之后):
+   ```rust
+   let (md_with_statutes, statutes_injected) =
+       hpp::inject_missing_required_statutes(&final_markdown, &evidence_text);
+   if statutes_injected > 0 {
+       info!("§190.2 inject_missing_required_statutes: injected {} statutes", statutes_injected);
+       final_markdown = md_with_statutes;
+   }
+   ```
+
+**4 个新测试**:
+- `section_190_2_injects_73_and_1240_into_existing_statute_block` — 已有块 → 追加
+- `section_190_2_creates_new_statute_block_when_missing` — 无块 → 新建
+- `section_190_2_no_inject_when_already_present` — 已含 §1240 → 不重复
+- `section_190_2_no_inject_for_non_high_voltage` — 非高压案由 → 不注入
+
+**4 个 guard 锚点 (655 → 659/659 PASS)**:
+- `190_2_inject_function_present` — `pub fn inject_missing_required_statutes` 存在
+- `190_2_inject_called_in_service` — service.rs 含调用
+- `190_2_high_voltage_marker` — `§190.2 自动注入` 注释
+- `190_2_inject_tests_pass` — 4 个测试函数名
+
+**用户报告 3 个工程可控问题对应状态**:
+
+| 问题 | §190.2 修复后 |
+|---|---|
+| "双方军和"残留 | §186.2 字典已覆盖, 跑新 regenerate 应 0 处 |
+| 法条引用只 §37 缺 §73/§1240 | **新**: 自动注入 §73 + §1240 末尾 |
+| 被告列表 温明仁原告+被告 | §186.1 auto-rename 触发 (8/19 result 没跑过新 fix) |
+| 审判长陈述混用 | 不动 (边界 OK, 低优先级) |
+
+**性能问题回答 (用户问 3B 慢怎么优化)**:
+
+我们已经是**最优配置**, **不需要换**:
+- ✅ 量化: **Q4_K_M** (INT4 等效, 平均 4.5 bit, 不需 bitsandbytes)
+- ✅ 推理框架: **llama.cpp** (llama-helper sidecar, 不需 ollama)
+- ✅ 并发: §64 A 3 daemon 并行 (默认)
+- ✅ 优化链: §52 max_tokens=800 / §53 chunk_text 中文标点 / §51 Map 2 路 / §64 A 3 daemon
+
+**真实可优化点 (用户未明示要求, 待拍板)**:
+1. **Metal GPU offload** — llama-helper 没启用 n_gpu_layers, M1/M2 Metal 上应 50-80 tok/s vs CPU 30 tok/s (**关键**)
+2. **短文 skip Map** — <3000 chars 不分片 (用户建议)
+3. **max_tokens per-model** — 3B 放大到 1200, 2B ≤ 800 (§52 守卫)
+
+**ollama qwen2.5:1.5b 删除确认**:
+```
+$ ollama rm qwen2.5:1.5b
+deleted 'qwen2.5:1.5b'
+$ ollama list
+qwen3.5:2b    2.7 GB   ← 唯一 ollama 模型
+```
+我们用的是 **llama-helper + gguf** (不依赖 ollama):
+- `models/summary/Qwen2.5-3B-Instruct-Q4_K_M.gguf` 1.8GB (8/28 下载)
+- `models/summary/Qwen3.5-2B-Q4_K_M.gguf` 1.2GB (8/6 下载)
+
+**§37 6 步硬闸门**:
+- ✅ cargo check --lib: 0 errors (14 §18 warnings 不动)
+- ✅ cargo test --lib: 517 passed / 1 failed (§18 fixture) / 3 ignored
+- ✅ check_historical_fixes.py: 659/659 PASS
+- ✅ cargo build --release: 5m39s, binary 55M mtime 12:21
+- ✅ sync_app_bundle.sh: 3 binary 全 sync
+- ⏳ GUI 端到端: 用户必做
+
+**关联**:
+- §186.3 (前置 detector) / §186.2 (ASR 字典) / §186.1 (auto-rename)
+- §190.1 (qwen3.5:2b legacy fallback, 上 commit)
+- §190 (Qwen2.5-3B-Instruct 替换)
+- §37 / §56 / §92 / §151 / §18
