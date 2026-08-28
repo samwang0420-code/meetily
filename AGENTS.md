@@ -3423,3 +3423,50 @@ norms count: 1
 - guard 14 个新锚点 (187/188/189/190) 全部 PASS
 - verify_186 example 加 §188/§189 真实数据输出段
 
+
+## §190.1 qwen3.5:2b legacy 恢复 + 未知 model fallback (2026-08-28 立)
+
+**触发事故**: 用户 8/28 regenerate 报错 "Multi-level summarization failed: No chunks were processed successfully", DB 显示 1117s/1 chunk/0 段处理成功。
+
+**根因**: §190 commit (50d188b) 把 `qwen3.5:2b` 从 `get_available_models()` 完全删除, 但用户 `settings.model=qwen3.5:2b` (pre-§190 老配置)。`client.rs:171` `get_model_by_name("qwen3.5:2b")` 返 None → 整 chunk 任务 Err → "No chunks were processed successfully"。
+
+**修复 (commit `3140abb`)**:
+
+1. **models.rs**: qwen3.5:2b 加回作为 legacy 第二项, qwen2.5:3b 仍是推荐默认第一项。
+   - 顺序: `[qwen2.5:3b, qwen3.5:2b, qwen3.5:4b, gemma3:4b, gemma3:1b]`
+   - 新 test `section_190_1_qwen35_2b_legacy_entry_retained` 验证注册 + 顺序
+
+2. **client.rs:171**: 未知 model 软 fallback
+   - 之前: `ok_or_else(|| anyhow!("Unknown model: ..."))?` → 整 chunk 毙掉
+   - 现在: `warn!()` + `get_default_model()` (qwen2.5:3b) fallback → 流程继续
+
+**guard (4 新锚点, 651 → 655/655 PASS)**:
+- `190_1_qwen35_2b_legacy_entry` — models.rs 含 `name: "qwen3.5:2b"`
+- `190_1_legacy_entry_after_qwen25_3b` — models.rs 含 `§190.1: Qwen 3.5 2B - Legacy tier retained` 注释
+- `190_1_unknown_model_fallback` — client.rs 含 `§190.1 fallback: model .* not in registry` 注释
+- `190_1_legacy_test_present` — models.rs 含 `section_190_1_qwen35_2b_legacy_entry_retained`
+
+**铁律 (新增)**:
+1. **修改 model 列表 = breaking change**: 用户 settings 引用旧名立刻变 unknown, 不能"删 model 名"就完事
+2. **新模型加入 → 旧模型进 legacy (不删)**: §190 是错误示范 (§190.1 修正)
+3. **`get_model_by_name` 返 None 必须软 fallback**: 不能 hard Err, 否则用户整流程毙掉
+
+**Q1 用户问题**: 现在可以用 Qwen2.5-3B-Instruct 了吗?
+- **还不行**: ollama 当前只装了 `qwen3.5:2b` (2.7GB) + `qwen2.5:1.5b` (986MB), **qwen2.5:3b 未下载**
+- 用法: `ollama pull qwen2.5:3b` (~2.1GB 下载) → 设置 → 摘要模型 → 选 `Qwen 2.5 3B Instruct (Balanced)` → 重启 app
+- 现在也能继续用 qwen3.5:2b (已加回 legacy, 老 settings 不再崩)
+
+**§37 6 步硬闸门**:
+- ✅ cargo check --lib: 0 errors (14 §18 warnings 不动)
+- ✅ cargo test --lib: 513 passed / 1 failed (§18 fixture) / 3 ignored
+- ✅ check_historical_fixes.py: 655/655 PASS
+- ✅ cargo build --release: 4m41s, binary 55M mtime 11:35
+- ✅ sync_app_bundle.sh: 3 binary 全 sync
+- ⏳ GUI 端到端: 用户必做
+
+**关联**:
+- §190 (前置 commit, 删除 qwen3.5:2b 错误示范)
+- §187/§188/§189 (同 commit 50d188b 的其他 3 项调整, 不动)
+- §169 / §169.1 / §169.5 / §169.6 (regenerate 系列, 之前修过 force_fresh/status 重置)
+- [[190.1-qwen3.5:2b-legacy-fallback-2026-08-28]] (Obsidian) / `outputs/§190.1-regenerate-qwen3.5:2b-legacy-fallback-2026-08-28.md` (Codex)
+- §56 / §92 / §151 / §18
