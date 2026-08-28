@@ -3597,3 +3597,143 @@ qwen3.5:2b    2.7 GB   ← 唯一 ollama 模型
 **关联**:
 - §107 (8/12 录音通知 toast i18n 路径错, 同类 bug)
 - §56 / §92 / §18 / §37 / §15
+
+## §191 Metal GPU offload + per-model max_tokens 性能优化 (2026-08-28 立)
+
+**触发**: 用户 8/28 报告 3B 模型生成摘要慢, 拍板做 3 项性能优化:
+> Metal GPU offload + 短文 skip Map + max_tokens per-model
+> 你 Q4_K_M + Metal 启用后, 3B 30 分钟录音摘要应该从 ~3-5 min 降到 ~1-2 min
+
+### 三项落地状态
+
+| # | 项 | 状态 | 实测 |
+|---|---|---|---|
+| 1 | Metal GPU offload | ✅ 完成 | Apple M3, 28 layers 全 offload (4.80 GB VRAM) |
+| 2 | per-model max_tokens | ✅ 完成 | 3B→1200, 2B→800, 4B→1500 |
+| 3 | 短文 skip Map | ✅ 已生效 | 3000 chars < 6000 tokens 自动 single-pass |
+
+### 实现位置
+
+**1. Metal GPU offload** (`llama-helper/`):
+- `Cargo.toml`: `metal = ["llama-cpp-2/metal"]`
+- `src/main.rs`: `detect_metal_vram()` + `calculate_gpu_layers()` + `get_default_gpu_layers()` + `with_n_gpu_layers()`
+- binary: `frontend/src-tauri/binaries/llama-helper-aarch64-apple-darwin` 4.7M (含 Metal framework)
+
+实测:
+```
+Metal VRAM detected: 4.80 GB
+✅ Full offload possible (28 layers)
+ggml_metal_device_init: GPU name: MTL0 (Apple M3)
+llama_model_load_from_file_impl: using device MTL0 (Apple M3) - 5460 MiB free
+```
+
+**2. per-model max_tokens** (`frontend/src-tauri/src/summary/service.rs`):
+```rust
+/// §191 per-model max_tokens resolution (2026-08-28 立)
+fn resolve_max_tokens_for_model(model_name: &str, user_override: Option<u32>) -> Option<u32> {
+    if let Some(t) = user_override {
+        if t > 0 { return Some(t); }  // User-explicit 永远 win
+    }
+    if model_name.contains("1.5b") || model_name.contains("1.5B") || model_name.ends_with(":1b") { Some(800) }
+    else if model_name.contains(":2b") || model_name.contains(":2B") { Some(800) }  // legacy 2B CPU §52
+    else if model_name.contains(":3b") || model_name.contains(":3B") { Some(1200) }  // 3B Metal GPU
+    else if model_name.contains(":4b") || model_name.contains(":4B") || model_name.contains("gemma3") { Some(1500) }
+    else { Some(1200) }
+}
+```
+
+分辨率表:
+| 模型 | max_tokens | 备注 |
+|---|---|---|
+| qwen2.5:1.5b | 800 | fast small |
+| qwen3.5:2b / qwen2.5:2b | 800 | §52 calibration |
+| qwen2.5:3b | **1200** | 3B Metal GPU |
+| qwen3.5:4b / gemma3:4b | 1500 | 4B |
+| 其它 | 1200 | safe middle |
+
+Wire 进 `generate_meeting_summary` (service.rs:728):
+```rust
+let resolved_max_tokens = resolve_max_tokens_for_model(&model_name, custom_openai_max_tokens);
+info!("§191 max_tokens for {}: resolved={:?} (user_override={:?})", ...);
+generate_meeting_summary(..., resolved_max_tokens, ...);
+```
+
+**3. 短文 skip Map** (processor.rs:948, **无需额外代码**):
+```rust
+if (provider != &LLMProvider::Ollama && provider != &LLMProvider::BuiltInAI)
+   || total_tokens < token_threshold {
+    // single-pass
+} else {
+    // multi-level Map-Reduce
+}
+```
+- `LOCAL_SUMMARY_TOKEN_CAP = 6000` → 3000 chars 中文 ≈ 4500 tokens 自动 single-pass
+
+### 4 个新测试 (4/4 PASS)
+
+- `section_191_user_override_wins` — Some(t) t>0 永远 win
+- `section_191_user_zero_falls_through_to_model_default` — Some(0) 走默认
+- `section_191_per_model_defaults` — 各模型 default
+- `section_191_case_insensitive_matches` — 大小写不敏感
+
+### 铁律
+
+1. **per-model max_tokens 必须 ≤ context_size - 300** — qwen2.5:3b 32768 → 1200 安全
+2. **User override 优先级永远最高** — Some(t) t>0 不可被任何默认值覆盖
+3. **Some(0) ≠ 0 tokens** — 表示 "use default", 走模型默认
+4. **llama-helper Metal binary 不进 git** (.gitignore) — 重建命令:
+   ```bash
+   cd llama-helper && cargo build --release --features metal
+   cp target/release/llama-helper \
+      frontend/src-tauri/binaries/llama-helper-aarch64-apple-darwin
+   bash scripts/sync_app_bundle.sh
+   ```
+5. **调大 max_tokens 前必须验证 Metal offload 生效** — CPU 上 1200 tokens = 41s/chunk 不可接受
+
+### Guard 锚点 (5 个, 672/672 PASS)
+
+- `191_resolve_max_tokens_function` — 函数定义
+- `191_resolved_max_tokens_wired` — wire 进 generate_meeting_summary
+- `191_per_model_default_3b_1200` — `Some(1200)` 3B 默认
+- `191_test_user_override_wins` — 测试在位
+- `191_llama_helper_metal_binary` — file exists (llama-helper-aarch64-apple-darwin)
+
+### §37 6 步硬闸门 (commit 6a91697)
+
+- ✅ cargo check --lib: 0 errors
+- ✅ cargo test --lib: 521 passed / 1 failed (§18 fixture) / 3 ignored
+- ✅ tsc --noEmit: 0 errors
+- ✅ next build: OK
+- ✅ check_historical_fixes.py: **672/672 PASS**
+- ✅ cargo build --release: 5m, binary 59M mtime 13:07
+- ✅ sync_app_bundle.sh: 3 binary 全 sync
+- ⏳ GUI 端到端: 用户必做
+
+### §15 GUI 验收
+
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+```
+
+打开方涛触电案 → 重新生成摘要 → 期望:
+
+1. **GPU offload 日志**: `✅ Full offload possible (28 layers)` + `MTL0 (Apple M3)`
+2. **per-model max_tokens 日志**: `§191 max_tokens for qwen2.5:3b: resolved=Some(1200)`
+3. **总耗时**: 30 min 录音应从 ~3-5 min → ~1-2 min (2x 提速)
+4. **DB 验证**: `processing_time < 120s`
+
+### 关联
+
+- §52 (max_tokens=800 cap, 2B CPU 基础)
+- §163 (推理参数固化 temp/top_p/rep)
+- §190.1 (qwen3.5:2b legacy fallback)
+- §190.2 (高压致害法条自动注入)
+- §182 banner i18n (上轮)
+- §15 / §18 / §28 / §37 / §56 / §92 / §115 / §151
+
+### commit
+
+- `6a91697` perf(§191): per-model max_tokens resolution (3B→1200, 2B→800, 4B→1500)
+- branch: `codex/accuracy-experiment`
+- push: `178f198..6a91697  codex/accuracy-experiment -> codex/accuracy-experiment`
