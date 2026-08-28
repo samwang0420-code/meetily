@@ -2153,6 +2153,85 @@ pub fn check_statute_completeness(md: &str, transcript: &str) -> StatuteComplete
     report
 }
 
+/// §190.2 高压致害案由 missing 法条 → 自动注入 markdown 法条引用块
+///
+/// Why: §186.3 之前只 warn, 用户报告"未改进" — 因为 warn 不修改 markdown,
+/// 用户看到的法条引用块仍然只有 §37 安全保障义务, 缺核心 §73 / §1240.
+///
+/// Now: 当 check_statute_completeness 报 missing 时, 自动在 markdown 法条引用块
+/// 末尾追加:
+/// - 《中华人民共和国民法典》第一千二百四十条 (高压致害无过错责任)
+/// - 《中华人民共和国侵权责任法》第七十三条 (现《民法典》第一千二百四十条前身)
+///
+/// 用户立刻能看到核心法条, 不需要手动加.
+///
+/// Returns: (modified_md, injected_statutes_count)
+pub fn inject_missing_required_statutes(md: &str, transcript: &str) -> (String, usize) {
+    let report = check_statute_completeness(md, transcript);
+    if !report.is_high_voltage_case || report.has_evidence {
+        return (md.to_string(), 0);
+    }
+    let mut out = md.to_string();
+
+    // §190.2: 优先在已有"法条引用块"标题下追加; 没有则新建一个 ## 法条引用块 (⚠️ §190.2 自动注入)
+    let high_voltage_statutes = vec![
+        ("《中华人民共和国民法典》第一千二百四十条",
+         "从事高空、高压、地下挖掘活动或者使用高速轨道运输工具造成他人损害的,经营者应当承担侵权责任 (现《民法典》高压致害无过错责任条款, 替代原《侵权责任法》第七十三条)。"),
+        ("《中华人民共和国侵权责任法》第七十三条",
+         "从事高空、高压、地下挖掘活动或者使用高速轨道运输工具造成他人损害的,经营者应当承担侵权责任 (现《民法典》第一千二百四十条前身)。"),
+    ];
+
+    let mut injected = 0;
+    for (statute_name, statute_text) in &high_voltage_statutes {
+        if out.contains(statute_name) {
+            continue;
+        }
+        let statute_line = format!(
+            "- **⚠️ §190.2 自动注入 (核心定责法条, 原 LLM 输出遗漏)**: **{}** — {}",
+            statute_name, statute_text
+        );
+        // Try inserting under existing 法条引用块 header
+        let markers = ["## 法条引用块", "## 法条引用", "## 法律法规", "## Statute"];
+        let mut inserted = false;
+        for marker in &markers {
+            if let Some(pos) = out.find(marker) {
+                // Find next blank line or ## after the marker
+                let after_marker = pos + marker.len();
+                let rest = &out[after_marker..];
+                // Insert at end of section (next ## or end)
+                const NEXT_SECTION_MARKER: &str = "\n## ";
+                if let Some(next_section_pos) = rest.find(NEXT_SECTION_MARKER) {
+                    let insert_at = after_marker + next_section_pos;
+                    let prefix = &out[..insert_at];
+                    let suffix = &out[insert_at..];
+                    out = format!("{}{}\n{}", prefix, statute_line, suffix);
+                } else {
+                    // End of document
+                    out = format!("{}\n{}", out, statute_line);
+                }
+                inserted = true;
+                break;
+            }
+        }
+        if !inserted {
+            // No 法条 section exists, create one at end
+            out = format!(
+                "{}
+
+## 法条引用块
+
+{}
+",
+                out.trim_end(),
+                statute_line
+            );
+        }
+        injected += 1;
+    }
+
+    (out, injected)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2896,6 +2975,50 @@ mod tests {
         let report = check_statute_completeness(md, transcript);
         assert!(!report.is_high_voltage_case, "非高压案由应跳");
         assert!(report.missing_required_statutes.is_empty());
+    }
+
+    // =========================================================================
+    // §190.2 inject_missing_required_statutes tests
+    // =========================================================================
+
+    #[test]
+    fn section_190_2_injects_73_and_1240_into_existing_statute_block() {
+        let md = "# 高压触电致人损害责任纠纷\n\n## 法条引用块\n\n- 法条 #1: 《侵权责任法》第三十七条 (安全保障义务)";
+        let transcript = "本案为高压触电案, 涉及高压输电线路致害";
+        let (out, injected) = inject_missing_required_statutes(md, transcript);
+        assert_eq!(injected, 2, "应注入 2 个核心法条 (1240 + 73): got {} from:\n{}", injected, out);
+        assert!(out.contains("第一千二百四十条"), "缺 §1240: {}", out);
+        assert!(out.contains("第七十三条"), "缺 §73: {}", out);
+        assert!(out.contains("§190.2"), "应有 §190.2 标记: {}", out);
+    }
+
+    #[test]
+    fn section_190_2_creates_new_statute_block_when_missing() {
+        let md = "# 高压触电致人损害责任纠纷\n\n## 整件事叙述\n\n触电身亡";
+        let transcript = "本案为高压触电";
+        let (out, injected) = inject_missing_required_statutes(md, transcript);
+        assert_eq!(injected, 2);
+        assert!(out.contains("## 法条引用块"), "应新建法条引用块: {}", out);
+        assert!(out.contains("第一千二百四十条"));
+        assert!(out.contains("第七十三条"));
+    }
+
+    #[test]
+    fn section_190_2_no_inject_when_already_present() {
+        let md = "# 高压触电\n\n## 法条引用块\n\n- 第一千二百四十条 (现《民法典》高压致害无过错责任)";
+        let transcript = "高压触电案";
+        let (out, injected) = inject_missing_required_statutes(md, transcript);
+        assert_eq!(injected, 0, "已含 §1240 不应重复注入");
+        assert_eq!(md, out, "无变化: {}", out);
+    }
+
+    #[test]
+    fn section_190_2_no_inject_for_non_high_voltage() {
+        let md = "# 专利侵权\n\n## 法条\n\n- 专利法";
+        let transcript = "专利侵权案";
+        let (out, injected) = inject_missing_required_statutes(md, transcript);
+        assert_eq!(injected, 0);
+        assert_eq!(md, out);
     }
 
     // =========================================================================

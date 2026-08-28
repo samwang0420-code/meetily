@@ -987,6 +987,19 @@ impl SummaryService {
                     }
                 }
 
+                // §190.2 高压致害案由 自动注入核心法条 §73/§1240 到 markdown 法条引用块
+                //   Why: §186.3 只 warn 不修复, 用户报告"未改进" — 摘要里仍只有 §37
+                //   Now: missing 时, 在法条引用块末尾注入 §73 + §1240, 用户立即看到
+                let (md_with_statutes, statutes_injected) =
+                    hpp::inject_missing_required_statutes(&final_markdown, &evidence_text);
+                if statutes_injected > 0 {
+                    info!(
+                        "§190.2 inject_missing_required_statutes: injected {} statutes for meeting_id={}",
+                        statutes_injected, meeting_id
+                    );
+                    final_markdown = md_with_statutes;
+                }
+
                 info!("Final markdown generated ({} chars)", final_markdown.len());
 
                 if let Some(name) = extract_meeting_name_from_markdown(&final_markdown)
