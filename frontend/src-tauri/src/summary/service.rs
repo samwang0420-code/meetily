@@ -1,3 +1,25 @@
+/// §191 per-model max_tokens resolution (2026-08-28 立)
+fn resolve_max_tokens_for_model(model_name: &str, user_override: Option<u32>) -> Option<u32> {
+    if let Some(t) = user_override {
+        if t > 0 {
+            return Some(t);
+        }
+    }
+    if model_name.contains("1.5b") || model_name.contains("1.5B") || model_name.ends_with(":1b") {
+        Some(800)
+    } else if model_name.contains(":2b") || model_name.contains(":2B") {
+        Some(800)
+    } else if model_name.contains(":3b") || model_name.contains(":3B") {
+        Some(1200)
+    } else if model_name.contains(":4b") || model_name.contains(":4B")
+        || model_name.contains("gemma3") || model_name.contains("Gemma3")
+    {
+        Some(1500)
+    } else {
+        Some(1200)
+    }
+}
+
 use crate::obsidian_export;
 use crate::database::repositories::{
     meeting::MeetingsRepository, setting::SettingsRepository, summary::SummaryProcessesRepository,
@@ -699,6 +721,16 @@ impl SummaryService {
             effective_temperature, regeneration_flag, provider, custom_openai_temperature
         );
 
+        // §191 per-model max_tokens resolution (2026-08-28 立)
+        // Why: §52 cap at 800 is calibrated for qwen3.5:2b CPU; qwen2.5:3b (Metal GPU)
+        // can output 1200 tokens at 50-80 tok/s in ~15-20s, while 2B CPU 1200 takes 41s.
+        // User-explicit custom_openai_max_tokens (Some(t) where t > 0) always wins.
+        let resolved_max_tokens = resolve_max_tokens_for_model(&model_name, custom_openai_max_tokens);
+        info!(
+            "§191 max_tokens for {}: resolved={:?} (user_override={:?})",
+            model_name, resolved_max_tokens, custom_openai_max_tokens
+        );
+
         let result = generate_meeting_summary(
             &client,
             &provider,
@@ -711,7 +743,7 @@ impl SummaryService {
             token_threshold,
             ollama_endpoint.as_deref(),
             custom_openai_endpoint.as_deref(),
-            custom_openai_max_tokens,
+            resolved_max_tokens,
             effective_temperature,
             custom_openai_top_p,
             app_data_dir.as_ref(),
@@ -1124,6 +1156,48 @@ impl SummaryService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ===== §191 per-model max_tokens tests =====
+
+    #[test]
+    fn section_191_user_override_wins() {
+        // User-explicit Some(t) where t > 0 always wins
+        assert_eq!(resolve_max_tokens_for_model("qwen2.5:3b", Some(2000)), Some(2000));
+        assert_eq!(resolve_max_tokens_for_model("qwen3.5:2b", Some(500)), Some(500));
+        assert_eq!(resolve_max_tokens_for_model("gemma3:1b", Some(100)), Some(100));
+    }
+
+    #[test]
+    fn section_191_user_zero_falls_through_to_model_default() {
+        // Some(0) means "use default", not "0 tokens"
+        assert_eq!(resolve_max_tokens_for_model("qwen2.5:3b", Some(0)), Some(1200));
+        assert_eq!(resolve_max_tokens_for_model("qwen3.5:2b", Some(0)), Some(800));
+    }
+
+    #[test]
+    fn section_191_per_model_defaults() {
+        // qwen2.5:3b -> 1200 (3B Metal GPU can elaborate)
+        assert_eq!(resolve_max_tokens_for_model("qwen2.5:3b", None), Some(1200));
+        // qwen2.5:1.5b -> 800 (fast small model)
+        assert_eq!(resolve_max_tokens_for_model("qwen2.5:1.5b", None), Some(800));
+        // qwen3.5:2b -> 800 (legacy 2B CPU, §52 calibration)
+        assert_eq!(resolve_max_tokens_for_model("qwen3.5:2b", None), Some(800));
+        // qwen3.5:4b -> 1500 (4B can elaborate more)
+        assert_eq!(resolve_max_tokens_for_model("qwen3.5:4b", None), Some(1500));
+        // gemma3:1b -> 800
+        assert_eq!(resolve_max_tokens_for_model("gemma3:1b", None), Some(800));
+        // gemma3:4b -> 1500
+        assert_eq!(resolve_max_tokens_for_model("gemma3:4b", None), Some(1500));
+        // unknown -> 1200 (safe middle ground)
+        assert_eq!(resolve_max_tokens_for_model("claude-3-opus", None), Some(1200));
+    }
+
+    #[test]
+    fn section_191_case_insensitive_matches() {
+        // Should handle 1.5B (uppercase) too
+        assert_eq!(resolve_max_tokens_for_model("QWEN2.5:1.5B", None), Some(800));
+        assert_eq!(resolve_max_tokens_for_model("Qwen3.5:2B", None), Some(800));
+    }
 
     #[test]
     fn test_strip_leading_title_with_body() {

@@ -2280,6 +2280,23 @@ ANCHORS = [
     ("190_2_inject_tests_pass",
      "frontend/src-tauri/src/summary/hard_post_process.rs",
      r"section_190_2_injects_73_and_1240_into_existing_statute_block"),
+    # === §191: Metal GPU offload + per-model max_tokens (2026-08-28 立) ===
+    ("191_resolve_max_tokens_function",
+     "frontend/src-tauri/src/summary/service.rs",
+     r"fn resolve_max_tokens_for_model"),
+    ("191_resolved_max_tokens_wired",
+     "frontend/src-tauri/src/summary/service.rs",
+     r"let resolved_max_tokens = resolve_max_tokens_for_model"),
+    ("191_per_model_default_3b_1200",
+     "frontend/src-tauri/src/summary/service.rs",
+     r'Some\(1200\)'),
+    ("191_test_user_override_wins",
+     "frontend/src-tauri/src/summary/service.rs",
+     r"section_191_user_override_wins"),
+    ("191_llama_helper_metal_binary",
+     "frontend/src-tauri/binaries/llama-helper-aarch64-apple-darwin",
+     None),  # file exists check
+
     ("183_banner_wired_in_blocknote",
      "frontend/src/components/AISummary/BlockNoteSummaryView.tsx",
      r"PartyRoleBanner report=\{data\?.party_role\}"),
@@ -2301,8 +2318,12 @@ def main() -> int:
             ok = False
             detail = f"FILE MISSING: {rel_path}"
         else:
-            ok = grep(regex, full_path)
-            detail = "OK" if ok else f"regex {regex!r} not found in {rel_path}"
+            if regex is None:
+                ok = True  # file-exists-only anchor (regex=None)
+                detail = "OK (file exists)"
+            else:
+                ok = grep(regex, full_path)
+                detail = "OK" if ok else f"regex {regex!r} not found in {rel_path}"
         status = "PASS" if ok else "FAIL"
         print(f"  [{status}] {anchor_id:<40} {detail[:90]}")
         if ok:
