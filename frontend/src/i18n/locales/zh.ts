@@ -556,6 +556,34 @@ export const zh: Record<string, unknown> = {
       banner_hint: '这是法庭纪要硬伤: 同一主体用 2 种写法 / 证人写成辩护人 / 庭审未宣判但 AI 生成了判决结果。建议重新生成, 或在导出前人工核对每个错误字段。',
     },
 
+    // §182 P0: 数字一致性 banner (原 i18n key 缺失, 显示字面 key)
+    number_guard_182: {
+      banner_title: '数字与原文不一致',
+      category_mismatches_label: '民事赔偿分类错位',
+      unexpected_numbers_label: '原文中不存在的数字',
+      banner_hint: '请人工核对原始转录',
+    },
+    // §182 P1: 模板错配 banner
+    template_mismatch_182: {
+      banner_title: '模板与内容错配',
+    },
+    // §182 P1: 待查明事项真伪过滤 banner
+    pending_filter_182: {
+      banner_title: '待查明事项可能为辩论数据',
+    },
+    // §182 P2: 时间线冲突 banner
+    timeline_conflict_182: {
+      banner_title: '时间线逻辑冲突',
+    },
+    // §183 P1: 立场标注 banner
+    party_role_183: {
+      banner_title: '立场标注不规范',
+    },
+    // §183 P2: 时间线覆盖度 banner
+    timeline_coverage_183: {
+      banner_title: '时间线覆盖度不足',
+    },
+
     save_failed: '保存失败',
     template_selected: '已选择模板',
     loading_templates: '正在加载模板…',

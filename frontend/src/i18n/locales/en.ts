@@ -553,6 +553,34 @@ export const en: Record<string, unknown> = {
       banner_hint: 'Hard errors in court minutes: same party written 2 ways / witness mislabeled as defense counsel / verdict generated despite no verdict read. Regenerate or manually verify each flagged field before export.',
     },
 
+    // §182 P0: Number consistency banner
+    number_guard_182: {
+      banner_title: 'Numbers inconsistent with transcript',
+      category_mismatches_label: 'Wrong category',
+      unexpected_numbers_label: 'Numbers not in transcript',
+      banner_hint: 'Please verify against original transcript',
+    },
+    // §182 P1: Template mismatch banner
+    template_mismatch_182: {
+      banner_title: 'Template-content mismatch',
+    },
+    // §182 P1: Pending items filter banner
+    pending_filter_182: {
+      banner_title: 'Pending items may be debate data',
+    },
+    // §182 P2: Timeline conflict banner
+    timeline_conflict_182: {
+      banner_title: 'Timeline conflict',
+    },
+    // §183 P1: Party role banner
+    party_role_183: {
+      banner_title: 'Party role format issue',
+    },
+    // §183 P2: Timeline coverage banner
+    timeline_coverage_183: {
+      banner_title: 'Timeline coverage insufficient',
+    },
+
     save_failed: 'Save failed',
     template_selected: 'Template selected',
     loading_templates: 'Loading templates…',
