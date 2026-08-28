@@ -101,10 +101,17 @@ impl SummaryProcessesRepository {
                 status = 'PENDING',
                 updated_at = excluded.updated_at,
                 start_time = excluded.start_time,
+                -- §193 (2026-08-28): also reset end_time = NULL.
+                --   §169.5 only reset status + result, but end_time kept the old
+                --   completion timestamp (e.g. 12:03:57), making "time spent on
+                --   current generation" calculation wrong (UI shows -2h 47m).
+                end_time = NULL,
                 result_backup = result,
                 result_backup_timestamp = excluded.updated_at,
                 result = NULL,
-                error = NULL
+                error = NULL,
+                chunk_count = 0,
+                processing_time = 0.0
             -- §169.5: 不再 WHERE status != 'completed', 强制重置 status='PENDING' + result=NULL.
             -- §152 idempotent guard 原意图是"首次生成不重复 reset", 但 create_or_reset_process
             --   是入口函数, 每次 invoke 都会被调一次 (包括 regenerate completed 会议).
