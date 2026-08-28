@@ -167,12 +167,29 @@ pub async fn generate_with_builtin_stream(
     log::info!("Built-in AI generation request");
     log::info!("Model: {}", model_name);
 
-    // Get model definition
-    let model_def = models::get_model_by_name(model_name)
-        .ok_or_else(|| anyhow!("Unknown model: {}", model_name))?;
+    // §190.1: Fallback to default model when settings reference an unknown model.
+    // Why: §190 replaced qwen3.5:2b with qwen2.5:3b but kept DB settings pointing
+    // to the legacy name. get_model_by_name returned None → "No chunks were processed
+    // successfully" for users who hadn't manually re-selected a model.
+    // Now: log a warning, fall back to qwen2.5:3b (or whatever is first in registry),
+    // and keep the user's session alive. They can re-pick from Settings next time.
+    let model_def = match models::get_model_by_name(model_name) {
+        Some(def) => def,
+        None => {
+            let fallback = models::get_default_model();
+            log::warn!(
+                "§190.1 fallback: model '{}' not in registry, falling back to '{}'.                  User should re-select a model in Settings → Summary Model.",
+                model_name,
+                fallback.name
+            );
+            fallback
+        }
+    };
+    // Use the resolved model name (may differ from input when fallback fired) for path resolution.
+    let resolved_model_name = model_def.name.as_str();
 
     // Resolve model path with caching (avoids repeated filesystem I/O)
-    let model_path = get_cached_model_path(app_data_dir, model_name)?;
+    let model_path = get_cached_model_path(app_data_dir, resolved_model_name)?;
 
     // Apply model-specific chat template
     let formatted_prompt =

@@ -192,6 +192,22 @@ pub fn get_available_models() -> Vec<ModelDef> {
             sampling: SamplingParams::qwen25_summary(vec!["<|im_end|>".to_string()]),
             description: "Qwen 2.5 3B Instruct - replaces Qwen 3.5 2B. Better instruction following and Chinese accuracy for legal/medical summary.".to_string(),
         },
+        // §190.1: Qwen 3.5 2B - Legacy tier retained for users with existing settings
+        // (pre-§190 default was qwen3.5:2b; deleting it broke DB settings where model='qwen3.5:2b').
+        // New users should pick qwen2.5:3b above; existing qwen3.5:2b users continue working.
+        ModelDef {
+            name: "qwen3.5:2b".to_string(),
+            display_name: "Qwen 3.5 2B (Legacy)".to_string(),
+            gguf_file: "Qwen3.5-2B-Q4_K_M.gguf".to_string(),
+            template: "qwen3.5_nonthinking".to_string(),
+            download_url: "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf".to_string(),
+            size_mb: 1221,
+            context_size: 32768,
+            layer_count: 24,
+            sampling: SamplingParams::qwen35_summary(vec!["<|im_end|>".to_string()]),
+            description: "Legacy Qwen 3.5 2B. Retained for users with pre-§190 settings; consider switching to Qwen 2.5 3B Instruct for better Chinese accuracy.".to_string(),
+        },
+
         // Qwen 3.5 4B - High quality tier
         ModelDef {
             name: "qwen3.5:4b".to_string(),
@@ -386,6 +402,39 @@ mod tests {
         assert_eq!(qwen_4b.context_size, 32768);
         assert_eq!(qwen_4b.layer_count, 32);
         assert_eq!(qwen_4b.sampling, SamplingParams::qwen35_summary(vec!["<|im_end|>".to_string()]));
+    }
+
+    #[test]
+    fn section_190_1_qwen35_2b_legacy_entry_retained() {
+        // §190.1: qwen3.5:2b must remain in the registry so users with
+        // pre-§190 settings (settings.model = "qwen3.5:2b") keep working
+        // and "No chunks were processed successfully" doesn't reappear.
+        let legacy = get_model_by_name("qwen3.5:2b")
+            .expect("qwen3.5:2b legacy entry must exist (pre-§190 default)");
+        assert_eq!(legacy.display_name, "Qwen 3.5 2B (Legacy)");
+        assert_eq!(legacy.gguf_file, "Qwen3.5-2B-Q4_K_M.gguf");
+        assert_eq!(legacy.template, "qwen3.5_nonthinking");
+        assert_eq!(legacy.size_mb, 1221);
+        assert_eq!(legacy.context_size, 32768);
+        assert_eq!(legacy.layer_count, 24);
+        assert_eq!(
+            legacy.sampling,
+            SamplingParams::qwen35_summary(vec!["<|im_end|>".to_string()])
+        );
+        // Display order: qwen2.5:3b is first (recommended), qwen3.5:2b is second (legacy).
+        let models = get_available_models();
+        let qwen_2b_pos = models
+            .iter()
+            .position(|m| m.name == "qwen3.5:2b")
+            .expect("qwen3.5:2b must be in the registry");
+        let qwen_3b_pos = models
+            .iter()
+            .position(|m| m.name == "qwen2.5:3b")
+            .expect("qwen2.5:3b must be in the registry");
+        assert!(
+            qwen_3b_pos < qwen_2b_pos,
+            "qwen2.5:3b (recommended default) must come before qwen3.5:2b (legacy)"
+        );
     }
 
     #[test]
