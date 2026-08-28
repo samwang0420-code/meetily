@@ -12,19 +12,25 @@ const QWEN35_4B_RECOMMENDED_RAM_GB: u64 = 14;
 
 pub(crate) fn summary_model_priority(model_name: &str) -> u8 {
     match model_name {
-        "qwen3.5:4b" => 4,
-        "qwen3.5:2b" => 3,
-        "gemma3:4b" => 2,
-        "gemma3:1b" => 1,
+        "qwen2.5:3b" => 4,  // §190: qwen2.5:3b is higher priority (replaces qwen3.5:4b)
+        "qwen3.5:4b" => 3,  // legacy
+        "qwen2.5:1.5b" => 2, // §190: fallback for <8GB RAM
+        "qwen3.5:2b" => 1,   // legacy fallback
+        "gemma3:4b" => 0,
+        "gemma3:1b" => 0,
         _ => 0,
     }
 }
 
 pub(crate) fn recommend_summary_model(_is_macos: bool, system_ram_gb: u64) -> &'static str {
-    if system_ram_gb >= QWEN35_4B_RECOMMENDED_RAM_GB {
-        "qwen3.5:4b"
+    // §190: 用 Qwen2.5-3B-Instruct 替换 Qwen3.5-2B
+    //   ≥16GB → qwen2.5:3b (高质量)
+    //   ≥8GB → qwen2.5:3b (主流 8GB 机型, ~4GB RAM 加载)
+    //   <8GB → qwen2.5:1.5b (轻量)
+    if system_ram_gb >= 8 {
+        "qwen2.5:3b"
     } else {
-        "qwen3.5:2b"
+        "qwen2.5:1.5b"
     }
 }
 
@@ -383,9 +389,9 @@ pub async fn init_model_manager_at_startup<R: Runtime>(
 
 
 /// Get recommended summary model based on platform and system RAM.
-/// macOS → qwen3.5:4b
-/// non-macOS + <8GB RAM → qwen3.5:2b
-/// non-macOS + >=8GB RAM → qwen3.5:4b
+/// §190: 用 Qwen2.5-3B-Instruct 替换 Qwen3.5 系列
+///   ≥8GB → qwen2.5:3b
+///   <8GB → qwen2.5:1.5b
 #[tauri::command]
 pub async fn builtin_ai_get_recommended_model() -> Result<String, String> {
     let recommended = get_recommended_summary_model_for_current_system()?;
@@ -412,21 +418,26 @@ mod tests {
     use super::*;
 
     #[test]
-    fn recommended_summary_model_uses_qwen2b_below_effective_16gb_floor() {
-        assert_eq!(recommend_summary_model(true, 13), "qwen3.5:2b");
-        assert_eq!(recommend_summary_model(false, 13), "qwen3.5:2b");
+    fn recommended_summary_model_uses_qwen_1_5b_below_8gb_floor() {
+        // §190: <8GB RAM → qwen2.5:1.5b (轻量)
+        assert_eq!(recommend_summary_model(true, 7), "qwen2.5:1.5b");
+        assert_eq!(recommend_summary_model(false, 7), "qwen2.5:1.5b");
     }
 
     #[test]
-    fn recommended_summary_model_uses_qwen4b_at_effective_16gb_floor() {
-        assert_eq!(recommend_summary_model(true, 14), "qwen3.5:4b");
-        assert_eq!(recommend_summary_model(false, 14), "qwen3.5:4b");
+    fn recommended_summary_model_uses_qwen_3b_at_8gb_floor() {
+        // §190: ≥8GB RAM → qwen2.5:3b
+        assert_eq!(recommend_summary_model(true, 8), "qwen2.5:3b");
+        assert_eq!(recommend_summary_model(false, 8), "qwen2.5:3b");
+        assert_eq!(recommend_summary_model(true, 16), "qwen2.5:3b");
+        assert_eq!(recommend_summary_model(false, 32), "qwen2.5:3b");
     }
 
     #[test]
-    fn available_summary_model_priority_prefers_qwen_over_gemma() {
-        assert!(summary_model_priority("qwen3.5:4b") > summary_model_priority("qwen3.5:2b"));
-        assert!(summary_model_priority("qwen3.5:2b") > summary_model_priority("gemma3:4b"));
-        assert!(summary_model_priority("gemma3:4b") > summary_model_priority("gemma3:1b"));
+    fn available_summary_model_priority_prefers_qwen_2_5_3b() {
+        // §190: qwen2.5:3b > qwen2.5:1.5b > legacy qwen3.5 系列
+        assert!(summary_model_priority("qwen2.5:3b") > summary_model_priority("qwen2.5:1.5b"));
+        assert!(summary_model_priority("qwen2.5:3b") > summary_model_priority("qwen3.5:4b"));
+        assert!(summary_model_priority("qwen2.5:1.5b") > summary_model_priority("qwen3.5:2b"));
     }
 }

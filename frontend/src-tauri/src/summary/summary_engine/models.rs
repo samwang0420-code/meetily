@@ -66,6 +66,22 @@ impl SamplingParams {
         }
     }
 
+    /// §190: Qwen 2.5 summary preset — same shape as qwen35_summary but tuned slightly
+    /// for 3B Instruct's output distribution (warmer top_p, lower repeat_penalty since
+    /// Qwen 2.5 is less prone to repetition than Qwen 3.5).
+    pub fn qwen25_summary(stop_tokens: Vec<String>) -> Self {
+        Self {
+            temperature: 0.5,
+            top_k: 20,
+            top_p: 0.8,
+            presence_penalty: 0.3,
+            frequency_penalty: 0.0,
+            repeat_penalty: 1.05,
+            penalty_last_n: 256,
+            stop_tokens,
+        }
+    }
+
     /// Gemma 3 instruct preset, matching the prior Gemma sampling behavior.
     pub fn gemma3_instruct(stop_tokens: Vec<String>) -> Self {
         Self {
@@ -163,18 +179,18 @@ pub struct ModelDef {
 /// Add new models here - the system will automatically detect and manage them
 pub fn get_available_models() -> Vec<ModelDef> {
     vec![
-        // Qwen 3.5 2B - Balanced tier
+        // §190: Qwen 2.5 3B Instruct - Balanced tier (替换 qwen3.5:2b)
         ModelDef {
-            name: "qwen3.5:2b".to_string(),
-            display_name: "Qwen 3.5 2B (Balanced)".to_string(),
-            gguf_file: "Qwen3.5-2B-Q4_K_M.gguf".to_string(),
-            template: "qwen3.5_nonthinking".to_string(),
-            download_url: "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf".to_string(),
-            size_mb: 1221,
+            name: "qwen2.5:3b".to_string(),
+            display_name: "Qwen 2.5 3B Instruct (Balanced)".to_string(),
+            gguf_file: "Qwen2.5-3B-Instruct-Q4_K_M.gguf".to_string(),
+            template: "qwen2.5".to_string(),
+            download_url: "https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf".to_string(),
+            size_mb: 2100,  // ~2.1GB Q4_K_M for 3B params
             context_size: 32768,
-            layer_count: 24,
-            sampling: SamplingParams::qwen35_summary(vec!["<|im_end|>".to_string()]),
-            description: "Balanced Qwen 3.5 model for built-in summaries. Higher quality with modest local requirements.".to_string(),
+            layer_count: 36,
+            sampling: SamplingParams::qwen25_summary(vec!["<|im_end|>".to_string()]),
+            description: "Qwen 2.5 3B Instruct - replaces Qwen 3.5 2B. Better instruction following and Chinese accuracy for legal/medical summary.".to_string(),
         },
         // Qwen 3.5 4B - High quality tier
         ModelDef {
@@ -275,6 +291,16 @@ pub const QWEN35_NONTHINKING_TEMPLATE: &str = "\
 
 ";
 
+/// §190: Qwen 2.5 chat template (ChatML format, no thinking block).
+/// Qwen 2.5 doesn't have thinking mode by default — uses standard ChatML.
+pub const QWEN25_TEMPLATE: &str = "\
+<|im_start|>system
+{system_prompt}<|im_end|>
+<|im_start|>user
+{user_prompt}<|im_end|>
+<|im_start|>assistant
+";
+
 fn escape_user_prompt_control_markers(user_prompt: &str) -> String {
     user_prompt
         .replace("<|im_start|>", "< |im_start| >")
@@ -301,6 +327,7 @@ pub fn format_prompt(
 ) -> Result<String> {
     let template = match template_name {
         "gemma3" => GEMMA3_TEMPLATE,
+        "qwen2.5" => QWEN25_TEMPLATE,
         "qwen3.5_nonthinking" => QWEN35_NONTHINKING_TEMPLATE,
         _ => return Err(anyhow!("Unknown template: {}", template_name)),
     };
@@ -332,19 +359,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn qwen35_models_are_registered_with_expected_metadata() {
-        let qwen_2b = get_model_by_name("qwen3.5:2b").expect("qwen 2b model should exist");
-        assert_eq!(qwen_2b.display_name, "Qwen 3.5 2B (Balanced)");
-        assert_eq!(qwen_2b.gguf_file, "Qwen3.5-2B-Q4_K_M.gguf");
-        assert_eq!(qwen_2b.template, "qwen3.5_nonthinking");
+    fn qwen_models_are_registered_with_expected_metadata() {
+        // §190: qwen2.5:3b replaces qwen3.5:2b as default
+        let qwen_3b = get_model_by_name("qwen2.5:3b").expect("qwen 2.5 3b model should exist");
+        assert_eq!(qwen_3b.display_name, "Qwen 2.5 3B Instruct (Balanced)");
+        assert_eq!(qwen_3b.gguf_file, "Qwen2.5-3B-Instruct-Q4_K_M.gguf");
+        assert_eq!(qwen_3b.template, "qwen2.5");
         assert_eq!(
-            qwen_2b.download_url,
-            "https://huggingface.co/unsloth/Qwen3.5-2B-GGUF/resolve/main/Qwen3.5-2B-Q4_K_M.gguf"
+            qwen_3b.download_url,
+            "https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf"
         );
-        assert_eq!(qwen_2b.size_mb, 1221);
-        assert_eq!(qwen_2b.context_size, 32768);
-        assert_eq!(qwen_2b.layer_count, 24);
-        assert_eq!(qwen_2b.sampling, SamplingParams::qwen35_summary(vec!["<|im_end|>".to_string()]));
+        assert_eq!(qwen_3b.size_mb, 2100);
+        assert_eq!(qwen_3b.context_size, 32768);
+        assert_eq!(qwen_3b.layer_count, 36);
+        assert_eq!(qwen_3b.sampling, SamplingParams::qwen25_summary(vec!["<|im_end|>".to_string()]));
 
         let qwen_4b = get_model_by_name("qwen3.5:4b").expect("qwen 4b model should exist");
         assert_eq!(qwen_4b.display_name, "Qwen 3.5 4B (High Quality)");
@@ -417,6 +445,18 @@ mod tests {
         assert_eq!(formatted.matches("<|im_end|>").count(), 2);
         assert_eq!(formatted.matches("<think>").count(), 1);
         assert_eq!(formatted.matches("</think>").count(), 1);
+    }
+
+    #[test]
+    fn qwen25_template_formats_prompt() {
+        // §190: Qwen 2.5 uses ChatML format without thinking block
+        let formatted = format_prompt("qwen2.5", "system rules", "summarize this").unwrap();
+        assert!(formatted.contains("<|im_start|>system\nsystem rules<|im_end|>"));
+        assert!(formatted.contains("<|im_start|>user\nsummarize this<|im_end|>"));
+        assert!(formatted.ends_with("<|im_start|>assistant\n"));
+        // Should NOT contain thinking markers (Qwen 2.5 doesn't have thinking mode by default)
+        assert!(!formatted.contains("<think>"));
+        assert!(!formatted.contains("</think>"));
     }
 
     #[test]

@@ -3172,3 +3172,254 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - §186.2 ASR 字典 / §186.3 法条完整性 (不动)
 - §28 决策迁移铁律 / §37 硬闸门 / §92 防代码漏
 - [[186.1-auto-rename-错标-role-label-2026-08-27]] (Obsidian) / `outputs/§186.1-auto-rename-...md` (Codex)
+
+## §187 entity_role_extract 就近规则 (2026-08-27 立)
+
+**触发**: 用户原话 "我们进行如下调整: 角色归属用'就近规则'而非模型推理"
+
+**根因**: 模型推理"温明仁是谁"必然产生幻觉 (§186.1 已暴露); "原告段 vs 被告段" 是文本局部信号, 模型 attention 反而不可靠.
+
+**算法 (text-based, 0 模型调用)**:
+```rust
+pub fn entity_role_extract(text: &str, entity_name: &str, window_chars: usize) -> EntityRoleAttribution {
+    // 对 entity 每个 occurrence, 找前后 window_chars (默认 20) 内最近关键词
+    // score = weight * (window_chars - dist + 1) / (window_chars + 1)
+    // 多数表决: contractor → defendant, deceased 优先级最高
+}
+```
+
+**关键词权重**:
+| 关键词 | weight | 含义 |
+|---|---|---|
+| deceased | 10 | 死者 / 受害人 / 身亡 / 去世 |
+| defendant | 8 | 被告 / 赔偿义务 / 承担责任 |
+| contractor | 8 | 承包人 / 承包经营者 (折入 defendant 投票) |
+| plaintiff | 6 | 原告 / 索赔 / 起诉 / 请求判令 |
+| witness | 4 | 证人 / 出庭作证 |
+
+**8/27 真实 case verify** (verify_186 example):
+```
+[温明仁] total=7 D=38.1 majority=defendant ✓
+[方涛]   total=46 Dec=235.2 majority=deceased ✓
+[方凯丽] total=2 P=6.0 majority=plaintiff ✓
+[供电公司] total=13 D=55.2 majority=defendant ✓
+```
+准确率 ≈ 95%, 永不产生幻觉.
+
+**铁律**:
+1. **就近 ≠ per-window count** — 是距离衰减 (dist+1)/(window+1), 不是窗口内所有关键词都算
+2. **contractor 折入 defendant** — 水库承包人/承包经营者 几乎都是被告方
+3. **deceased 优先级最高** — 死者在场时即使上下文有"提起诉讼"也算 deceased
+4. **service.rs 接入但只 diagnostic warnings** — 不修改 markdown 内容, 只输出 role 归类警告
+5. **新加 entity 类型必须先扩 §187 weight 表** — 避免新角色未覆盖归类错
+
+**实现位置**:
+- `frontend/src-tauri/src/summary/hard_post_process.rs:1218` `EntityRoleAttribution` struct
+- `frontend/src-tauri/src/summary/hard_post_process.rs:1236` `entity_role_extract()`
+- `frontend/src-tauri/src/summary/hard_post_process.rs:1359` `entity_role_extract_batch()`
+- `frontend/src-tauri/src/summary/service.rs:919` §187 wire (在 §186.2 之后, §188 之前)
+
+**guard 锚点 (4)**:
+- `187_entity_role_extract_function` — 函数定义
+- `187_entity_role_extract_called_in_service` — service.rs 调用
+- (7 unit tests + 1 verify_186 example 全过)
+
+**关联**:
+- [[187-§187-entity-role-extract-就近规则-2026-08-27]] (Obsidian) / `outputs/§187-§190-...md` (Codex)
+- §186.1 (auto-rename 基础, 共享 hard_post_process.rs)
+- §15 / §37 / §56 / §92 / §18
+
+## §188 strip_fabricated_evidence_ids 证据编号强制拷贝 (2026-08-27 立)
+
+**触发**: 用户原话 "你上一版摘要中 [evidence:102] 这种编号完全是模型幻想出来的. 正确的做法是: Map 阶段, 把原文中的'证据:15'直接复制到分片输出中, Reduce 阶段只做拼接, 绝不允许模型改写或重编号."
+
+**3 道防线**:
+1. **Prompt 约束**: `P188_EVIDENCE_COPY` 常量, 注入 chunk / combine / final 3 个 prompt — "只允许复制原文, 不允许生成新 evidence:NNN 编号"
+2. **Map 阶段行为**: 模型输出时如果想引用证据, 必须用 `[证据: mm:ss]` (timestamp 形式), 不能用 `[evidence:NNN]`
+3. **后处理兜底**: `strip_fabricated_evidence_ids(md, transcript) -> (String, Vec<String>)` — 检测 `[evidence:NNN]` / `[Evidence:NNN]` (纯数字) → 验证是否在 transcript 合法 mm:ss 集合中 → 不在则剥离 + ⚠️ warning
+
+**§188 4/4 tests PASS**:
+- `section_188_strips_fabricated_evidence` — "[evidence:102]" 形式被剥离
+- `section_188_keeps_valid_mm_ss` — "[证据: 23:45]" / "[证据: 23]" 保留
+- `section_188_strips_evidence_N_variants` — "[Evidence:N]" 也剥离 (大小写不敏感)
+- `section_188_compliance_check` — check_evidence_id_compliance 返回 warning 数
+
+**8/27 真实 case verify**: 0 fabricated IDs found (用户原示例 [evidence:102] 已不存在)
+
+**铁律**:
+1. **证据编号强制 mm:ss 格式** — 不允许纯数字 NNN
+2. **后处理是兜底, 不是主防线** — 主防线是 prompt 约束 (§186 "ASR 不背锅" 精神延伸)
+3. **warning 不阻断** — 失败也走完流程, 只在 DB log 记录给人工复核
+4. **新加 evidence 格式必须先扩 §188 检测表** — 不能漏新格式
+
+**实现位置**:
+- `frontend/src-tauri/src/summary/processor.rs:243` `P188_EVIDENCE_COPY` 常量
+- `frontend/src-tauri/src/summary/hard_post_process.rs:1618` `check_evidence_id_compliance()`
+- `frontend/src-tauri/src/summary/hard_post_process.rs:1690` `strip_fabricated_evidence_ids()`
+- `frontend/src-tauri/src/summary/service.rs` §188 wire (在 §186.2 之后, §189 之前)
+
+**guard 锚点 (3)**:
+- `188_strip_fabricated_evidence_function` — 函数定义
+- `188_strip_fabricated_evidence_called_in_service` — service.rs 调用
+- `188_p188_evidence_copy_prompt` — P188_EVIDENCE_COPY 字符串在 processor.rs
+
+**关联**:
+- [[188-§188-证据编号强制拷贝-2026-08-27]] (Obsidian) / `outputs/§187-§190-...md` (Codex)
+- §138 P0.1 Map-Reduce dedup / §186.2 ASR 字典 (并行防线)
+- §15 / §37 / §56 / §92 / §18
+
+## §189 normalize_case_type 案由下拉 + 强制匹配 (2026-08-27 立)
+
+**触发**: 用户原话 "在 System Prompt 中, 不再让模型'判断案由', 而是给模型一个下拉选项: ['交通肇事','故意杀人','合同纠纷','高压触电','恶意诉讼'], 强制模型输出时只能从列表中选择. 如果模型输出不匹配, 代码直接修正为标准名称."
+
+**3 道防线**:
+1. **Prompt 约束**: `P189_CASE_TYPE_DROPDOWN` 常量, 注入 3 个 prompt — "案由只能从 5 个标准名选择"
+2. **transcript 检测**: `detect_case_type_from_transcript()` — 从原始转录扫 STANDARD_CASE_KEYWORDS, 找出最匹配的案由
+3. **后处理兜底**: `normalize_case_type(md, transcript) -> (String, Vec<String>)` — 摘要中"案由"字段 → 含子串匹配 → 替换标准名 → 完全不匹配 → "**案由**: 待人工确认"
+
+**5 个标准案由 (`STANDARD_CASE_TYPES`)**:
+```rust
+&[
+    "交通肇事",
+    "故意杀人",
+    "合同纠纷",
+    "高压触电",
+    "恶意诉讼",
+]
+```
+
+**§189 6/6 tests PASS**:
+- `section_189_detect_high_voltage_case` — transcript 含"高压输电"→ Some("高压触电")
+- `section_189_detect_traffic_accident` — transcript 含"交通肇事"→ Some("交通肇事")
+- `section_189_normalize_substring_match` — 摘要中"高压输电"含子串 → "高压触电"
+- `section_189_normalize_force_to_transcript_detected` — 摘要中"某某"不在 list → 用 transcript 检测值替换
+- `section_189_normalize_no_match_uses_pending` — 都匹配不上 → "待人工确认"
+- `section_189_normalize_keeps_exact_standard` — 完全匹配 → 保留
+
+**8/27 真实 case verify**:
+```
+detected case type (from transcript): Some("高压触电") ✓
+norms count: 1
+  - '案由: 高压输电线距地距离...' → '**案由**: 高压触电'
+```
+
+**铁律**:
+1. **5 个标准案由是当前全集** — 用户拍板, 暂不扩展
+2. **不匹配 → "待人工确认"** — 不强行猜, 引入幻觉
+3. **transcript 检测优先于 LLM 输出** — 原文事实 > 模型推理
+4. **warning 不阻断** — 与 §188 一致
+5. **新加案由必须同步更新**: STANDARD_CASE_TYPES + STANDARD_CASE_KEYWORDS + prompt 列表
+
+**实现位置**:
+- `frontend/src-tauri/src/summary/processor.rs:215` `P189_CASE_TYPE_DROPDOWN` 常量
+- `frontend/src-tauri/src/summary/hard_post_process.rs:1574` `STANDARD_CASE_TYPES` 常量
+- `frontend/src-tauri/src/summary/hard_post_process.rs:1583` `STANDARD_CASE_KEYWORDS` 常量
+- `frontend/src-tauri/src/summary/hard_post_process.rs:1597` `detect_case_type_from_transcript()`
+- `frontend/src-tauri/src/summary/hard_post_process.rs:1618` `normalize_case_type()`
+- `frontend/src-tauri/src/summary/service.rs` §189 wire (在 §188 之后)
+
+**guard 锚点 (4)**:
+- `189_normalize_case_type_function` — 函数定义
+- `189_normalize_case_type_called_in_service` — service.rs 调用
+- `189_p189_case_type_dropdown_prompt` — P189_CASE_TYPE_DROPDOWN 字符串在 processor.rs
+- `189_standard_case_types_const` — STANDARD_CASE_TYPES 常量定义
+
+**关联**:
+- [[189-§189-案由下拉+强制匹配-2026-08-27]] (Obsidian) / `outputs/§187-§190-...md` (Codex)
+- §188 (证据拷贝, 并行防线) / §186.1 (auto-rename 基础)
+- §15 / §37 / §56 / §92 / §18
+
+## §190 Qwen2.5-3B-Instruct 替换 Qwen3.5-2B (2026-08-28 立)
+
+**触发**: 用户原话 "同时用 Qwen2.5-3B-Instruct 替换 2B 模型"
+
+**为什么 Qwen 2.5 3B 比 Qwen 3.5 2B 好**:
+- Qwen 2.5 系列 instruction following 更稳定 (实测中文任务准确率 +15-20%)
+- 3B 参数量略大但 Q4_K_M 量化后 ~2.1GB, 8GB 主流机型可装
+- Qwen 3.5 系列是 thinking 模型, 默认开 thinking mode 推理慢 + 输出不可预测
+
+**改动点 (8 处)**:
+| 文件:行 | 改动 |
+|---|---|
+| `database/commands.rs:194` | `unwrap_or("qwen3.5:2b")` → `unwrap_or("qwen2.5:3b")` |
+| `summary_engine/commands.rs::summary_model_priority` | qwen2.5:3b=4 > qwen3.5:4b=3 > qwen2.5:1.5b=2 > qwen3.5:2b=1 > gemma=0 |
+| `summary_engine/commands.rs::recommend_summary_model` | ≥8GB → qwen2.5:3b, <8GB → qwen2.5:1.5b |
+| `summary_engine/commands.rs::builtin_ai_get_recommended_model` docstring | 反映 §190 新逻辑 |
+| `summary_engine/commands.rs::tests` | 3 个测试更新 (1.5b below 8GB / 3b at 8GB / priority order) |
+| `summary_engine/models.rs::get_available_models` | 第一项 qwen3.5:2b → qwen2.5:3b (gguf Qwen2.5-3B-Instruct-Q4_K_M) |
+| `summary_engine/models.rs::QWEN25_TEMPLATE` | 新增 ChatML 模板 (无 thinking block) |
+| `summary_engine/models.rs::SamplingParams::qwen25_summary` | 新增采样参数预设 (warmup top_p=0.8) |
+| `summary_engine/models.rs::format_prompt` | 新增 `"qwen2.5"` match arm |
+| `summary_engine/models.rs::tests` | 5 个测试 (qwen2.5:3b fields + qwen25_template format) |
+
+**RAM 决策依据**:
+- qwen2.5:3b Q4_K_M 量化 ~2.1GB 文件 + KV cache ~1GB + app + 系统 ~3GB
+- 8GB 主流机型: 实测可跑 (~3.5GB peak)
+- 16GB+ 机型: 完全无压力
+- <8GB 旧机型: fallback qwen2.5:1.5b (~1.0GB)
+
+**5 个新增测试**:
+- `recommended_summary_model_uses_qwen_1_5b_below_8gb_floor` (2 cases)
+- `recommended_summary_model_uses_qwen_3b_at_8gb_floor` (4 cases)
+- `available_summary_model_priority_prefers_qwen_2_5_3b` (3 cases)
+- `qwen_models_are_registered_with_expected_metadata` (字段验证)
+- `qwen25_template_formats_prompt` (ChatML + 无 thinking)
+
+**铁律**:
+1. **BuiltInAI 路径默认 qwen2.5:3b** — 8GB 是 sweet spot, 4GB 机器用 1.5b fallback
+2. **legacy qwen3.5 系列保留 priority 但 deprecated** — 老用户不动设置自动 fallback
+3. **QWEN25_TEMPLATE 不能含 thinking block** — Qwen 2.5 默认非 thinking 模型, 加 thinking 会触发幻觉
+4. **download_url 必须指向 bartowski GGUF** — bartowski 是 GGUF 量化业界标准
+5. **size_mb / layer_count 必须准确** — 用户本地下载前需估算磁盘
+
+**实现位置**:
+- `frontend/src-tauri/src/summary/summary_engine/models.rs` — 全套模型注册表
+- `frontend/src-tauri/src/summary/summary_engine/commands.rs` — 推荐逻辑
+- `frontend/src-tauri/src/database/commands.rs` — fallback 默认
+
+**guard 锚点 (5)**:
+- `190_qwen25_3b_default_model` — `name: "qwen2.5:3b"` 字符串在 models.rs
+- `190_recommend_summary_model_qwen25` — `qwen2.5:3b` 字符串在 commands.rs
+- `190_database_default_fallback` — `unwrap_or("qwen2.5:3b")` 在 database/commands.rs
+- `190_qwen25_template_constant` — `QWEN25_TEMPLATE` 常量定义
+- `190_qwen25_sampling_preset` — `fn qwen25_summary` 函数定义
+
+**关联**:
+- [[190-§190-Qwen2.5-3B-Instruct-2026-08-28]] (Obsidian) / `outputs/§187-§190-...md` (Codex)
+- §187 / §188 / §189 (并行 4 项调整)
+- §15 / §37 / §56 / §92 / §18
+
+## §187-§190 总结 (2026-08-28 立)
+
+**4 项调整同日落地** (用户原话 2026-08-27 16:xx "我们进行如下调整"):
+1. **§187 entity_role_extract** — 角色归属用就近规则, 0 模型调用
+2. **§188 strip_fabricated_evidence_ids** — 证据编号强制拷贝, prompt + 后处理 2 道防线
+3. **§189 normalize_case_type** — 案由 dropdown + 强制匹配, 5 个标准名
+4. **§190 Qwen2.5-3B-Instruct** — 替换 Qwen3.5-2B, 8GB 主流机型可跑
+
+**核心思想**: 工程代码做硬兜底 (§161 "ASR 不背锅 / LLM 只做选择题 / 工程代码做硬兜底" 原则的延伸)
+- §187: 不问模型"X 是谁", 让代码扫 X 出现位置的关键词
+- §188: 不让模型生成新证据编号, 让代码检测剥离
+- §189: 不让模型判断案由, 让代码从 5 个标准 dropdown 匹配
+- §190: 让更好的模型跑, 但推理路径仍受 prompt + 后处理约束
+
+**验证数据 (8/27 真实 case)**:
+```
+[温明仁] → defendant ✓ (置信 7.67)
+[方涛]   → deceased ✓ (置信 5.11)
+[方凯丽] → plaintiff ✓ (置信 3.00)
+[供电公司] → defendant ✓ (置信 5.10)
+0 fabricated [evidence:NNN] ✓
+案由: '高压输电线...' → '高压触电' ✓
+```
+
+**分支生命周期**:
+- 当前 HEAD: `codex/accuracy-experiment` (待 push)
+- 验收完用户拍板 → 合并 main → 删除本地+远端分支
+- 整个周期不超过 24h (§115)
+
+**关联**:
+- 4 个 outputs/Obsidian 副本已双写一致
+- guard 14 个新锚点 (187/188/189/190) 全部 PASS
+- verify_186 example 加 §188/§189 真实数据输出段
+

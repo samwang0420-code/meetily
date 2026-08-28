@@ -58,4 +58,41 @@ fn main() {
     println!("\n=== §186.3 STATUTE (REAL DATA) ===");
     println!("is_high_voltage_case: {}", statute_report.is_high_voltage_case);
     println!("missing: {:?}", statute_report.missing_required_statutes);
+
+    // §187 entity_role_extract — 就近规则 (8/27 真实 case)
+    println!("\n=== §187 entity_role_extract (REAL DATA) ===");
+    for entity in ["温明仁", "方涛", "方定富", "方凯丽", "供电公司", "村委"].iter() {
+        let attr = hpp::entity_role_extract(&transcript, entity, 20);
+        println!(
+            "[{entity}] total={} P={:.1} D={:.1} Dec={:.1} C={:.1} W={:.1} majority={:?} conf={:.2}",
+            attr.total_occurrences, attr.plaintiff_score, attr.defendant_score,
+            attr.deceased_score, attr.contractor_score, attr.witness_score,
+            attr.majority_role, attr.confidence
+        );
+    }
+
+    // §188 strip_fabricated_evidence_ids — 证据编号强制拷贝 (8/27 真实 case)
+    println!("\n=== §188 strip_fabricated_evidence_ids (REAL DATA) ===");
+    let (stripped, warns) = hpp::strip_fabricated_evidence_ids(&asr_fixed, &transcript);
+    println!("stripped chars: {} (was {})", stripped.len(), asr_fixed.len());
+    println!("warnings count: {}", warns.len());
+    for w in warns.iter().take(10) {
+        println!("  - {}", w);
+    }
+    println!("fabricated [evidence:NNN] count: {}",
+        asr_fixed.matches("[evidence:").filter(|_| true).count()
+    );
+
+    // §189 normalize_case_type — 案由下拉 + 强制匹配 (8/27 真实 case)
+    println!("\n=== §189 normalize_case_type (REAL DATA) ===");
+    let (case_norm, case_norms) = hpp::normalize_case_type(&stripped, &transcript);
+    println!("normalized chars: {}", case_norm.len());
+    println!("norms count: {}", case_norms.len());
+    for n in case_norms.iter().take(10) {
+        println!("  - {}", n);
+    }
+    println!("detected case type (from transcript): {:?}",
+        hpp::detect_case_type_from_transcript(&transcript)
+    );
 }
+

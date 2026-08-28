@@ -918,6 +918,62 @@ impl SummaryService {
                     final_markdown = asr_fixed_md;
                 }
 
+                // §187 entity_role_extract 角色归属用"就近规则"而非模型推理 (2026-08-27 立)
+                //   用户原话: "你不需要问模型'温明仁是谁'. 你只需要在原文中找:
+                //    温明仁 这个词出现在'原告'段还是'被告'段? 出现在'赔偿义务'附近还是'索赔金额'附近?"
+                //   对 final_markdown 中所有出现过的实体做就近规则归类, 输出 warnings (不阻断, 仅提示)
+                //   注意: 不修改 markdown 内容, 只生成 diagnostic warnings
+                let entity_attributions = hpp::entity_role_extract_batch(
+                    &final_markdown,
+                    &["原告", "被告", "死者", "承包人", "辩护人", "证人"],
+                    20,
+                );
+                for attr in &entity_attributions {
+                    if let Some(role) = &attr.majority_role {
+                        if !attr.warnings.is_empty() {
+                            for w in &attr.warnings {
+                                warn!("§187 entity[{}] role={}: {}", attr.entity, role, w);
+                            }
+                        }
+                    }
+                }
+
+                // §188 证据编号强制"拷贝"而非"生成" — 后处理兜底剥离 AI 编造的 [evidence:NNN]
+                //   用户原话 (2026-08-27): "你上一版摘要中 [evidence:102] 这种编号完全是模型幻想出来的.
+                //    正确的做法是: Map 阶段, 把原文中的'证据:15'直接复制到分片输出中,
+                //    Reduce 阶段只做拼接, 绝不允许模型改写或重编号."
+                let (evidence_cleaned_md, evidence_warnings) =
+                    hpp::strip_fabricated_evidence_ids(&final_markdown, &evidence_text);
+                if !evidence_warnings.is_empty() {
+                    warn!(
+                        "§188 strip_fabricated_evidence_ids: {} fabricated IDs removed for meeting_id={}",
+                        evidence_warnings.len(),
+                        meeting_id
+                    );
+                    for w in &evidence_warnings {
+                        warn!("§188 {}", w);
+                    }
+                    final_markdown = evidence_cleaned_md;
+                }
+
+                // §189 案由强制"匹配"而非"生成" — 5 个标准案由 dropdown
+                //   用户原话 (2026-08-27): "在 System Prompt 中, 不再让模型'判断案由',
+                //    而是给模型一个下拉选项: ['交通肇事','故意杀人','合同纠纷','高压触电','恶意诉讼'],
+                //    强制模型输出时只能从列表中选择. 如果模型输出不匹配, 代码直接修正为标准名称."
+                let (case_normalized_md, case_normalizations) =
+                    hpp::normalize_case_type(&final_markdown, &evidence_text);
+                if !case_normalizations.is_empty() {
+                    warn!(
+                        "§189 normalize_case_type: {} normalizations for meeting_id={}",
+                        case_normalizations.len(),
+                        meeting_id
+                    );
+                    for n in &case_normalizations {
+                        warn!("§189 {}", n);
+                    }
+                    final_markdown = case_normalized_md;
+                }
+
                 // §186.3 法条引用完整性检查 (高压致害类案由必须含 §73/§1240)
                 let statute_report = hpp::check_statute_completeness(&final_markdown, &evidence_text);
                 if !statute_report.missing_required_statutes.is_empty() {
