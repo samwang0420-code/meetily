@@ -3553,3 +3553,47 @@ qwen3.5:2b    2.7 GB   ← 唯一 ollama 模型
 - §190.1 (qwen3.5:2b legacy fallback, 上 commit)
 - §190 (Qwen2.5-3B-Instruct 替换)
 - §37 / §56 / §92 / §151 / §18
+
+## §182 banner i18n key 缺失修复 + 样式简化 (2026-08-28 立)
+
+**触发**: 用户 8/28 截图反馈底部黄底 banner 显示 `summary.number_guard_182.banner_title` 字面文本 (6 个 banner 全部 i18n key 缺失), + "排版太丑太啰嗦"。
+
+**根因 (2 个)**:
+1. **Bug 1 — i18n key 缺失**: zh.ts/en.ts 的 `summary.*` 块下根本没有 `number_guard_182` / `template_mismatch_182` / `pending_filter_182` / `timeline_conflict_182` / `party_role_183` / `timeline_coverage_183` 这 6 个 banner key。i18next 的 `t()` 对 missing key 默认**返回 key 字面字符串** (truthy), 所以 `t('...') || 'fallback'` 永远走 key 字面 (跟 §107 录音通知 toast 同类 bug)
+2. **Bug 2 — 样式啰嗦**: 3 段叠加 (title + label + hint), emoji ⚠️💡 太多, padding 14px/fontSize 13px/margin 12px 偏大, `<ul><li>` 列表 1 个数字一个 li 浪费空间
+
+**修复 (commit `5e6200c`)**:
+1. zh.ts + en.ts 加 6 个 banner i18n key 块
+2. NumberGuardBanner.tsx 简化:
+   - 移除 ⚠️💡 emoji (颜色已是 warning)
+   - 移除 hint 行 (banner_title 单独足够)
+   - 列表改 inline `; ` / `、 ` 分隔
+   - padding 14→8, fontSize 13→12, margin 12→8
+
+**修复效果**:
+- 之前: `⚠️ summary.number_guard_182.banner_title` + `summary.number_guard_182.unexpected_numbers_label: 403,361.72元、65,266.26元` + `💡 summary.number_guard_182.banner_hint`
+- 之后: `数字与原文不一致` + `原文中不存在的数字: 403,361.72元、65,266.26元` (一行, 紧凑)
+
+**guard (659 → 667/667 PASS, +8 锚点)**:
+- `182_number_guard_banner_i18n` / `182_template_mismatch_banner_i18n` / `182_pending_filter_banner_i18n` / `182_timeline_conflict_banner_i18n` (zh.ts)
+- `183_party_role_banner_i18n` / `183_timeline_coverage_banner_i18n` (zh.ts)
+- `182_en_number_guard_banner_i18n` (en.ts)
+- `182_simplified_banner_no_emoji` (NumberGuardBanner.tsx `fontSize: 12`)
+
+**§37 6 步硬闸门**:
+- ✅ tsc --noEmit: 0 errors
+- ✅ next build: OK
+- ✅ cargo check --lib: 0 errors
+- ✅ check_historical_fixes.py: 667/667 PASS
+- ✅ cargo build --release: 5m, binary 55M
+- ✅ sync_app_bundle.sh: 3 binary 全 sync
+- ⏳ GUI 端到端: 用户必做
+
+**铁律 (新增)**:
+1. **`t('...') || 'fallback'` 是反模式** — i18next missing key 返 key 字符串 (truthy), fallback 永不触发。改: `t('...', { defaultValue: 'fallback' })` 或 `i18n.exists()` 预检查
+2. **新增 banner 必须 i18n 完整 + GUI 验收** — 不能 tsc + next build 蒙混 (§15)
+3. **§107 同类 bug 复发**: 任何新组件加 t() 调用, 必须先 grep zh.ts/en.ts 确认 key 路径存在
+
+**关联**:
+- §107 (8/12 录音通知 toast i18n 路径错, 同类 bug)
+- §56 / §92 / §18 / §37 / §15
