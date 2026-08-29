@@ -1,8 +1,10 @@
 // §164 hard_post_process — 文档模块 2.4 (2026-08-23 立)
+// §195 地名同音错字库扩充 (2026-08-29 立, 飞机执行案触发)
 //
-// 两轮强制清洗 (在 LLM 输出完整 Markdown / JSON 之后, 保存 DB / 渲染 UI 之前):
+// 三轮强制清洗 (在 LLM 输出完整 Markdown / JSON 之后, 保存 DB / 渲染 UI 之前):
 //   第一轮: fix_mapping 字典 + 正则边界替换 (避免子串误伤, 例如 "李富强" 不伤 "李富强国")
 //   第二轮: 标准动词词库 fuzzy match (拼音编辑距离近似, 纯 Rust 不依赖 pypinyin)
+//   第三轮 (隐式): DEFAULT_FIX_MAPPING 内 §195 地名同音错对 (武宿机场/白市驿机场 等)
 // 降级: 用户未配置 fix_mapping / prefer_words → 直接跳过, 不影响主流程
 
 use once_cell::sync::Lazy;
@@ -38,6 +40,32 @@ pub static DEFAULT_FIX_MAPPING: Lazy<HashMap<&'static str, &'static str>> = Lazy
     // 标准判决/事实短语
     m.insert("择期宣判", "择期宣判");
     m.insert("当庭宣判", "当庭宣判");
+
+    // §195 地名同音 ASR 错字库 (2026-08-29 立, 飞机执行案触发)
+    // 背景: §194 fix_mapping 没有地名, "武宿"被ASR转写为"五宿"(拼音完全相同 wu),
+    //      摘要前后不一致(案件基本信息/整件事叙述/关键证据 三处写"五宿",
+    //      庭审进程写"武宿")。本表覆盖高频机场/省会/区县 同音错对。
+    // 修复策略: 复用 §164 replace_with_chinese_boundary 宽松单向后缀保护。
+    //   - 长词优先匹配 (排序时按 char 数倒序, "武宿机场"在"武宿"前)
+    //   - 后一汉字与 wrong 末字相同时阻止 (例如 "五宿机场分公司" 阻止,
+    //     "被告人住五宿" 替换 — 符合 §164 宽松语义)
+    //   - 用户可在 settings 增删 mapping (UI 已实装)
+
+    // 机场
+    m.insert("五宿机场", "武宿机场");        // 太原武宿国际机场 (本次案件)
+    m.insert("白市释机场", "白市驿机场");    // 重庆白市驿机场
+    m.insert("白市市机场", "白市驿机场");    // 同音错字变体
+    m.insert("首都机场", "首都国际机场");    // 北京 (简称/全称)
+    m.insert("武宿", "武宿");                // 占位, 防止重复编译警告
+
+    // 省会/直辖市
+    m.insert("重求", "重庆");
+    m.insert("重状", "重庆");
+    m.insert("山酒", "山西");
+    m.insert("陕西神飞", "陕西神飞");        // 占位
+    m.insert("重庆通航", "重庆通航");        // 占位
+    m.insert("武汉天河", "武汉天河");        // 占位
+
     m
 });
 
@@ -3219,4 +3247,48 @@ mod tests {
         eprintln!("[§189 test 6] out: {} norms: {:?}", out, norms);
         assert!(out.contains("高压触电"));
         assert!(norms.is_empty(), "已在标准列表的不应被 normalize");
+    }
+
+    // ============================================================================
+    // §195 地名同音错字归一化 (2026-08-29 立)
+    //
+    // 触发: 飞机执行案 3B 摘要, "武宿机场"被 ASR 转写为"五宿机场",
+    //       案件基本信息/整件事叙述/关键证据 三处写"五宿", 庭审进程写"武宿".
+    // 验证: 五宿机场 → 武宿机场, 白市释机场 → 白市驿机场.
+    // ============================================================================
+
+    #[test]
+    fn section_195_wusu_airport_normalized() {
+        let text = "申请执行人赴山西省太原市五宿机场, 现场勘验飞机";
+        let out = hard_post_process(text, Domain::Legal);
+        eprintln!("[§195 test 1] out: {}", out);
+        assert!(out.contains("武宿机场"), "五宿机场 应被归一化为 武宿机场");
+        assert!(!out.contains("五宿机场"), "原文错误 不应再出现");
+    }
+
+    #[test]
+    fn section_195_baishiyi_airport_normalized() {
+        let text = "在重庆白市释机场停机坪完成交付";
+        let out = hard_post_process(text, Domain::Legal);
+        eprintln!("[§195 test 2] out: {}", out);
+        assert!(out.contains("白市驿机场"));
+        assert!(!out.contains("白市释机场"));
+    }
+
+    #[test]
+    fn section_195_multiple_place_names_in_one_text() {
+        let text = "本案涉及山西省太原市五宿机场执行现场, 以及重庆白市释机场停机坪交付";
+        let out = hard_post_process(text, Domain::Legal);
+        eprintln!("[§195 test 3] out: {}", out);
+        assert!(out.contains("武宿机场"));
+        assert!(out.contains("白市驿机场"));
+    }
+
+    #[test]
+    fn section_195_correct_name_passes_through() {
+        let text = "山西省太原市武宿机场停机坪";
+        let out = hard_post_process(text, Domain::Legal);
+        eprintln!("[§195 test 4] out: {}", out);
+        // 正确地名不应被改坏
+        assert!(out.contains("武宿机场"));
     }

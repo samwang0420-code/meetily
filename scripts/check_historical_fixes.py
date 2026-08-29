@@ -2354,6 +2354,22 @@ ANCHORS = [
     ("194_test_generation_timeout_at_least_60_minutes",
      "frontend/src-tauri/src/summary/summary_engine/models.rs",
      r"fn section_194_generation_timeout_at_least_60_minutes"),
+    # §195 飞机执行案 2 工程 bug (2026-08-29 立)
+    ("195_place_name_wusu",
+     "frontend/src-tauri/src/summary/hard_post_process.rs",
+     r'五宿机场.*武宿机场'),
+    ("195_place_name_baishiyi",
+     "frontend/src-tauri/src/summary/hard_post_process.rs",
+     r'白市释机场.*白市驿机场'),
+    ("195_place_name_section_comment",
+     "frontend/src-tauri/src/summary/hard_post_process.rs",
+     r'§195 地名同音 ASR 错字库'),
+    ("195_legal_payment_direction_court",
+     "frontend/src-tauri/templates/court_hearing.json",
+     r'§195 融资租赁支付方向硬约束'),
+    ("195_legal_payment_direction_consultation",
+     "frontend/src-tauri/templates/legal_consultation.json",
+     r'§195 融资租赁支付方向硬约束'),
 ]
 
 
