@@ -367,8 +367,13 @@ pub const DEFAULT_MAX_TOKENS: i32 = 4096;
 /// Idle timeout for sidecar (seconds) - can be overridden via LLAMA_IDLE_TIMEOUT env var
 pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 300; // 5 minutes
 
-/// Generation timeout (how long to wait for a response)
-pub const GENERATION_TIMEOUT_SECS: u64 = 900; // 15 minutes
+/// §194 (2026-08-29): raised from 900s (15min) to 3600s (60min).
+///   Why: on Apple Silicon with Q4_K_M 3B models, llama-cpp-2 0.1.146 lacks Metal
+///   GEMV kernel → per-token decode is CPU-bound (~1-2 tok/s under load). Even a
+///   1-2 chunk summary needs 30-40 minutes. 900s timeout marked valid 9261-char
+///   output as 'failed' (meeting-c1299582 monitoring 2026-08-29). New 3600s allows
+///   long CPU-bound cases to finish naturally. Ollama / fast models unaffected.
+pub const GENERATION_TIMEOUT_SECS: u64 = 3600; // 60 minutes
 
 #[cfg(test)]
 mod tests {
@@ -578,5 +583,17 @@ mod tests {
         let sanitized = sampling.sanitize_for_llama_helper();
 
         assert_eq!(sanitized.top_k, 20);
+    }
+
+    // ===== §194 tests: GENERATION_TIMEOUT_SECS raised to 3600s for CPU-bound 3B =====
+
+    #[test]
+    fn section_194_generation_timeout_at_least_60_minutes() {
+        // §194 (2026-08-29): raised 900s → 3600s. Apple Silicon with Q4_K_M 3B +
+        // llama-cpp-2 0.1.146 lacks Metal GEMV → per-token decode is CPU-bound
+        // (~1-2 tok/s under load), 1-2 chunk summary needs 30-40 min.
+        assert!(GENERATION_TIMEOUT_SECS >= 3600,
+                "GENERATION_TIMEOUT_SECS must be ≥3600s (§194); got {}",
+                GENERATION_TIMEOUT_SECS);
     }
 }

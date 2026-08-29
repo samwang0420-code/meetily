@@ -2343,6 +2343,17 @@ ANCHORS = [
     ("183_banner_wired_in_blocknote",
      "frontend/src/components/AISummary/BlockNoteSummaryView.tsx",
      r"PartyRoleBanner report=\{data\?.party_role\}"),
+
+    # ===== §194 (2026-08-29): GENERATION_TIMEOUT_SECS 900 → 3600 for CPU-bound 3B =====
+    ("194_generation_timeout_3600",
+     "frontend/src-tauri/src/summary/summary_engine/models.rs",
+     r"GENERATION_TIMEOUT_SECS:\s*u64\s*=\s*3600"),
+    ("194_section_194_comment_present",
+     "frontend/src-tauri/src/summary/summary_engine/models.rs",
+     r"§194 \(2026-08-29\): raised from 900s"),
+    ("194_test_generation_timeout_at_least_60_minutes",
+     "frontend/src-tauri/src/summary/summary_engine/models.rs",
+     r"fn section_194_generation_timeout_at_least_60_minutes"),
 ]
 
 
