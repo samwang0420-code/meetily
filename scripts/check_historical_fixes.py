@@ -2370,6 +2370,20 @@ ANCHORS = [
     ("195_legal_payment_direction_consultation",
      "frontend/src-tauri/templates/legal_consultation.json",
      r'§195 融资租赁支付方向硬约束'),
+
+    # ===== §197.1 sidecar BrokenPipe recovery (2026-08-30 立) =====
+    ("197_1_sidecar_try_wait_probe",
+     "frontend/src-tauri/src/summary/summary_engine/sidecar.rs",
+     r'child\.try_wait\(\)'),
+    ("197_1_sidecar_broken_pipe_recovery",
+     "frontend/src-tauri/src/summary/summary_engine/sidecar.rs",
+     r'is_broken_pipe = e'),
+    ("197_1_write_request_with_recovery_used",
+     "frontend/src-tauri/src/summary/summary_engine/sidecar.rs",
+     r'write_request_with_recovery\(&request_json\)\.await\?'),
+    ("197_1_respawn_records_model_path",
+     "frontend/src-tauri/src/summary/summary_engine/sidecar.rs",
+     r'§197\.1 cannot respawn: no current_model_path recorded'),
 ]
 
 

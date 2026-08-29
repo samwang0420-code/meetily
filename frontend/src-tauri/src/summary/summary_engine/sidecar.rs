@@ -267,6 +267,41 @@ impl SidecarManager {
 
     /// Ensure sidecar is running, spawn if needed
     pub async fn ensure_running(&self, model_path: PathBuf) -> Result<()> {
+        // §197.1 (2026-08-30): liveness probe via try_wait().
+        // The child may have died (OOM kill / model load crash / explicit kill)
+        // while is_healthy flag remained true — only the 30s health_check_loop
+        // notices a missing pong, but it skips pings during active requests.
+        // This catches the "stale is_healthy" race that produced
+        // "Failed to write request to stdin" on 2026-08-30 飞机案 regenerate.
+        let needs_respawn = {
+            let mut child_lock = self.child_process.lock().await;
+            if let Some(child) = child_lock.as_mut() {
+                match child.try_wait() {
+                    Ok(Some(status)) => {
+                        log::warn!(
+                            "§197.1 sidecar child exited unexpectedly (status={}); spawning fresh",
+                            status
+                        );
+                        true
+                    }
+                    Ok(None) => false, // still alive
+                    Err(e) => {
+                        log::warn!("§197.1 try_wait failed: {}", e);
+                        false
+                    }
+                }
+            } else {
+                false
+            }
+        };
+        if needs_respawn {
+            // Clear stale handles so spawn() doesn't try to write to a dead pipe.
+            *self.stdin_writer.lock().await = None;
+            *self.stdout_reader.lock().await = None;
+            *self.current_model_path.write().await = None;
+            self.is_healthy.store(false, Ordering::SeqCst);
+        }
+
         // Check if already running with correct model
         {
             let current_model = self.current_model_path.read().await;
@@ -416,13 +451,8 @@ impl SidecarManager {
         let _guard = RequestGuard::new(self.active_request_count.clone());
         // §P1-A4: serialize the full write+read cycle per sidecar instance.
         let _in_flight = self.in_flight.lock().await;
-        {
-            let mut stdin_lock = self.stdin_writer.lock().await;
-            let stdin = stdin_lock.as_mut().ok_or_else(|| anyhow!("Sidecar not running"))?;
-            stdin.write_all(request_json.as_bytes()).await.context("Failed to write request to stdin")?;
-            stdin.write_all(b"\n").await.context("Failed to write newline")?;
-            stdin.flush().await.context("Failed to flush stdin")?;
-        }
+        // §197.1: write with BrokenPipe recovery (respawn + retry once)
+        self.write_request_with_recovery(&request_json).await?;
 
         let read_stream = async {
             loop {
@@ -473,6 +503,67 @@ impl SidecarManager {
         }
 
         Ok(line.trim().to_string())
+    }
+
+    /// §197.1: low-level write of the JSON request to sidecar stdin.
+    /// Caller must hold `in_flight` mutex (so two callers don't interleave).
+    /// Used by both `send_request` and `send_streaming_request` so they share
+    /// the BrokenPipe recovery path.
+    async fn try_write_request_to_stdin(&self, request_json: &str) -> Result<()> {
+        let mut stdin_lock = self.stdin_writer.lock().await;
+        let stdin = stdin_lock
+            .as_mut()
+            .ok_or_else(|| anyhow!("Sidecar not running"))?;
+        stdin
+            .write_all(request_json.as_bytes())
+            .await
+            .context("Failed to write request to stdin")?;
+        stdin
+            .write_all(b"\n")
+            .await
+            .context("Failed to write newline")?;
+        stdin.flush().await.context("Failed to flush stdin")?;
+        Ok(())
+    }
+
+    /// §197.1: detect BrokenPipe in write_all → respawn sidecar + retry once.
+    /// Returns the underlying error after exhausting retries.
+    /// Why: between `ensure_running` and our `write_all`, the child can die
+    /// (OOM kill, model crash, manual kill, sandbox kill). The pipe closes
+    /// silently and write_all returns BrokenPipe. Without this recovery, every
+    /// such death surfaces as "Failed to write request to stdin" and forces the
+    /// user to restart the app.
+    async fn write_request_with_recovery(&self, request_json: &str) -> Result<()> {
+        match self.try_write_request_to_stdin(request_json).await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                let is_broken_pipe = e
+                    .downcast_ref::<std::io::Error>()
+                    .map(|io_err| io_err.kind() == std::io::ErrorKind::BrokenPipe)
+                    .unwrap_or(false);
+                if !is_broken_pipe {
+                    return Err(e);
+                }
+                log::warn!(
+                    "§197.1 BrokenPipe writing to sidecar stdin; respawning and retrying once"
+                );
+                self.is_healthy.store(false, Ordering::SeqCst);
+                let model_path = self
+                    .current_model_path
+                    .read()
+                    .await
+                    .clone()
+                    .ok_or_else(|| {
+                        anyhow!("§197.1 cannot respawn: no current_model_path recorded")
+                    })?;
+                // Best-effort shutdown of dead process (idempotent — handles already-exited)
+                let _ = self.shutdown().await;
+                // Respawn fresh
+                self.spawn(model_path).await?;
+                // Retry once
+                self.try_write_request_to_stdin(request_json).await
+            }
+        }
     }
 
     /// Send ping to keep sidecar alive

@@ -3737,3 +3737,58 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - `6a91697` perf(§191): per-model max_tokens resolution (3B→1200, 2B→800, 4B→1500)
 - branch: `codex/accuracy-experiment`
 - push: `178f198..6a91697  codex/accuracy-experiment -> codex/accuracy-experiment`
+
+## §197.1 sidecar BrokenPipe 自动恢复 + 用户 "Failed to write request to stdin" 真根因 (2026-08-30, commit pending)
+
+**触发**: 用户 8/30 凌晨跑飞机执行案 regenerate, 触发新错误 "Failed to write request to stdin. 已恢复之前的会议纪要."。chunk_count=0, processing_time=0.0, summary_processes.status='failed'。
+
+**真根因**: stale `is_healthy` flag after child death.
+- `SidecarManager::ensure_running` 只查内部 atomic flag `is_healthy()`, 没做真实 child liveness check (`try_wait()`)
+- `is_healthy` 在 spawn 后永远是 true, 直到 30s health_check_loop 跑 (且 active request 时 skip)
+- Child 死亡场景: OOM kill / 模型加载崩溃 / macOS sandbox kill / 手动 kill
+- 死亡后: 下一个 request 调 `ensure_running` → 看到 `is_healthy`=true → 不 respawn → `send_streaming_request` 拿 in_flight lock → `write_all` 返回 BrokenPipe → 错误冒泡
+
+**修复 (3 处, 1 个 commit)**:
+1. `ensure_running` 加 `try_wait()` 探针: child 实际 exit → 自动 clear stale handles + respawn
+2. 新增 `write_request_with_recovery` helper: 捕获 BrokenPipe → respawn + retry once (限 1 次防无限循环)
+3. `send_request` / `send_streaming_request` 改用 helper, 原 write 块替换为一行调用
+
+**bundle llama-helper 同步问题** (同一 commit 顺手修):
+- §197 build 出新 `target/release/llama-helper` (sha 944b6e4c, 0.1.146), 但 bundle 没自动同步 (旧 ce901742, 0.1.154)
+- 手动 `cp` + `bash scripts/sync_app_bundle.sh` (codesign identifier 自动同步到 tech.yanjingai.app)
+- bundle 实测: Qwen 2.5 3B 28 层全 Metal offload, **26.19 tok/s**
+
+**§37 6 步硬闸门**:
+- ✅ cargo check --lib: 0 errors (25 §18 warnings)
+- ✅ cargo build --release: 1m24s, binary mtime 01:06 59794592 bytes
+- ✅ cargo test --lib summary: 284 passed / 1 failed (§18 fixture-bound, 不动)
+- ✅ check_historical_fixes.py: **697/697 PASS** (+4 §197.1 anchor)
+- ✅ sync_app_bundle.sh: 3 binary 全 sync
+- ⏳ GUI 端到端 (§15 强制, 用户必做)
+
+**铁律 (任何 v0.X 演进适用)**:
+1. **sidecar manager 必须有真实 liveness 探针** — `is_healthy` flag 单独不够, 必须 `try_wait()` 交叉验证
+2. **write_all BrokenPipe 触发自动 respawn** — 不要让用户重启 app 救场
+3. **try_wait() 是非阻塞且廉价** — 每次 request 都跑一次, < 1ms overhead
+4. **健康检查不能只在 idle 时跑** — race window 必须有第二层防御 (write_request_with_recovery)
+5. **bundle sync 必须实测 sha** — sync_app_bundle.sh 报告成功 ≠ bundle binary 是新内容 (codesign 重签改 sha)
+6. **stale is_healthy 是 silent bug** — 用户只在"重新生成"时才发现, 已累计浪费 9 分钟 timeout
+
+**§15 GUI 验收 (用户必做)**:
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+```
+打开飞机执行案 (meeting-c1299582) → 点 "重新生成" → 期望:
+- 进度条 0% → 100% 在 7-9 分钟内完成
+- chunk_count >= 1, status='completed'
+- 后端日志含 `§197.1` marker (如果 race 触发)
+
+**commit**: pending (待 push, branch `codex/llama-cpp-upgrade`)
+
+**关联**: §197 (llama-cpp-2 回退) / §196 (升级尝试) / §194 (timeout 3600s) / §163 (推理参数) / §108 (sync_app_bundle.sh) / §99.6 (sync tauri bundle binary) / §37 (硬闸门) / §18 (不主动改无关 bug) / §56 (AGENTS.md 双校) / §92 (决策迁移铁律) / §115 (分支 24h 自动删)
+
+**已知边界 (按 §18 不主动改)**:
+- 1 fixture-bound test fail (`fact_guard::test_161_full_709b_fixture_catches_all_bugs` 缺 /tmp/transcript_709b.txt)
+- 25 cargo warnings (§18 不动)
+- health_check_loop 仍只在 idle 时跑 (双层防御已覆盖, 不动原代码)
