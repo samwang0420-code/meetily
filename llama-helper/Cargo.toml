@@ -7,7 +7,13 @@ edition = "2021"
 anyhow = "1.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-llama-cpp-2 = "=0.1.154"  # §196 upgrade 0.1.146→0.1.154 (2026-08-29 ggml Q4_K ARM/Metal GEMV 优化)
+# §197 (2026-08-30): llama-cpp-2 升级 0.1.146→0.1.154 后实测 per-token decode
+#   仍 fallback 到 CPU ggml_gemv_q4_K_8x4_q8_K (4.3 tok/s, M3 Metal). 0.1.154
+#   内嵌的 llama.cpp 主仓库 mul_mv_q4_K 仅支持 BS 4-8, mul_mm_q4_K 需
+#   ne11 > 8, per-token decode (BS=1) 不满足 → CPU fallback. 升级无效.
+#   等待 llama-cpp-rs 同步 llama.cpp 主仓库 (2026-08-29 b10684) 的
+#   Q4_K ARM/Apple Silicon GEMV 优化 PR.
+llama-cpp-2 = "=0.1.146"
 encoding_rs = "0.8"
 
 [features]
