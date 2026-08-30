@@ -27,6 +27,12 @@ enum Request {
         max_tokens: Option<i32>,
         context_size: Option<u32>,
         model_path: Option<String>,
+        // §198 (2026-08-30): actual model layer count from Rust models.rs ModelDef::layer_count.
+        //   Without this, get_default_gpu_layers() hardcodes estimated_layers=28 for files <2.5GB,
+        //   which is wrong for Qwen 2.5 3B (actual 36 layers) → only 28 offloaded, 8 on CPU.
+        //   With n_layer=36: weight_per_layer=1.93/36=0.054GB, total_per_layer=0.090GB,
+        //   safe_layers=floor(4.30/0.090)=47 → min(47, 36) = 36 = all on GPU.
+        n_layer: Option<u32>,
         // Sampling parameters
         temperature: Option<f32>,
         top_k: Option<i32>,
@@ -294,19 +300,36 @@ fn calculate_gpu_layers(
 }
 
 /// Get default GPU layer count with smart detection
-fn get_default_gpu_layers(model_path: &PathBuf, context_size: u32) -> u32 {
+///
+/// §198 (2026-08-30): accept explicit n_layer from caller (Rust models.rs ModelDef::layer_count).
+///   Falls back to file-size heuristic only when caller doesn't know (backward-compat).
+///   Why: hardcoded "28 for files <2.5GB" was wrong for Qwen 2.5 3B (actual 36 layers),
+///   causing 8 layers to stay on CPU → 99.6% CPU matmul → ~17 tok/s instead of 26 tok/s Metal.
+fn get_default_gpu_layers(model_path: &PathBuf, context_size: u32, n_layer: Option<u32>) -> u32 {
     let vram = detect_vram_gb();
-    // TODO: Use actual model metadata instead of heuristics
-    // Heuristic: Estimate total layers based on file size
-    // 7B models (Q4) are ~4.1GB and have ~32-35 layers
-    // 1B models (Q4) are ~1.1GB and have ~20-28 layers
     let file_size_gb = std::fs::metadata(model_path)
         .map(|m| m.len() as f32 / 1024.0 / 1024.0 / 1024.0)
         .unwrap_or(0.0);
 
-    let estimated_layers = if file_size_gb > 2.5 { 33 } else { 28 };
+    // Prefer caller-provided layer count (Rust registry has GGUF metadata via ModelDef).
+    // Fall back to file-size heuristic for backward-compat with old clients.
+    let estimated_layers = match n_layer {
+        Some(n) if n > 0 => n,
+        _ => {
+            if file_size_gb > 2.5 { 33 } else { 28 }
+        }
+    };
 
-    calculate_gpu_layers(model_path, estimated_layers, vram, context_size)
+    let layers = calculate_gpu_layers(model_path, estimated_layers, vram, context_size);
+    if let Some(caller_n) = n_layer {
+        if caller_n > 0 && layers < caller_n {
+            eprintln!(
+                "§198 partial GPU offload: {} / {} layers (callers reported {} layers)",
+                layers, caller_n, caller_n
+            );
+        }
+    }
+    layers
 }
 
 // ============================================================================
@@ -436,7 +459,12 @@ impl ModelState {
         Self::current_timestamp() - self.last_activity.load(Ordering::SeqCst)
     }
 
-    fn load_model_if_needed(&mut self, model_path: PathBuf, context_size: u32) -> Result<()> {
+    fn load_model_if_needed(
+        &mut self,
+        model_path: PathBuf,
+        context_size: u32,
+        n_layer: Option<u32>,  // §198
+    ) -> Result<()> {
         // Check if model is already loaded
         if let Some(ref loaded_path) = self.model_path {
             if loaded_path == &model_path && self.context_size == context_size {
@@ -449,7 +477,7 @@ impl ModelState {
         eprintln!("📥 Loading model: {}", model_path.display());
 
         // Detect GPU layers
-        let gpu_layers = get_default_gpu_layers(&model_path, context_size);
+        let gpu_layers = get_default_gpu_layers(&model_path, context_size, n_layer);
 
         // Configure model parameters with GPU offload
         let model_params = LlamaModelParams::default().with_n_gpu_layers(gpu_layers);
@@ -725,6 +753,7 @@ fn main() -> Result<()> {
                         max_tokens,
                         context_size,
                         model_path,
+                        n_layer,  // §198
                         temperature,
                         top_k,
                         top_p,
@@ -751,7 +780,7 @@ fn main() -> Result<()> {
                         // Load model if path provided
                         if let Some(path_str) = model_path {
                             let path = PathBuf::from(path_str);
-                            if let Err(e) = state.load_model_if_needed(path, context_size) {
+                            if let Err(e) = state.load_model_if_needed(path, context_size, n_layer) {
                                 send_response(&Response::Response {
                                     text: String::new(),
                                     error: Some(format!("Failed to load model: {}", e)),

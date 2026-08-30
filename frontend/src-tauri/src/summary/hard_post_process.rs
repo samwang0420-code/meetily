@@ -234,6 +234,19 @@ fn replace_range(text: &str, start: usize, end: usize, replacement: &str) -> Str
     s
 }
 
+/// §198 char boundary panic defense (2026-08-30, meeting-b0297a12 byte 2434 '诉' panic 触发)
+/// Floor unsafe byte offsets DOWNWARD to nearest char boundary BEFORE slicing.
+/// Use everywhere that you compute slice offsets from regex matches / hardcoded byte values.
+#[inline]
+fn safe_slice<'a>(text: &'a str, start: usize, end: usize) -> &'a str {
+    let mut s = start.min(text.len());
+    let mut e = end.min(text.len());
+    if s > e { s = e; }
+    while s > 0 && !text.is_char_boundary(s) { s -= 1; }
+    while e > 0 && !text.is_char_boundary(e) { e -= 1; }
+    &text[s..e]
+}
+
 /// 文档 §2.4 hard_post_process 主入口
 /// 降级: fix_mapping 空 → 跳过第一轮; domain=General → 跳过第二轮
 pub fn hard_post_process(text: &str, domain: Domain) -> String {
@@ -751,14 +764,19 @@ pub fn truncate_raw_transcript_leak(md: &str) -> (String, RawTranscriptLeakRepor
         if let Some(mat) = re.find(line) {
             let truncated_line = &line[..mat.start()];
             let cleaned = if truncated_line.len() > 200 {
-                format!("{}…(原始转录错位内容已截断)", &truncated_line[..200])
+                {
+                    let mut cut = 200;
+                    while cut > 0 && !truncated_line.is_char_boundary(cut) { cut -= 1; }
+                    format!("{}…(原始转录错位内容已截断)", &truncated_line[..cut])
+                }
             } else if truncated_line.is_empty() {
                 "…(原始转录错位内容已截断)".to_string()
             } else {
                 format!("{}…(原始转录错位内容已截断)", truncated_line)
             };
             report.segments_truncated += 1;
-            report.total_chars_removed += line.len() - cleaned.len();
+            // §198: saturating_sub to avoid underflow when cleaned suffix exceeds line len
+            report.total_chars_removed += line.len().saturating_sub(cleaned.len());
             out.push_str(&cleaned);
             out.push('\n');
             truncated = true;
@@ -1697,7 +1715,8 @@ pub fn normalize_case_type(md: &str, transcript: &str) -> (String, Vec<String>) 
             // 替换
             for (start, end, new, old) in to_replace.iter().rev() {
                 normalizations.push(format!("'案由: {}' → '{}'", old, new));
-                out = format!("{}{}{}", &out[..*start], new, &out[*end..]);
+                // §198: use safe_slice helper
+                out = format!("{}{}{}", safe_slice(&out, 0, *start), new, safe_slice(&out, *end, out.len()));
             }
         }
     }
@@ -1755,7 +1774,8 @@ pub fn strip_fabricated_evidence_ids(md: &str, transcript: &str) -> (String, Vec
                     "⚠️ §188 AI 编造证据编号 — 已自动删除: {} (transcript 无对应时间戳)",
                     removed
                 ));
-                out = format!("{}{}", &out[..*start], &out[*end..]);
+                // §198: use safe_slice helper to prevent char boundary panic
+                out = format!("{}{}", safe_slice(&out, 0, *start), safe_slice(&out, *end, out.len()));
             }
             if !to_remove.is_empty() {
                 eprintln!("[§188] {} pattern: stripped {} fabricated IDs", label, to_remove.len());
@@ -3291,4 +3311,63 @@ mod tests {
         eprintln!("[§195 test 4] out: {}", out);
         // 正确地名不应被改坏
         assert!(out.contains("武宿机场"));
+    }
+
+    // ============================================================================
+    // §198 char boundary panic defense (2026-08-30 立, meeting-b0297a12 byte 2434 '诉' panic 触发)
+    //
+    // 触发: truncate_raw_transcript_leak 硬编码 200 byte 切片, 当 200 落在中文 3-byte char
+    //       中间 → panic. meeting-b0297a12 byte 2434 '诉' (E8 AF 89) panic 后, 加 floor 保护.
+    // 验证: 长中文 line 第 200 byte 处如不在 char boundary → floor 到上一个 char boundary.
+    // ============================================================================
+
+    #[test]
+    fn section_198_truncate_raw_transcript_leak_handles_200_byte_chinese_cut() {
+        // 构造: 中文 3-byte/char, 第 200 byte 在 '诉' 中间 (跟 meeting-b0297a12 现场一致)
+        // 67 个 3-byte 中文 char = 201 bytes, 第 200 byte 落在第 67 个 char '诉' 中间
+        let s = "诉".repeat(67);  // 67 chars × 3 bytes = 201 bytes
+        assert_eq!(s.len(), 201);
+        // 第 200 byte 是 '诉' 中间
+        assert!(!s.is_char_boundary(200));
+
+        // line 必须包含 raw transcript leak marker (6+ 的|啊|嗯|呃|哦|)
+        // 前缀放 1 个 leak marker 让 regex 命中, 触发截断逻辑
+        let line = format!("{}嗯嗯嗯嗯嗯嗯尾段X", s);
+        let (out, report) = truncate_raw_transcript_leak(&line);
+
+        // 不能 panic
+        eprintln!("[§198 test 1] report: {:#?}", report);
+        assert!(report.segments_truncated >= 1, "应该 truncate");
+        // 输出含截断标记
+        assert!(out.contains("原始转录错位内容已截断"));
+        // 不应包含 67 个 '诉' (应被截断到 char boundary)
+        let out_appeal_count = out.matches('诉').count();
+        assert!(out_appeal_count < 67, "应被 floor 截断到 char boundary");
+    }
+
+    #[test]
+    fn section_198_safe_slice_floor_to_char_boundary() {
+        // 验证 safe_slice helper 正确 floor
+        let s = "诉".repeat(67);
+        assert!(!s.is_char_boundary(200));
+        let sliced = safe_slice(&s, 0, 200);
+        // 必须不 panic, 且 floor 到 198 (最近的 char boundary = 66 × 3 = 198)
+        assert_eq!(sliced.len(), 198);
+        assert!(s.is_char_boundary(sliced.len()));
+
+        // boundary within range
+        let sliced2 = safe_slice(&s, 5, 50);
+        // floor s=3, e=48
+        assert_eq!(sliced2.len(), 45);
+    }
+
+    #[test]
+    fn section_198_strip_fabricated_evidence_ids_handles_chinese_offsets() {
+        // 模拟: LLM 输出 md 含中文 + 编造 [evidence:999]
+        // 先验证 plain path (no panic)
+        let md = "案件审理:\n[evidence:999] 编造证据\n继续审理";
+        let transcript = "本院 [00:01] [00:02]";
+        let (out, warnings) = strip_fabricated_evidence_ids(md, transcript);
+        assert!(!out.contains("[evidence:999]"), "编造 ID 应被剥离");
+        assert!(warnings.iter().any(|w| w.contains("§188")), "应有 §188 warning");
     }

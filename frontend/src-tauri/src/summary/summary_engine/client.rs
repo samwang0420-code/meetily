@@ -28,6 +28,9 @@ enum Request {
         max_tokens: Option<i32>,
         context_size: Option<u32>,
         model_path: Option<String>,
+        // §198 (2026-08-30): pass actual layer_count from ModelDef to llama-helper
+        //   so GPU layer calculation uses real denominator (Qwen 2.5 3B = 36, not 28).
+        n_layer: Option<u32>,
         // Sampling parameters
         temperature: Option<f32>,
         top_k: Option<i32>,
@@ -222,6 +225,8 @@ pub async fn generate_with_builtin_stream(
         max_tokens: Some(models::DEFAULT_MAX_TOKENS),
         context_size: Some(model_def.context_size),
         model_path: Some(model_path.to_string_lossy().to_string()),
+        // §198: pass ModelDef::layer_count so llama-helper computes n_gpu_layers correctly
+        n_layer: Some(model_def.layer_count),
         temperature: Some(sampling.temperature),
         top_k: Some(sampling.top_k),
         top_p: Some(sampling.top_p),
@@ -358,6 +363,8 @@ mod tests {
             max_tokens: Some(512),
             context_size: Some(2048),
             model_path: Some("/path/to/model.gguf".to_string()),
+            // §198: n_layer for testing
+            n_layer: Some(36),
             temperature: Some(1.0),
             top_k: Some(64),
             top_p: Some(0.95),

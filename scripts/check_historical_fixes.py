@@ -2384,6 +2384,27 @@ ANCHORS = [
     ("197_1_respawn_records_model_path",
      "frontend/src-tauri/src/summary/summary_engine/sidecar.rs",
      r'§197\.1 cannot respawn: no current_model_path recorded'),
+
+    # ===== §198 llama-helper pass n_layer + char boundary panic defense (2026-08-30 立) =====
+    ("198_n_layer_field_in_request",
+     "llama-helper/src/main.rs",
+     r'n_layer: Option<u32>'),
+    ("198_get_default_gpu_layers_accepts_n_layer",
+     "llama-helper/src/main.rs",
+     r'fn get_default_gpu_layers\(.*n_layer: Option<u32>\)'),
+    ("198_safe_slice_helper_exists",
+     "frontend/src-tauri/src/summary/hard_post_process.rs",
+     "fn safe_slice<"),
+
+    ("198_safe_slice_used_in_strip_fabricated",
+     "frontend/src-tauri/src/summary/hard_post_process.rs",
+     r'safe_slice\(&out, 0, \*start\)'),
+    ("198_truncate_200_byte_floored",
+     "frontend/src-tauri/src/summary/hard_post_process.rs",
+     r'let mut cut = 200;'),
+    ("198_client_pass_layer_count",
+     "frontend/src-tauri/src/summary/summary_engine/client.rs",
+     r'n_layer: Some\(model_def\.layer_count\)'),
 ]
 
 
