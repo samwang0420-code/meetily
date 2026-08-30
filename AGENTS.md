@@ -3792,3 +3792,82 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - 1 fixture-bound test fail (`fact_guard::test_161_full_709b_fixture_catches_all_bugs` 缺 /tmp/transcript_709b.txt)
 - 25 cargo warnings (§18 不动)
 - health_check_loop 仍只在 idle 时跑 (双层防御已覆盖, 不动原代码)
+
+## §198 llama-helper pass n_layer + char boundary panic defense (2026-08-30, commit 9ce80ac)
+
+**触发**: 用户 8/30 跑 meeting-b0297a12 (云南河口瑶族自治县法院庭审现场, 6433 chars / 100 segments) 摘要, 触发两个连续问题:
+
+1. **char boundary panic** — byte 2434 '诉' (3-byte UTF-8 中间) panic. chunk_count=0, processing_time=0.0, status='failed'.
+2. **Metal GPU partial offload** — `llama-helper get_default_gpu_layers` 硬编码 estimated_layers=28 for files <2.5GB. 但 Qwen 2.5 3B 实际 36 层 (`models.rs:191 layer_count: 36`). 1.93 GB < 2.5 → 走 28 层 → 8 层 CPU → 99.6% matmul.
+
+### 真根因
+- `llama-helper/src/main.rs` 旧代码靠 file-size heuristic 猜 layer 数, 没接受 caller 的真实 ModelDef metadata
+- `hard_post_process.rs:754` `&truncated_line[..200]` 硬编码 200 byte, 200 落在中文 3-byte char 中间 → panic
+- `hard_post_process.rs:1700 / 1758` `&out[..*start] + &out[*end..]` regex match offset, 理论安全但无防御
+
+### 修复 (3 文件 + guard)
+
+**1. `llama-helper/src/main.rs`**:
+- `Request::Generate` 新增 `n_layer: Option<u32>` 字段
+- `get_default_gpu_layers` 加 `n_layer` 参数, caller 提供值优先, fallback file-size heuristic
+- `load_model_if_needed` 加 `n_layer` 参数
+- §198 partial offload warn
+
+**2. `frontend/src-tauri/src/summary/summary_engine/client.rs`**:
+- `Request::Generate` 加 `n_layer: Option<u32>`
+- 两个 instantiation 点都加 `n_layer: Some(model_def.layer_count)`
+
+**3. `frontend/src-tauri/src/summary/hard_post_process.rs`**:
+- 新增 `fn safe_slice<'a>(text, start, end) -> &'a str` helper (floor downward)
+- `truncate_raw_transcript_leak:754` `[..200]` 加 floor 循环
+- `truncate_raw_transcript_leak:778` `saturating_sub` 防 underflow
+- `strip_fabricated_evidence_ids:1700 / 1758` 用 safe_slice 替代 raw slice
+- 3 个新测试 (section_198_*)
+
+**4. `scripts/check_historical_fixes.py`**: 6 新 anchor, guard **703/703 PASS**
+
+### 性能预测 (Qwen 2.5 3B 36层 + M3 4.80 GB VRAM)
+- weight_per_layer = 1.93/36 = 0.054 GB
+- safe_layers = floor(4.30/0.090) = 47 → min(47, 36) = **36 全 Metal offload**
+
+### §37 6 步硬闸门 (commit 9ce80ac)
+- cargo check --lib: 0 errors (14 §18 warnings)
+- cargo test --lib section_198: **3 passed / 0 failed**
+- cargo test --lib: 529 passed / 1 failed / 3 ignored (1 fixture-bound §18 不动)
+- cargo build --release: 4m05s, binary 17:26 57M
+- sync_app_bundle.sh: 3 binary 全部 sync
+- check_historical_fixes.py: **703/703 PASS**
+- ⏳ GUI 端到端 (§15 强制, 用户必做)
+
+### 铁律 (任何 v0.X 演进适用)
+1. **任何依赖估算的 llama-helper 配置必须接受 caller metadata** — file-size heuristic 是 fallback 不是 primary
+2. **所有 `&str[..N]` 硬编码切片必须 char boundary floor** — 即使 100 byte 也可能落在 3-byte 中文中间
+3. **byte slicing 必须走 wrapper** — `safe_slice` 是最简方案, 比散落各处 inline `while !is_char_boundary` 强
+4. **`s.len() - other.len()` 用 saturating_sub** — 防 underflow panic
+5. **panic 必须转 friendly error** — 当前 background task panic → 'failed' status, 未来可优化到 user-visible toast
+
+### §15 GUI 验收 (用户必做)
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+```
+打开 meeting-b0297a12 → 点 "重新生成":
+1. 后端日志含 `§198 partial GPU offload` 或不出现 (如果全 36 层)
+2. 进度条 0% → 100% ~5-15 min 完成 (vs §196 失败 17 tok/s)
+3. DB: `chunk_count >= 1, status='completed'`
+4. 不再 panic char boundary
+
+### 已知边界
+- §161 fixture-bound test fail (/tmp/transcript_709b.txt 丢失), §18 不动
+- 25 cargo warnings (§18 不动)
+- 1 bun:test tsc error (§18 不动)
+
+### commit
+`9ce80ac` (codex/llama-cpp-upgrade)
+- `frontend/src-tauri/src/summary/hard_post_process.rs` (safe_slice helper + truncate + strip)
+- `frontend/src-tauri/src/summary/summary_engine/client.rs` (n_layer pass)
+- `llama-helper/src/main.rs` (n_layer receive + get_default_gpu_layers)
+- `scripts/check_historical_fixes.py` (+6 §198 anchors)
+- `outputs/§198-...md` + Obsidian 双写
+
+**关联**: §197.1 (sidecar BrokenPipe recovery) / §197 (llama-cpp-2 回退 0.1.146) / §196 (升级尝试) / §195 (飞机执行案修复) / §194 (GENERATION_TIMEOUT_SECS 3600s) / §169.6 (char boundary floor 基础) / §37 (硬闸门) / §56 (AGENTS.md 双校) / §92 (决策迁移铁律) / §18 (不主动改无关 bug) / §115 (分支 24h 自动删)
