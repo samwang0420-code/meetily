@@ -874,18 +874,51 @@ impl SummaryService {
                     );
                 }
 
-                // §185.4 民事模板刑事术语过滤 (强制替换)
-                let (civil_filtered_md, term_replacements) = hpp::filter_criminal_terms_in_civil(&final_markdown);
-                if !term_replacements.is_empty() {
-                    info!(
-                        "§185.4 filter_criminal_terms_in_civil: {} replacements for meeting_id={}",
-                        term_replacements.len(),
-                        meeting_id
-                    );
-                    final_markdown = civil_filtered_md;
+                // §199.4 (2026-08-30): case-type-aware 术语过滤
+                //   民事案件 → §185.4 filter_criminal_terms_in_civil (刑事术语→民事术语)
+                //   刑事案件 → §199.4 filter_civil_terms_in_criminal (民事术语→刑事术语)
+                // 用户报告 meeting-b0297a12: 刑事故意伤害案里"刑事责任能力"被无条件替换为"民事行为能力"
+                let detected_case_type = hpp::detect_case_type_from_transcript(&evidence_text);
+                let is_civil = detected_case_type
+                    .as_deref()
+                    .map(hpp::is_civil_case_type)
+                    .unwrap_or(false);
+                if is_civil {
+                    let (civil_filtered_md, term_replacements) = hpp::filter_criminal_terms_in_civil(&final_markdown);
+                    if !term_replacements.is_empty() {
+                        info!(
+                            "§185.4 filter_criminal_terms_in_civil: {} replacements for meeting_id={} case_type={:?}",
+                            term_replacements.len(),
+                            meeting_id,
+                            detected_case_type
+                        );
+                        final_markdown = civil_filtered_md;
+                    }
+                } else {
+                    // §199.4 刑事案件反向 fix — 民事术语 → 刑事术语
+                    let (criminal_filtered_md, term_replacements) = hpp::filter_civil_terms_in_criminal(&final_markdown);
+                    if !term_replacements.is_empty() {
+                        info!(
+                            "§199.4 filter_civil_terms_in_criminal: {} replacements for meeting_id={} case_type={:?}",
+                            term_replacements.len(),
+                            meeting_id,
+                            detected_case_type
+                        );
+                        final_markdown = criminal_filtered_md;
+                    }
                 }
 
                 // §185.5 证据编号格式归一 (transcript 继承)
+                // §199.5 (2026-08-30): 先剥离非标 [证据: 长字符串] 格式 (用户报告 meeting-b0297a12)
+                let (long_text_stripped_md, long_text_warnings) = hpp::strip_long_text_evidence_ids(&final_markdown);
+                if !long_text_warnings.is_empty() {
+                    warn!(
+                        "§199.5 strip_long_text_evidence_ids: {} non-standard IDs removed for meeting_id={}",
+                        long_text_warnings.len(),
+                        meeting_id
+                    );
+                    final_markdown = long_text_stripped_md;
+                }
                 let (evidence_normalized_md, evidence_normalizations) = hpp::normalize_evidence_id_format(&final_markdown);
                 if !evidence_normalizations.is_empty() {
                     info!(

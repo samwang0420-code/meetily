@@ -123,6 +123,14 @@ const P1_PRECISION_RULES: &str = r#"
    - 当事人简称: "魏某" / "魏某方" / "魏" / "原告魏某" → use "魏某" (no surname-only abbreviation)
    - Time entities: "今天" / "昨日" / "刚才" / "开庭时" → DO NOT convert to specific dates ("2024-05-29") unless a date is explicitly spoken in the transcript. Use the original relative form.
    The point: pick ONE form, use it EVERYWHERE in the report, never switch mid-paragraph.
+
+
+**§199 LEGAL TERMINOLOGY PRECISION (2026-08-30):**
+- Use "限定刑事责任能力人" / "限制刑事责任能力人" for criminal cases (刑法 §18 概念, 仍负刑责).
+- NEVER substitute "民事行为能力人" (民法概念, 不涉刑责) for criminal defendants.
+- Use "判处有期徒刑 X 年" / "量刑 X 年" for criminal sentences. NEVER use "判令赔偿责任 X 年" (民事赔偿无"年"单位).
+- For 故意伤害 vs 故意杀人: 故意伤害致死 = 故意伤害罪 (NOT 故意杀人罪). Only use 故意杀人 if the prosecution explicitly charged 故意杀人.
+
 "#;
 
 /// §141 VERBATIM FACT-CHECK — 用户 8/19 反馈 2B 模型对中文数字日期/金额改写严重
@@ -221,7 +229,8 @@ The user (2026-08-27) reported the LLM was free-styling case types (e.g. "侵权
 ```
 [
   "交通肇事",     // 交通肇事罪 / 交通事故 / 肇事逃逸
-  "故意杀人",     // 故意杀人罪 / 故意伤害致死
+  "故意伤害",     // §199 (2026-08-30): 故意伤害罪 / 故意伤害致死 / 非法持有枪支致伤
+  "故意杀人",     // 故意杀人罪 (注意区分故意伤害致死, 故意伤害致死归入"故意伤害")
   "合同纠纷",     // 合同争议 / 违约 / 协议纠纷
   "高压触电",     // 高压输电致害 / 触电身亡 / 电击致死
   "恶意诉讼",     // 恶意诉讼 / 滥用诉权 / 虚假诉讼

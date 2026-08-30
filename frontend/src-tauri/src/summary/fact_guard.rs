@@ -156,6 +156,182 @@ fn normalized_tokens(re: &Regex, text: &str) -> BTreeSet<String> {
     re.find_iter(text).map(|m| m.as_str().split_whitespace().collect::<String>().replace(',', "")).filter(|v| !v.is_empty()).collect()
 }
 
+/// §199.6 (2026-08-30): 中文数字 ↔ 阿拉伯数字 日期归一化
+///
+/// 用户报告 meeting-b0297a12: transcript 写"二零一七年十一月十四日下午一时许",
+///   summary 写"2017年11月14日" — 同一日期不同表达, fact_guard 误报为 unexpected_date → ⚠️ 高亮.
+///
+/// 修复: 把所有日期 token 归一化到 "YYYY-M-D" ISO 形式再比较, 中文数字 ↔ 阿拉伯数字 视为同一日期.
+///
+/// 范围: 仅处理 "YYYY年M月D日" 完整日期 (含年/月/日). 不处理 "M月D日" (无年信息, 容易跨年误判).
+fn normalized_dates(re: &Regex, text: &str) -> BTreeSet<String> {
+    re.find_iter(text)
+        .map(|m| {
+            let raw = m.as_str().split_whitespace().collect::<String>();
+            normalize_date_token(&raw)
+        })
+        .filter(|v| !v.is_empty())
+        .collect()
+}
+
+const CHINESE_DIGITS: &[(&str, u32)] = &[
+    ("零", 0), ("〇", 0), ("一", 1), ("二", 2), ("三", 3), ("四", 4),
+    ("五", 5), ("六", 6), ("七", 7), ("八", 8), ("九", 9),
+];
+
+/// 把中文字符 / 阿拉伯数字 混合的字符串 parse 成 u32
+///
+/// 支持:
+///   - "二十三" → 23
+///   - "一百二十三" → 123
+///   - "二零一七" → 2017 (按位累加, 因为"零"无单位)
+///   - "三千零五" → 3005
+///   - "二千零十八" → 2018
+///   - "11" → 11 (ASCII digit 直接 parse)
+fn chinese_to_u32(s: &str) -> Option<u32> {
+    let chars: Vec<char> = s.chars().collect();
+    if chars.is_empty() { return None; }
+
+    // 全 ASCII digit → 直接 parse
+    if chars.iter().all(|c| c.is_ascii_digit()) {
+        return s.parse::<u32>().ok();
+    }
+
+    // 中文数字 + 单位处理
+    // 单位权重: 千=1000, 百=100, 万=10000
+    let mut total: u64 = 0;
+    let mut section: u64 = 0;   // 当前小节 (千以下)
+    let mut current: u64 = 0;   // 当前数字
+    let mut has_digit = false;
+    let mut any_unit = false;
+
+    for &c in &chars {
+        if c.is_ascii_digit() {
+            current = current * 10 + c.to_digit(10).unwrap() as u64;
+            has_digit = true;
+        } else {
+            let n = match c {
+                '零' | '〇' => Some(0),
+                '一' => Some(1),
+                '二' | '两' => Some(2),
+                '三' => Some(3),
+                '四' => Some(4),
+                '五' => Some(5),
+                '六' => Some(6),
+                '七' => Some(7),
+                '八' => Some(8),
+                '九' => Some(9),
+                '十' => Some(10),
+                '百' => Some(100),
+                '千' => Some(1000),
+                '万' => Some(10000),
+                _ => None,
+            };
+            match n {
+                Some(0) => {
+                    // 零占位, 不重置 current
+                }
+                Some(v) if v >= 10 => {
+                    any_unit = true;
+                    // 单位: 十/百/千/万
+                    if v == 10000 {
+                        // 万: 结算当前 section, 加到 total
+                        total = total + (section + current) * (v as u64);
+                        section = 0;
+                        current = 0;
+                    } else {
+                        // 十/百/千: current 是系数
+                        let base = if current == 0 { 1 } else { current };
+                        section += base * (v as u64);
+                        current = 0;
+                    }
+                    has_digit = true;
+                }
+                Some(v) => {
+                    // 数字: 累加到 current (支持 "二十三" = 2*10 + 3 = 23)
+                    current = current * 10 + v as u64;
+                    has_digit = true;
+                }
+                None => {
+                    // 未知字符 (如 "年月日") → 忽略
+                }
+            }
+        }
+    }
+    total += section + current;
+    if has_digit {
+        // §199.6 fix: 如果没遇到任何单位 (十/百/千/万), 且全是中文数字 → 按 chars.len() 推断位数
+        // 例: "二零一七" (4 chars, no unit) → 1000/100/10/1 → 2017 (年份)
+        // 例: "二十三" (有"十"单位 → any_unit=true, 跳过此分支)
+        if !any_unit {
+            let n_chars = chars.len() as u32;
+            if n_chars >= 2 && n_chars <= 8 {
+                let mut pow_val: u64 = 1;
+                for _ in 1..n_chars { pow_val = pow_val.saturating_mul(10); }
+                let mut result: u64 = 0;
+                for &ch in &chars {
+                    let d = match ch {
+                        '零' | '〇' => 0,
+                        '一' => 1, '二' | '两' => 2, '三' => 3, '四' => 4,
+                        '五' => 5, '六' => 6, '七' => 7, '八' => 8, '九' => 9,
+                        c if c.is_ascii_digit() => c.to_digit(10).unwrap() as u64,
+                        _ => continue,
+                    };
+                    result = result.saturating_add(d.saturating_mul(pow_val));
+                    pow_val = pow_val.saturating_div(10);
+                }
+                return u32::try_from(result).ok();
+            }
+        }
+        u32::try_from(total).ok()
+    } else {
+        None
+    }
+}
+
+fn normalize_date_token(raw: &str) -> String {
+    // raw 形如 "2017年11月14日" / "二零一七年十一月十四日" / "2017年11月"
+    // 提取 year/month/day, 转阿拉伯数字, 拼成 "YYYY-M-D"
+    let cleaned = raw.replace(',', "");
+    let year_re = regex::Regex::new(r"(\d+|[零一二二三四五六七八九十百千]+)\s*年").unwrap();
+    let month_re = regex::Regex::new(r"(\d+|[零一二二三四五六七八九十百千]+)\s*月").unwrap();
+    let day_re = regex::Regex::new(r"(\d+|[零一二二三四五六七八九十百千]+)\s*[日号]").unwrap();
+    let year_cap = year_re.captures(&cleaned);
+    let month_cap = month_re.captures(&cleaned);
+    let day_cap = day_re.captures(&cleaned);
+    let year = year_cap.and_then(|c| c.get(1)).and_then(|m| {
+        if m.as_str().chars().all(|c| c.is_ascii_digit()) {
+            m.as_str().parse::<u32>().ok()
+        } else {
+            chinese_to_u32(m.as_str())
+        }
+    });
+    let month = month_cap.and_then(|c| c.get(1)).and_then(|m| {
+        if m.as_str().chars().all(|c| c.is_ascii_digit()) {
+            m.as_str().parse::<u32>().ok()
+        } else {
+            chinese_to_u32(m.as_str())
+        }
+    });
+    let day = day_cap.and_then(|c| c.get(1)).and_then(|m| {
+        if m.as_str().chars().all(|c| c.is_ascii_digit()) {
+            m.as_str().parse::<u32>().ok()
+        } else {
+            chinese_to_u32(m.as_str())
+        }
+    });
+    // 必须有 year 才归一化 (避免 "M月D日" 跨年误判)
+    if let Some(y) = year {
+        format!("{}-{}-{}",
+            y,
+            month.unwrap_or(0),
+            day.unwrap_or(0))
+    } else {
+        // 仅月日 — 不归一化, 保留原字符串
+        cleaned
+    }
+}
+
 /// §131.1: 在 AI 摘要原文里把 fabricated 数字/日期标黄 — 用户能直接看到问题所在
 /// 用 markdown `==text==` 黄色 highlight 包裹 fabricated tokens (兼容大部分 markdown 渲染器)
 /// 若无 fabricated tokens, 返回原 summary 不变
@@ -192,8 +368,10 @@ pub fn highlight_unexpected_facts(summary: &str, report: &FactGuardReport) -> St
 pub fn validate_summary(transcript: &str, summary: &str) -> FactGuardReport {
     let source_numbers = normalized_tokens(&NUMBER_RE, transcript);
     let summary_numbers = normalized_tokens(&NUMBER_RE, summary);
-    let source_dates = normalized_tokens(&DATE_RE, transcript);
-    let summary_dates = normalized_tokens(&DATE_RE, summary);
+    // §199.6 (2026-08-30): 日期归一化 — 中文数字 ↔ 阿拉伯数字 同一日期不同表达不应该报 unexpected
+    // 用户报告: transcript 写"二零一七年十一月十四日" + summary 写"2017年11月14日" → 误报
+    let source_dates = normalized_dates(&DATE_RE, transcript);
+    let summary_dates = normalized_dates(&DATE_RE, summary);
     let proposal_language = ["提案", "暂定", "需要确认", "没有结论", "未确定"].iter().any(|v| transcript.contains(v));
     let decision_language = ["已确定", "确定了", "最终决定", "会议决定", "确定执行", "确定采用"].iter().any(|v| summary.contains(v))
         && !summary.contains("不是最终决定")
@@ -1131,7 +1309,8 @@ mod tests {
         let report = validate_summary("预算暂定3000元，具体金额需要确认。", "预算确定为12800元，日期为2026年7月16日，会议确定执行。");
         assert!(report.unexpected_numbers.contains(&"12800元".to_string()));
         assert!(!report.unexpected_dates.is_empty());
-        assert!(report.unexpected_dates.iter().any(|date| date.contains("2026年")));
+        // §199.6 normalized_dates: 日期被归一为 "YYYY-M-D" 格式 (兼容中文↔阿拉伯数字)
+        assert!(report.unexpected_dates.iter().any(|date| date.contains("2026")));
         assert!(report.overclaimed_decision);
         assert!(report.is_severe());
     }
@@ -1235,7 +1414,8 @@ mod tests {
         // Transcript has no proposal/decision language, so only the two unsupported facts count.
         assert_eq!(report.issue_count(), 2);
         assert_eq!(report.unexpected_numbers, vec!["12800元".to_string()]);
-        assert_eq!(report.unexpected_dates, vec!["2026年7月16日".to_string()]);
+        // §199.6: unexpected_dates 是 normalized "2026-7-16" 格式
+        assert_eq!(report.unexpected_dates, vec!["2026-7-16".to_string()]);
         assert!(!report.overclaimed_decision);
         assert!(report.needs_review());
         assert!(report.is_severe());
@@ -1879,3 +2059,49 @@ mod p165_multi_case_tests {
         assert!(out.is_none());
     }
 }
+
+    // ============================================================================
+    // §199.6 (2026-08-30) 日期归一化 — 中文↔阿拉伯数字 同一日期不应误报 unexpected
+    // ============================================================================
+
+    #[test]
+    fn section_199_6_chinese_to_u32_basic() {
+        assert_eq!(chinese_to_u32("二十三"), Some(23));
+        assert_eq!(chinese_to_u32("二零一七"), Some(2017));
+        assert_eq!(chinese_to_u32("十一"), Some(11));
+        assert_eq!(chinese_to_u32("十四"), Some(14));
+        assert_eq!(chinese_to_u32("5"), Some(5));
+    }
+
+    #[test]
+    fn section_199_6_normalize_date_token_arabic_to_canonical() {
+        let r = normalize_date_token("2017年11月14日");
+        assert_eq!(r, "2017-11-14");
+    }
+
+    #[test]
+    fn section_199_6_normalize_date_token_chinese_to_canonical() {
+        let r = normalize_date_token("二零一七年十一月十四日");
+        assert_eq!(r, "2017-11-14");
+    }
+
+    #[test]
+    fn section_199_6_validate_summary_no_unexpected_for_chinese_vs_arabic_date() {
+        // transcript 中文日期 + summary 阿拉伯日期 应不报 unexpected
+        let transcript = "二零二六年五月十一日云南省河口瑶族自治县人民法院开庭审理";
+        let summary = "庭审日期: 2026年5月11日云南省河口瑶族自治县人民法院";
+        let report = validate_summary(transcript, summary);
+        assert!(report.unexpected_dates.is_empty(),
+                "中文日期 + 阿拉伯日期 同一事实不应报 unexpected. Got: {:?}",
+                report.unexpected_dates);
+    }
+
+    #[test]
+    fn section_199_6_validate_summary_still_catches_real_unexpected_date() {
+        // summary 编造一个 transcript 没有的日期 → 应仍报 unexpected
+        let transcript = "二零二六年五月十一日开庭";
+        let summary = "庭审日期: 2027年6月12日";  // 编造
+        let report = validate_summary(transcript, summary);
+        assert!(!report.unexpected_dates.is_empty(),
+                "真实编造的日期仍应被检测");
+    }

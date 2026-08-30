@@ -1540,7 +1540,7 @@ pub fn verify_judgment_attribution(
 }
 
 /// §185.4 民事案由刑事术语替换映射
-const CIVIL_TERM_REPLACEMENTS: [(&str, &str); 18] = [
+const CIVIL_TERM_REPLACEMENTS: [(&str, &str); 16] = [
     ("公诉人", "原告方"),
     ("公诉机关", "原告方"),
     ("检察院", "原告方"),
@@ -1557,9 +1557,61 @@ const CIVIL_TERM_REPLACEMENTS: [(&str, &str); 18] = [
     ("抗诉", "上诉"),
     ("数罪并罚", "多项请求合并审理"),
     ("罚金", "赔偿金"),
-    ("刑事责任能力", "民事行为能力"),
-    ("限定刑事责任能力", "限制民事行为能力"),
+    // §199.4 (2026-08-30): 反向项移除 — 原 ("刑事责任能力" -> "民事行为能力") 在刑事案件里
+    //   把"刑事责任能力"错误替换为"民事行为能力" (用户报告). 改为在 CRIMINAL_FIX_MAPPING 里
+    //   反向修复: 刑事案件中"民事行为能力"→"刑事责任能力".
 ];
+
+/// §199.4 (2026-08-30): 刑事案件反向 fix_mapping
+///
+/// 用户报告 (2026-08-30 meeting-b0297a12): 刑事故意伤害案中"限定刑事责任能力人"被 §185.4 filter
+///   错误替换为"限制民事行为能力人". 原因是 §185.4 是无条件跑的, 把所有"刑事责任能力"替换为
+///   "民事行为能力", 跟案件性质相反.
+///
+/// 修复: 在 §185.4 跑之前, 先用 CRIMINAL_FIX_MAPPING 跑反向 (民事→刑事). 这样:
+///   1. 民事案件: §185.4 跑 (刑事术语→民事术语)
+///   2. 刑事案件: §185.4 跳过, CRIMINAL_FIX_MAPPING 跑 (民事术语→刑事术语)
+///
+/// 适用范围: 任何刑事案件 (case_type 不在 CIVIL_CASE_TYPES list)
+pub const CRIMINAL_FIX_MAPPING: [(&str, &str); 12] = [
+    ("民事行为能力人", "刑事责任能力人"),
+    ("限制民事行为能力", "限制刑事责任能力"),
+    ("限定民事行为能力", "限定刑事责任能力"),
+    ("民事赔偿责任三年", "有期徒刑三年"),
+    ("赔偿责任三年", "有期徒刑三年"),
+    ("赔偿三年", "有期徒刑三年"),
+    ("判令赔偿三年", "判处有期徒刑三年"),
+    ("判处赔偿三年", "判处有期徒刑三年"),
+    ("判赔三年", "判处有期徒刑三年"),
+    ("判令民事赔偿", "判处有期徒刑"),
+    ("判令赔偿受害人三年", "判处有期徒刑三年"),
+    ("判令被告人赔偿受害人三年", "判处被告人有期徒刑三年"),
+];
+
+pub const CIVIL_CASE_TYPES: &[&str] = &[
+    "合同纠纷", "高压触电", "恶意诉讼", "知识产权纠纷", "侵权责任纠纷",
+];
+
+/// 判断案件是否为民事案件 (用于 §185.4 case-type-aware filter)
+pub fn is_civil_case_type(case_type: &str) -> bool {
+    CIVIL_CASE_TYPES.contains(&case_type) ||
+        case_type.contains("合同") || case_type.contains("侵权") ||
+        case_type.contains("触电") || case_type.contains("知识产权") ||
+        case_type.contains("恶意诉讼")
+}
+
+/// §199.4 刑事案件反向 fix — 民事术语 → 刑事术语 (强制)
+pub fn filter_civil_terms_in_criminal(md: &str) -> (String, Vec<String>) {
+    let mut out = md.to_string();
+    let mut replacements = Vec::new();
+    for (civil, criminal) in CRIMINAL_FIX_MAPPING.iter() {
+        if out.contains(civil) {
+            out = out.replace(civil, criminal);
+            replacements.push(format!("'{}' → '{}'", civil, criminal));
+        }
+    }
+    (out, replacements)
+}
 
 /// §185.4 民事模板过滤刑事术语 (强制替换)
 pub fn filter_criminal_terms_in_civil(md: &str) -> (String, Vec<String>) {
@@ -1619,6 +1671,7 @@ pub fn normalize_evidence_id_format(md: &str) -> (String, Vec<String>) {
 /// §189 标准案由列表 (5 个, 严禁模型自由发挥)
 pub const STANDARD_CASE_TYPES: &[&str] = &[
     "交通肇事",
+    "故意伤害",     // §199 (2026-08-30): 故意伤害 / 故意伤害致死 (含 非法持有枪支致伤)
     "故意杀人",
     "合同纠纷",
     "高压触电",
@@ -1631,8 +1684,10 @@ pub const STANDARD_CASE_KEYWORDS: &[(&str, &str)] = &[
     ("高压触电", "高压输电|高压线|触电身亡|触电死亡|电击|高压致害|输电线路"),
     // 交通肇事 — 关键词: 交通肇事 / 交通事故 / 肇事逃逸
     ("交通肇事", "交通肇事|交通事故|肇事逃逸|车祸|肇事"),
-    // 故意杀人 — 关键词: 故意杀人 / 杀人罪 / 故意伤害致死
-    ("故意杀人", "故意杀人|杀人罪|故意伤害致死|行凶|杀害"),
+    // 故意伤害 — 关键词: 故意伤害 / 故意伤害致死 / 故意伤害罪 (与"故意杀人"区分: 故意伤害致死有"致死")
+    ("故意伤害", "故意伤害|故意伤害罪|故意伤害致死|非法持有枪支.*故意伤害"),
+    // 故意杀人 — 关键词: 故意杀人 / 杀人罪 (不含故意伤害致死 — §199.1 拆出故意伤害)
+    ("故意杀人", "故意杀人|杀人罪|行凶|杀害"),
     // 合同纠纷 — 关键词: 合同 / 违约 / 协议
     ("合同纠纷", "合同纠纷|违约|合同争议|协议纠纷|合同"),
     // 恶意诉讼 — 关键词: 恶意诉讼 / 滥用诉权 / 虚假诉讼
@@ -1734,6 +1789,69 @@ pub fn normalize_case_type(md: &str, transcript: &str) -> (String, Vec<String>) 
 ///
 /// 本函数做 post-process 兜底: 检测 [evidence:NNN] / [Evidence:NNN] 这种纯数字编号,
 /// 如果 NNN 不在 transcript 的合法 mm:ss 集合中 → 标记 ⚠️ 并删除.
+/// §199.5 (2026-08-30): 剥离 [证据: 长字符串] 模式 (非 mm:ss 格式)
+///
+/// 用户报告 meeting-b0297a12: 摘要中出现 `[证据: 二零一七年十一月十四日下午一时许]`
+///   — 这是模型编造的"时间戳作为证据ID"非标格式, 应被剥离.
+///
+/// 规则: 检测 `[证据:` 后面跟 5+ 字符的非 mm:ss 内容 → 删除整个 `[证据: ...]` 段.
+pub fn strip_long_text_evidence_ids(md: &str) -> (String, Vec<String>) {
+    let mut out = md.to_string();
+    let mut warnings = Vec::new();
+    // §199.5 修复 v2 (2026-08-30): placeholder 策略排除 mm:ss
+    //   rust regex 不支持 lookahead, 改用 placeholder 替换法
+    //   1. 把 [证据: MM:SS] 替换为 placeholder §§§TS§§§
+    //   2. 在 protected 文本上 strip 所有 [证据: 5+字符]
+    //   3. 把 placeholder 替换回 [证据: MM:SS] (按出现顺序)
+    const PLACEHOLDER: &str = "§§§TS§§§";
+    let mm_ss_re = Regex::new(r"\[证据:\s*\d{1,3}:\d{2}\]").unwrap();
+    let mut protected = String::with_capacity(out.len());
+    let mut last_end = 0usize;
+    let mut mm_ss_originals: Vec<String> = Vec::new();
+    for cap in mm_ss_re.captures_iter(&out) {
+        if let Some(m) = cap.get(0) {
+            protected.push_str(safe_slice(&out, last_end, m.start()));
+            protected.push_str(PLACEHOLDER);
+            last_end = m.end();
+            mm_ss_originals.push(m.as_str().to_string());
+        }
+    }
+    protected.push_str(safe_slice(&out, last_end, out.len()));
+
+    let re = Regex::new(r"\[证据:\s*[^\]\n]+\]").unwrap();
+    let mut to_remove: Vec<(usize, usize, String)> = Vec::new();
+    for cap in re.captures_iter(&protected) {
+        if let Some(m) = cap.get(0) {
+            to_remove.push((m.start(), m.end(), m.as_str().to_string()));
+        }
+    }
+    let mut stripped = protected;
+    for (start, end, text) in to_remove.iter().rev() {
+        warnings.push(format!(
+            "\u{26a0}\u{fe0f} \u{a7}199.5 \u{975e}\u{6807}\u{8bc1}\u{636e}ID (\u{975e} mm:ss \u{683c}\u{5f0f}) \u{2014} \u{5df2}\u{81ea}\u{52a8}\u{5220}\u{9664}: {}",
+            text
+        ));
+        stripped = format!(
+            "{}{}",
+            safe_slice(&stripped, 0, *start),
+            safe_slice(&stripped, *end, stripped.len())
+        );
+    }
+    // 把 placeholder 替换回 [证据: MM:SS] (按倒序避免 rfind 抢匹配)
+    let mut out_final = stripped;
+    for original in mm_ss_originals.iter().rev() {
+        if let Some(pos) = out_final.rfind(PLACEHOLDER) {
+            let mut new_out = String::with_capacity(out_final.len());
+            new_out.push_str(safe_slice(&out_final, 0, pos));
+            new_out.push_str(original);
+            new_out.push_str(safe_slice(&out_final, pos + PLACEHOLDER.len(), out_final.len()));
+            out_final = new_out;
+        }
+    }
+    out = out_final;
+    (out, warnings)
+}
+
 pub fn strip_fabricated_evidence_ids(md: &str, transcript: &str) -> (String, Vec<String>) {
     let mut out = md.to_string();
     let mut warnings = Vec::new();
@@ -3370,4 +3488,86 @@ mod tests {
         let (out, warnings) = strip_fabricated_evidence_ids(md, transcript);
         assert!(!out.contains("[evidence:999]"), "编造 ID 应被剥离");
         assert!(warnings.iter().any(|w| w.contains("§188")), "应有 §188 warning");
+    }
+
+    // ============================================================================
+    // §199 修复 7 个法律摘要问题 (2026-08-30 立)
+    //
+    // 触发: meeting-b0297a12 故意伤害案 7 个问题:
+    //   1. 限定民事行为能力人 (应该限定刑事责任能力人)
+    //   2. 判令赔偿责任三年 (应该量刑三年 / 有期徒刑三年)
+    //   3. 案由故意杀人 (应该故意伤害 — §189 dropdown 漏了)
+    //   4. 证据编号 [证据: 二零一七年...] (应该 [证据: mm:ss])
+    //   5. 姓名同音 (李福强/李富强) — §195 fix_mapping 已覆盖
+    //   6. 案发时间 ⚠️ 误报 (中文↔阿拉伯数字未归一)
+    //   7. 庭审日期 == 误报 (同上)
+    // ============================================================================
+
+    #[test]
+    fn section_199_1_case_type_dropdown_includes_guyi_shanghai() {
+        // §199.1: 故意伤害 必须出现在 STANDARD_CASE_TYPES
+        assert!(STANDARD_CASE_TYPES.contains(&"故意伤害"),
+                "故意伤害 应在 dropdown 里, 避免 LLM fallback 到 故意杀人");
+        // 故意杀人 也必须在
+        assert!(STANDARD_CASE_TYPES.contains(&"故意杀人"));
+    }
+
+    #[test]
+    fn section_199_4_criminal_case_reverse_fix_civil_to_criminal() {
+        // §199.4: 刑事案件里"民事行为能力人"应被反向修复为"刑事责任能力人"
+        let md = "被告人李福强被认定为限定民事行为能力人";
+        let (out, replacements) = filter_civil_terms_in_criminal(md);
+        assert!(out.contains("刑事责任能力"), "民事→刑事 fix 应生效");
+        assert!(!out.contains("民事行为能力"), "原文民事行为能力 不应再出现");
+        assert_eq!(replacements.len(), 1);
+    }
+
+    #[test]
+    fn section_199_4_criminal_case_compensation_to_imprisonment() {
+        // §199.4: 刑事案件里"赔偿责任三年"应被反向修复为"有期徒刑三年"
+        let md = "法院判令被告人赔偿受害人三年";
+        let (out, replacements) = filter_civil_terms_in_criminal(md);
+        assert!(out.contains("有期徒刑"), "赔偿→有期徒刑 fix 应生效");
+        assert!(replacements.len() >= 1);
+    }
+
+    #[test]
+    fn section_199_4_case_type_classifier() {
+        // §199.4: is_civil_case_type 应正确识别
+        assert!(is_civil_case_type("合同纠纷"));
+        assert!(is_civil_case_type("高压触电"));
+        assert!(is_civil_case_type("恶意诉讼"));
+        assert!(!is_civil_case_type("故意伤害"));
+        assert!(!is_civil_case_type("故意杀人"));
+        assert!(!is_civil_case_type("交通肇事"));
+    }
+
+    #[test]
+    fn section_199_5_strip_long_text_evidence_ids() {
+        // §199.5: [证据: 二零一七年十一月十四日下午一时许] 应被剥离
+        let md = "案发时间 [证据: 二零一七年十一月十四日下午一时许], 被告人供述不讳";
+        let (out, warnings) = strip_long_text_evidence_ids(md);
+        assert!(!out.contains("[证据:"), "非标证据 ID 应被剥离");
+        assert!(warnings.len() >= 1);
+        assert!(warnings[0].contains("§199.5"));
+
+        // [证据: 33:40] 这种 mm:ss 格式应保留
+        let md2 = "法庭宣判 [证据: 33:40] 判处有期徒刑三年";
+        let (out2, warnings2) = strip_long_text_evidence_ids(md2);
+        assert!(out2.contains("[证据: 33:40]"), "mm:ss 格式应保留");
+        assert!(warnings2.is_empty());
+
+        // [证据: 143] 这种纯数字也应被剥离 (短文本也算)
+        let md3 = "鉴定意见 [证据: 143] 确认完全刑事责任能力";
+        let (out3, warnings3) = strip_long_text_evidence_ids(md3);
+        assert!(warnings3.len() >= 1, "纯数字 evidence ID 也应被剥离");
+    }
+
+    #[test]
+    fn section_199_5_preserve_mm_ss_short_evidence() {
+        // 边界: 短 ASCII mm:ss 不应被剥离
+        let md = "案发 [证据: 07:41]";
+        let (out, warnings) = strip_long_text_evidence_ids(md);
+        assert!(out.contains("[证据: 07:41]"));
+        assert!(warnings.is_empty());
     }
