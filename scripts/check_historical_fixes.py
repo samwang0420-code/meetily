@@ -2279,6 +2279,54 @@ ANCHORS = [
     ("190_1_legacy_entry_after_qwen25_3b",
      "frontend/src-tauri/src/summary/summary_engine/models.rs",
      r"§190\.1: Qwen 3\.5 2B - Legacy tier retained"),
+
+    # ===== §163.1: sampling 实际生效 (2026-08-31) =====
+    # AGENTS.md §163 宣称 0.1/0.3/1.05 但 client.rs 显式 Some(...) 覆盖 → 实际 0.5/0.8.
+    # 改成 0.2/0.4/1.05 (Qwen 2B-4B Instruct sweet spot), 让 client.rs 真正按 §163 意图走.
+    ("163_1_qwen25_summary_temp_02",
+     "frontend/src-tauri/src/summary/summary_engine/models.rs",
+     r"qwen25_summary[\s\S]*?temperature: 0\.2"),
+    ("163_1_qwen35_summary_temp_02",
+     "frontend/src-tauri/src/summary/summary_engine/models.rs",
+     r"qwen35_summary[\s\S]*?temperature: 0\.2"),
+    ("163_1_qwen_top_p_04",
+     "frontend/src-tauri/src/summary/summary_engine/models.rs",
+     r"top_p: 0\.4"),
+    ("163_1_tight_structured_temp_02",
+     "frontend/src-tauri/src/summary/summary_engine/models.rs",
+     r"tight_structured[\s\S]*?temperature: 0\.2"),
+
+    # ===== §190.2: RAM 自适应模型推荐 (2026-08-31) =====
+    # 替换 §190 错误策略: ≥8GB → qwen2.5:3b (8GB 设备卡) + qwen2.5:1.5b 不注册.
+    # 新策略: ≥16GB 或 Apple Silicon ≥10GB → 3B, 其余 → qwen3.5:2b.
+    ("190_2_rama_adaptive_qwen35_2b_8gb",
+     "frontend/src-tauri/src/summary/summary_engine/commands.rs",
+     r"≥10GB Apple Silicon.*?qwen2\.5:3b"),
+    ("190_2_qwen35_2b_for_8gb_fallback",
+     "frontend/src-tauri/src/summary/summary_engine/commands.rs",
+     r"qwen3\.5:2b"),
+    ("190_2_remove_qwen25_15b_priority",
+     "frontend/src-tauri/src/summary/summary_engine/commands.rs",
+     r"summary_model_priority.*?qwen2\.5:1\.5b"  # negative: 注释中提到已删除
+     if False else r"§190\.2.*?qwen2\.5:1\.5b"),  # 检查注释含说明
+
+    # ===== §202: BuiltInModelManager RAM 推荐 banner (2026-08-31) =====
+    # 8GB 用户跑 3B 卡, banner 让用户知情切换到 2B. UI 显示 "本机 X GB · 推荐 Y".
+    ("202_ram_recommendation_state",
+     "frontend/src/components/BuiltInModelManager.tsx",
+     r"deviceRamGb"),
+    ("202_ram_recommendation_banner",
+     "frontend/src/components/BuiltInModelManager.tsx",
+     r"ram-recommendation-cta"),
+    ("202_ram_recommendation_i18n_zh",
+     "frontend/src/i18n/locales/zh.ts",
+     r"ram_recommend"),
+    ("202_ram_recommendation_i18n_en",
+     "frontend/src/i18n/locales/en.ts",
+     r"ram_recommend"),
+    ("202_recommended_model_for_ram_fn",
+     "frontend/src/components/BuiltInModelManager.tsx",
+     r"recommendedModelForRam"),
     ("190_1_unknown_model_fallback",
      "frontend/src-tauri/src/summary/summary_engine/client.rs",
      r"§190\.1 fallback: model .* not in registry, falling back to"),

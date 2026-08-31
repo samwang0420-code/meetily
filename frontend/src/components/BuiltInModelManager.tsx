@@ -52,6 +52,43 @@ export function BuiltInModelManager({
   // §90: 默认隐藏未下载模型, 用户要"显示所有"才展开下载列表
   const [showAllModels, setShowAllModels] = useState<boolean>(false);
 
+  // §202 (2026-08-31): RAM-aware recommendation banner.
+  // When the system has <16GB RAM, recommend qwen3.5:2b over qwen2.5:3b for better
+  // performance. Show "当前机器 8GB · 推荐 qwen3.5:2b (更快)" so user can choose
+  // consciously instead of getting the default 3B and watching it crawl at 5 tok/s.
+  const [deviceRamGb, setDeviceRamGb] = useState<number | null>(null);
+  const [deviceTier, setDeviceTier] = useState<string | null>(null);
+  const [isAppleSilicon, setIsAppleSilicon] = useState<boolean | null>(null);
+  const [cpuBrand, setCpuBrand] = useState<string | null>(null);
+
+  const recommendedModelForRam = (ramGb: number, appleSilicon: boolean): string => {
+    // 跟 §190.2 Rust 端 recommend_summary_model 完全对齐 — 单一真实源
+    if (ramGb >= 16) return 'qwen2.5:3b';
+    if (ramGb >= 10 && appleSilicon) return 'qwen2.5:3b';
+    return 'qwen3.5:2b';
+  };
+
+  const fetchDeviceProfile = async () => {
+    try {
+      const profile = await invoke<{
+        total_memory_gb?: number;
+        total_memory_mb?: number;
+        cpu_brand?: string;
+        is_apple_silicon?: boolean;
+        tier?: string;
+      }>('device_detect_profile');
+      const ramGb = profile.total_memory_gb
+        ?? (profile.total_memory_mb ? Math.round(profile.total_memory_mb / 1024) : null)
+        ?? null;
+      setDeviceRamGb(ramGb);
+      setDeviceTier(profile.tier ?? null);
+      setIsAppleSilicon(profile.is_apple_silicon ?? null);
+      setCpuBrand(profile.cpu_brand ?? null);
+    } catch (error) {
+      console.warn('§202: failed to detect device profile', error);
+    }
+  };
+
   const fetchModels = async () => {
     try {
       setIsLoading(true);
@@ -76,6 +113,7 @@ export function BuiltInModelManager({
 
   useEffect(() => {
     fetchModels();
+    fetchDeviceProfile();
   }, []);
 
   // Listen for download progress events
@@ -285,6 +323,43 @@ export function BuiltInModelManager({
       <div className="flex items-center justify-between mb-4">
         <h4 className="text-sm font-bold">{t('models.title')}</h4>
       </div>
+
+      {/* §202: RAM-aware recommendation banner. Helps 8GB users avoid the 3B default
+         trap where they get a 5 tok/s crawl. Renders only after device profile loads. */}
+      {deviceRamGb !== null && (
+        <Alert className="mb-4 border-blue-200 bg-blue-50/50 dark:bg-blue-950/20">
+          <AlertDescription className="text-xs">
+            <span className="font-medium">{t('models.ram_detected', { ram: deviceRamGb, cpu: cpuBrand ?? '' })}</span>
+            {(() => {
+              const recommended = recommendedModelForRam(deviceRamGb, isAppleSilicon ?? false);
+              const isCurrentRecommended = selectedModel === recommended;
+              if (isCurrentRecommended) {
+                return (
+                  <span className="ml-2 text-green-700 dark:text-green-400">
+                    ✓ {t('models.ram_match', { model: recommended })}
+                  </span>
+                );
+              }
+              const selectedMeta = models.find(m => m.name === selectedModel);
+              const recommendedMeta = models.find(m => m.name === recommended);
+              if (!recommendedMeta) return null; // 没装推荐模型, 不提示切换
+              return (
+                <button
+                  type="button"
+                  className="ml-2 text-blue-700 hover:underline dark:text-blue-400"
+                  onClick={() => onModelSelect(recommended)}
+                  data-testid="ram-recommendation-cta"
+                >
+                  → {t('models.ram_recommend', {
+                    current: selectedMeta?.display_name ?? selectedModel,
+                    recommended: recommendedMeta.display_name ?? recommended,
+                  })}
+                </button>
+              );
+            })()}
+          </AlertDescription>
+        </Alert>
+      )}
 
       <div className="mb-3 flex items-center justify-between text-xs text-neutral-500">
         <span>

@@ -4311,3 +4311,65 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - §138 / §139 (2026-08-23): 商业化硬约束 (基础)
 - §37 / §56 / §92 / §18 / §15
 - outputs/§201-法律摘要质量强化5项铁律-数字差异+量刑背景+零占位+ASR错字拦截-2026-08-31.md
+
+## §163.1 sampling 实际生效铁律 (2026-08-31 立)
+
+**触发**: §163 (2026-08-23 立) 写"Map/Reduce 一律用 temperature=0.1, top_p=0.3, repeat_penalty=1.05", 但 `client.rs:233` 显式 `Some(sampling.temperature)` → llama-helper §163 default 走不到, 实际生效是 `models.rs::qwen25_summary` / `qwen35_summary` 的 0.5 / 0.8。**§56 经典 AGENTS.md 描述 ≠ 代码 commit**。
+
+**修复 (commit 9323b8a)**:
+1. `models.rs::qwen25_summary` + `qwen35_summary` + `tight_structured` 改:
+   - temperature: 0.5 → **0.2** (Qwen 2B-4B Instruct 在 0.1 易循环, 0.5 易幻觉)
+   - top_p: 0.8 → **0.4**
+   - repeat_penalty: 1.05 (保持)
+   - presence_penalty: 0.3 → 0.1 (Qwen 2.5 3B 不易重复)
+2. AGENTS.md §163 改为"区间" (0.1-0.3 temperature, 0.3-0.5 top_p), 代码默认取中点 0.2/0.4
+
+**铁律**:
+1. **改 client.rs 显式传的 sampling 后必须查 `models.rs` 真实默认值** — §163 / §190 改过 sampling 但不查 client 调用栈 = 永远不生效
+2. **新增采样参数必须经 3 处同步**: AGENTS.md §X (宣称) + models.rs 实际数值 + client.rs 传值逻辑
+3. **AGENTS.md § 章节 ≠ 代码 commit** — 任何 §X 描述前必须 `git grep` 验证
+4. **单测断言反映真实策略** — 3 个 §190 测试之前 fix 了错误策略, 改 §190.2 后必须同步更新
+
+**§37 6 步硬闸门**: cargo test --lib summary::summary_engine **18/18 PASS**, tsc 0 errors, next build OK, cargo build --release OK, check_historical_fixes.py (待加 anchor), sync_app_bundle.sh (待 sync).
+
+## §190.2 RAM 自适应模型推荐 (2026-08-31 立)
+
+**触发**: §190 写"≥8GB → qwen2.5:3b, <8GB → qwen2.5:1.5b" 两个错:
+1. **8GB 设备推 3B 太紧**: M3 8GB + macOS 12+ 3.5GB + App 1GB = 4.5GB 占用, 3B 模型 1.8GB + KV 0.5GB = 2.3GB, 总 6.8GB, 剩 1.2GB buffer, 5 tok/s 卡
+2. **`qwen2.5:1.5b` 不在 models.rs 注册表**: `get_model_by_name("qwen2.5:1.5b") → None`, client.rs:182 fallback 到 `get_default_model()` (qwen2.5:3b), 结果是 8GB 设备推荐了 3B
+
+**修复 (commit 9323b8a)**:
+1. `commands.rs::recommend_summary_model(is_macos, system_ram_gb)` 改:
+   - `≥16GB` → `qwen2.5:3b` (高质量)
+   - `≥10GB && is_macos` → `qwen2.5:3b` (M2/M3 Pro/Max 10GB+)
+   - `≥8GB` → `qwen3.5:2b` (M3 8GB 主流, 1.2GB, 10-15 tok/s)
+   - `<8GB` → `qwen3.5:2b` (低端设备保稳)
+2. `summary_model_priority`: `qwen2.5:1.5b` 移除 (priority=0 兜底), `qwen3.5:2b` 从 1 升到 2
+3. 3 个测试更新 (`<8GB → qwen3.5:2b`, `8-9GB → qwen3.5:2b`, `≥16GB 或 Apple Silicon ≥10GB → qwen2.5:3b`)
+
+**铁律**:
+1. **RAM 自适应必须考虑 Apple Silicon 的统一内存架构** — M2/M3 共享内存比 Intel + 独显快很多, 同样 10GB RAM Apple Silicon 可吃下更大模型
+2. **fallback model 必须真在 models.rs 注册** — `recommend_summary_model` 返回的 model_name 必须 `get_model_by_name(x) != None`, 否则 §190.1 兜底
+3. **已装用户不应被自动切换** — `recommend_summary_model` 只在 `init_database` (首次安装) 调, 已装用户维持原 settings, 给 UI 推荐 banner 让用户主动切
+4. **测试断言必须反映真实策略** — 之前 fix 了 §190 错策略, 改策略必须同步测
+
+## §202 BuiltInModelManager UI RAM 推荐 banner (2026-08-31 立)
+
+**触发**: 8GB M3 用户跑 3B 模型 5 tok/s 卡, 但 settings 持久化让自动切换不触发, 用户必须手动去 settings 选 2B. UI 没显示"本机推荐 X 模型"提示, 用户不知道有更合适的选项.
+
+**实现 (commit 9323b8a)**:
+1. `frontend/src/components/BuiltInModelManager.tsx` 加:
+   - `deviceRamGb` / `deviceTier` / `isAppleSilicon` / `cpuBrand` state
+   - `fetchDeviceProfile()` 调 `invoke('device_detect_profile')` (已有 Tauri command, hardware/mod.rs:126)
+   - `recommendedModelForRam(ram, appleSilicon)` — 跟 Rust 端 §190.2 完全对齐 (单一真实源)
+   - 蓝色 Alert banner: "检测到本机 8GB · M3 · 切到 qwen3.5:2b (本机 8GB 推荐, 比 qwen2.5:3b 更快)"
+   - 当前已选最优 → 显示绿色 ✓ "当前选择的 qwen3.5:2b 已适配本机内存"
+2. i18n 3 个新 key (zh + en):
+   - `models.ram_detected` / `models.ram_match` / `models.ram_recommend`
+
+**铁律**:
+1. **TS 推荐函数必须跟 Rust 端一致** — 不要让前端后端各自维护一套 "RAM → model" 规则, 必须单一真实源 (Rust `recommend_summary_model` 是真源, TS 复制一份作为 UI 实时判断)
+2. **RAM 推荐 banner 不强制切换** — 用户主动选择 (e.g. 16GB 设备想用 2B 跑快) 必须尊重, banner 只显示"建议"不直接改 settings
+3. **banner 必须有 data-testid** — `ram-recommendation-cta` 便于 e2e 测试
+4. **未知 RAM 时不显示 banner** — `deviceRamGb === null` 不渲染, 避免噪声
+5. **§38 风格延续**: 默认隐藏未下载模型 + 加 toggle (§90 已立)

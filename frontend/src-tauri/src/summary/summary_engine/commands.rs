@@ -12,25 +12,33 @@ const QWEN35_4B_RECOMMENDED_RAM_GB: u64 = 14;
 
 pub(crate) fn summary_model_priority(model_name: &str) -> u8 {
     match model_name {
-        "qwen2.5:3b" => 4,  // §190: qwen2.5:3b is higher priority (replaces qwen3.5:4b)
-        "qwen3.5:4b" => 3,  // legacy
-        "qwen2.5:1.5b" => 2, // §190: fallback for <8GB RAM
-        "qwen3.5:2b" => 1,   // legacy fallback
-        "gemma3:4b" => 0,
+        // §190.2: priority 反映 "推荐度". qwen2.5:3b > qwen3.5:4b > qwen3.5:2b > gemma (其他)
+        "qwen2.5:3b" => 4,  // §190: 主推, ≥16GB 用户首选
+        "qwen3.5:4b" => 3,  // legacy High Quality
+        "qwen3.5:2b" => 2,  // §190.2: 8GB 主流机型默认 (替代已删除的 qwen2.5:1.5b 占位)
+        "gemma3:4b" => 1,
         "gemma3:1b" => 0,
         _ => 0,
     }
 }
 
-pub(crate) fn recommend_summary_model(_is_macos: bool, system_ram_gb: u64) -> &'static str {
-    // §190: 用 Qwen2.5-3B-Instruct 替换 Qwen3.5-2B
-    //   ≥16GB → qwen2.5:3b (高质量)
-    //   ≥8GB → qwen2.5:3b (主流 8GB 机型, ~4GB RAM 加载)
-    //   <8GB → qwen2.5:1.5b (轻量)
-    if system_ram_gb >= 8 {
+pub(crate) fn recommend_summary_model(is_macos: bool, system_ram_gb: u64) -> &'static str {
+    // §190.2 (2026-08-31): RAM-adaptive model selection — "兼顾 8GB 主流机型 + 专业性".
+    //   ≥16GB                → qwen2.5:3b (2.1GB, 高质量法律/医疗场景)
+    //   ≥10GB Apple Silicon  → qwen2.5:3b (M2/M3 10GB+ 机型可吃下 3B 模型 + KV cache)
+    //   ≥8GB                 → qwen3.5:2b (1.2GB, M3 8GB 主流机型, 10-15 tok/s Metal)
+    //   <8GB                 → qwen3.5:2b (1.2GB, 低端设备保稳)
+    //
+    // Why qwen3.5:2b not qwen2.5:1.5b for <8GB: qwen2.5:1.5b 不在 models.rs 注册表里,
+    // §190 写它当 fallback 实际让 settings.model='qwen2.5:1.5b' 但任何 model_by_name 查询都返回 None,
+    // 然后 client.rs:182 fall through to get_default_model() → qwen2.5:3b (3B 加载到 8GB 设备又卡死).
+    // qwen3.5:2b 是 stable 旧模型, registered, 1.2GB, 24 层全 Metal offload, 8GB 设备跑得动.
+    if system_ram_gb >= 16 {
+        "qwen2.5:3b"
+    } else if system_ram_gb >= 10 && is_macos {
         "qwen2.5:3b"
     } else {
-        "qwen2.5:1.5b"
+        "qwen3.5:2b"
     }
 }
 
@@ -418,26 +426,41 @@ mod tests {
     use super::*;
 
     #[test]
-    fn recommended_summary_model_uses_qwen_1_5b_below_8gb_floor() {
-        // §190: <8GB RAM → qwen2.5:1.5b (轻量)
-        assert_eq!(recommend_summary_model(true, 7), "qwen2.5:1.5b");
-        assert_eq!(recommend_summary_model(false, 7), "qwen2.5:1.5b");
+    fn recommended_summary_model_uses_qwen35_2b_below_8gb_floor() {
+        // §190.2 (2026-08-31): <8GB RAM → qwen3.5:2b (1.2GB, registered, 8GB 设备跑得动)
+        // 替换 §190 的 qwen2.5:1.5b (models.rs 没注册, fallback 失效).
+        assert_eq!(recommend_summary_model(true, 7), "qwen3.5:2b");
+        assert_eq!(recommend_summary_model(false, 7), "qwen3.5:2b");
+        assert_eq!(recommend_summary_model(true, 4), "qwen3.5:2b");
+        assert_eq!(recommend_summary_model(false, 4), "qwen3.5:2b");
     }
 
     #[test]
-    fn recommended_summary_model_uses_qwen_3b_at_8gb_floor() {
-        // §190: ≥8GB RAM → qwen2.5:3b
-        assert_eq!(recommend_summary_model(true, 8), "qwen2.5:3b");
-        assert_eq!(recommend_summary_model(false, 8), "qwen2.5:3b");
+    fn recommended_summary_model_uses_qwen35_2b_for_8gb_to_9gb_apple_silicon() {
+        // §190.2 (2026-08-31): 8-9GB M3 主流 → qwen3.5:2b (比 3B 快 2x)
+        // 替换 §190 的 ≥8GB → qwen2.5:3b (3B 跑 8GB 设备太紧, 5 tok/s 卡)
+        assert_eq!(recommend_summary_model(true, 8), "qwen3.5:2b");
+        assert_eq!(recommend_summary_model(true, 9), "qwen3.5:2b");
+        assert_eq!(recommend_summary_model(false, 8), "qwen3.5:2b"); // Intel 8GB
+    }
+
+    #[test]
+    fn recommended_summary_model_uses_qwen_3b_for_16gb_or_apple_silicon_10gb() {
+        // §190.2 (2026-08-31): ≥16GB → 3B; Apple Silicon ≥10GB → 3B (M2/M3 Pro/Max)
         assert_eq!(recommend_summary_model(true, 16), "qwen2.5:3b");
-        assert_eq!(recommend_summary_model(false, 32), "qwen2.5:3b");
+        assert_eq!(recommend_summary_model(false, 16), "qwen2.5:3b");
+        assert_eq!(recommend_summary_model(true, 32), "qwen2.5:3b");
+        assert_eq!(recommend_summary_model(true, 10), "qwen2.5:3b"); // M2 10GB+
+        assert_eq!(recommend_summary_model(false, 10), "qwen3.5:2b"); // Intel 10GB 没 Metal
     }
 
     #[test]
     fn available_summary_model_priority_prefers_qwen_2_5_3b() {
-        // §190: qwen2.5:3b > qwen2.5:1.5b > legacy qwen3.5 系列
-        assert!(summary_model_priority("qwen2.5:3b") > summary_model_priority("qwen2.5:1.5b"));
+        // §190.2: qwen2.5:3b (4) > qwen3.5:4b (3) > qwen3.5:2b (2) > gemma3:4b (1) > gemma3:1b (0)
+        // 删 qwen2.5:1.5b (models.rs 没注册, priority=0 兜底)
         assert!(summary_model_priority("qwen2.5:3b") > summary_model_priority("qwen3.5:4b"));
-        assert!(summary_model_priority("qwen2.5:1.5b") > summary_model_priority("qwen3.5:2b"));
+        assert!(summary_model_priority("qwen3.5:4b") > summary_model_priority("qwen3.5:2b"));
+        assert!(summary_model_priority("qwen3.5:2b") > summary_model_priority("gemma3:4b"));
+        // qwen2.5:1.5b 已删, 不应被任何 priority 测试提及
     }
 }

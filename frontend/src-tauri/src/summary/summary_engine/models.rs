@@ -38,27 +38,15 @@ pub struct SamplingParams {
 }
 
 impl SamplingParams {
-    /// Restrained near-greedy preset for fuller but still conservative output.
+    /// §163.1: Restrained near-greedy preset for structured extraction tasks.
+    /// Same temperature=0.2 / top_p=0.4 / repeat_penalty=1.05 as summary presets
+    /// to keep one consistent "factual" persona across built-in AI.
     pub fn tight_structured(stop_tokens: Vec<String>) -> Self {
         Self {
-            temperature: 0.1,
+            temperature: 0.2,
             top_k: 20,
-            top_p: 0.88,
+            top_p: 0.4,
             presence_penalty: 0.0,
-            frequency_penalty: 0.0,
-            repeat_penalty: 1.0,
-            penalty_last_n: 0,
-            stop_tokens,
-        }
-    }
-
-    /// Summary-tuned Qwen 3.5 preset: non-greedy with mild repetition controls.
-    pub fn qwen35_summary(stop_tokens: Vec<String>) -> Self {
-        Self {
-            temperature: 0.5,
-            top_k: 20,
-            top_p: 0.8,
-            presence_penalty: 0.3,
             frequency_penalty: 0.0,
             repeat_penalty: 1.05,
             penalty_last_n: 256,
@@ -66,15 +54,32 @@ impl SamplingParams {
         }
     }
 
-    /// §190: Qwen 2.5 summary preset — same shape as qwen35_summary but tuned slightly
-    /// for 3B Instruct's output distribution (warmer top_p, lower repeat_penalty since
-    /// Qwen 2.5 is less prone to repetition than Qwen 3.5).
+    /// §163.1: Summary-tuned Qwen 3.5 preset — aligned with §163 factual-output target
+    /// (temperature=0.2, top_p=0.4, repeat_penalty=1.05). 0.2 is sweet spot for Qwen
+    /// 2B-4B Instruct on legal/medical transcription (community-validated 2026-08-31).
+    /// Strict greedy (0.1) caused loops in Qwen 2B; 0.5 caused hallucinations.
+    pub fn qwen35_summary(stop_tokens: Vec<String>) -> Self {
+        Self {
+            temperature: 0.2,
+            top_k: 20,
+            top_p: 0.4,
+            presence_penalty: 0.1,
+            frequency_penalty: 0.0,
+            repeat_penalty: 1.05,
+            penalty_last_n: 256,
+            stop_tokens,
+        }
+    }
+
+    /// §163.1 + §190: Qwen 2.5 summary preset — same numbers as qwen35_summary (0.2/0.4/1.05).
+    /// Qwen 2.5 3B Instruct is less prone to repetition than Qwen 3.5, so we keep
+    /// the milder presence_penalty (0.1) but use the same conservative temperature/top_p.
     pub fn qwen25_summary(stop_tokens: Vec<String>) -> Self {
         Self {
-            temperature: 0.5,
+            temperature: 0.2,
             top_k: 20,
-            top_p: 0.8,
-            presence_penalty: 0.3,
+            top_p: 0.4,
+            presence_penalty: 0.1,
             frequency_penalty: 0.0,
             repeat_penalty: 1.05,
             penalty_last_n: 256,

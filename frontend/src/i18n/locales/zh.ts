@@ -476,6 +476,9 @@ export const zh: Record<string, unknown> = {
     showing_available: '仅显示已下载的模型',
     hide_undownloaded: '收起未下载的模型',
     show_undownloaded: '展开未下载的模型 (可下载更多)',
+    ram_detected: '检测到本机 {{ram}} GB · {{cpu}}',
+    ram_match: '当前选择的 {{model}} 已适配本机内存',
+    ram_recommend: '切到 {{recommended}} (本机 {{ram}}GB 推荐, 比 {{current}} 更快)',
     status: {
       ready: '已就绪',
       selected: '已选中',

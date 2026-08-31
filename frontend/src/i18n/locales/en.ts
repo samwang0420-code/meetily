@@ -473,6 +473,9 @@ export const en: Record<string, unknown> = {
     showing_available: 'Showing only downloaded models',
     hide_undownloaded: 'Hide undownloaded',
     show_undownloaded: 'Show undownloaded (download more)',
+    ram_detected: 'Detected {{ram}} GB · {{cpu}}',
+    ram_match: 'Currently selected {{model}} is suitable for this machine',
+    ram_recommend: 'Switch to {{recommended}} (recommended for {{ram}}GB, faster than {{current}})',
     status: {
       ready: 'Ready',
       selected: 'Selected',
