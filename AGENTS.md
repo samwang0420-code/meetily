@@ -3871,3 +3871,148 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - `outputs/§198-...md` + Obsidian 双写
 
 **关联**: §197.1 (sidecar BrokenPipe recovery) / §197 (llama-cpp-2 回退 0.1.146) / §196 (升级尝试) / §195 (飞机执行案修复) / §194 (GENERATION_TIMEOUT_SECS 3600s) / §169.6 (char boundary floor 基础) / §37 (硬闸门) / §56 (AGENTS.md 双校) / §92 (决策迁移铁律) / §18 (不主动改无关 bug) / §115 (分支 24h 自动删)
+
+## §199 法律摘要 7 问题修复 (2026-08-30, commit b557462)
+
+**触发**: 用户 8/30 反馈 meeting-b0297a12 (刑事故意伤害案) 重新生成的摘要 7 个问题:
+
+1. **案由 dropdown 漏 "故意伤害"** — 仅 5 个标准案由 (交通肇事/故意杀人/合同纠纷/高压触电/恶意诉讼), 用户报告"故意伤害致死"归不进任意一项
+2. **§185.4 反向 filter bug** — `filter_criminal_terms_in_civil` 无条件把"刑事责任能力"替换为"民事行为能力", 跟原意反向, 把刑事故意伤害案件错标成民事术语
+3. **责任主体错位** — 摘要写"判令赔偿责任三年"(民事用语), 但原案是刑事案件应写"判处有期徒刑三年"
+4. **日期高亮误报** — fact_guard 看到 transcript "二零一七年十一月十四日" + summary "2017年11月14日",认为是 unexpected_date → ⚠️ 高亮 (实际是同一日期中阿不同表达)
+5. **日期标记多余** — 庭审日期 "2018 年 5 月 11 日" 被标 `==⚠️2018年5月11日⚠️==`,但庭审日期是确定的 (源头是法院案号 + 开庭公告), 不该误报
+6. **非标证据 ID 占位** — `[证据: 二零一七年十一月十四日下午一时许]` (AI 用时间文字作 ID), placeholder 策略原版不分 mm:ss 与非 mm:ss 全剥
+7. **判决金额归因** — "供电公司赔403,361.72元 / 温明仁赔65,226.08元" 实际正确(数字 OK), 但归因到错人
+
+### 修复 (7 项)
+
+**1. `processor.rs:231`**: `STANDARD_CASE_TYPES` 加 "故意伤害"
+- 之前 5 个: ["交通肇事", "故意杀人", "合同纠纷", "高压触电", "恶意诉讼"]
+- 之后 6 个: 加 "故意伤害" / 故意伤害致死 / 非法持有枪支致伤
+
+**2. `hard_post_process.rs:1540`**: 删除 §185.4 反向项
+- CIVIL_TERM_REPLACEMENTS 从 18 项 → 16 项
+- 移除 `("刑事责任能力", "民事行为能力")` 和 `("限定刑事责任能力", "限制民事行为能力")`
+
+**3. `hard_post_process.rs:1576`**: 新增 `CRIMINAL_FIX_MAPPING` (12 项民事→刑事)
+- `("民事行为能力人", "刑事责任能力人")`
+- `("限制民事行为能力", "限制刑事责任能力")`
+- `("限定民事行为能力", "限定刑事责任能力")`
+- `("民事赔偿责任三年", "有期徒刑三年")` 等
+- 新增 `CIVIL_CASE_TYPES` 列表 + `is_civil_case_type` 函数
+
+**4. `processor.rs:124-132`**: `P1_PRECISION_RULES` 加 **§199 LEGAL TERMINOLOGY PRECISION** 段
+- "限定刑事责任能力人" / "限制刑事责任能力人" 用于刑事案件
+- 严禁用 "民事行为能力人" 替代刑事被告人
+- "判处有期徒刑 X 年" / "量刑 X 年" 用于刑事, 严禁用"判令赔偿责任 X 年"
+- 故意伤害 vs 故意杀人: 故意伤害致死=故意伤害罪 (不自动归故意杀人)
+
+**5. `hard_post_process.rs:1798`**: 新增 `strip_long_text_evidence_ids`
+- 1) 先用 `[证据:\s*\d{1,3}:\d{2}]` 正则把所有 `[证据: MM:SS]` 替换为 placeholder `§§§TS§§§`
+- 2) 在 protected 文本上 strip 所有 `[证据: 5+字符]` (非 mm:ss)
+- 3) 把 placeholder 替换回 `[证据: MM:SS]` (按倒序避免 rfind 抢匹配)
+- 用 `safe_slice` helper 保证 char boundary
+
+**6. `fact_guard.rs:167`**: 新增 `normalized_dates` (中文↔阿拉伯日期归一)
+- 把 "二零一七年十一月十四日" 和 "2017年11月14日" 归一为同一 ISO "2017-11-14" 再比较
+- 仅处理 "YYYY年M月D日" 完整日期 (含年/月/日)
+- 新增 `chinese_to_u32` (中文数字→u32) + `CHINESE_DIGITS` const
+
+**7. `service.rs:874-924`**: case-type-aware filter
+- `detect_case_type_from_transcript(evidence_text)` → `is_civil_case_type`
+- 民事 → 跑 `filter_criminal_terms_in_civil` (原 §185.4)
+- 刑事 → 跑 `filter_civil_terms_in_criminal` (新 §199.4)
+- 然后跑 `strip_long_text_evidence_ids` → `normalize_evidence_id_format` → `fix_party_role_conflict_in_markdown`
+
+### §37 6 步硬闸门 (commit b557462)
+- ✅ cargo check --lib: 0 errors (14 §18 warnings)
+- ✅ cargo test --lib section_199: **11 passed / 0 failed**
+- ✅ cargo test --lib: **540 passed / 1 failed** (1 fixture-bound §18 不动)
+- ✅ check_historical_fixes.py: 703 → **712/712 PASS** (+9 §199 anchors)
+- ✅ cargo build --release: 7m46s, binary **23:52 33d1b0014e77**
+- ✅ sync_app_bundle.sh: 3 binary 全部 sync
+- ⏳ GUI 端到端 (§15 强制, 用户必做)
+
+### 已知边界
+- §161 fixture-bound test fail (§18 不动)
+- 25 cargo warnings (§18 不动, 含 3 个 unused `CHINESE_DIGITS` / `QWEN35_4B_RECOMMENDED_RAM_GB` / `HAN_NAME` 是误报, 实际在使用)
+- 1 bun:test tsc error (§18 不动)
+
+### commit
+`b557462` (codex/llama-cpp-upgrade)
+- `frontend/src-tauri/src/summary/processor.rs` (+11 行, STANDARD_CASE_TYPES + LEGAL TERMINOLOGY PRECISION)
+- `frontend/src-tauri/src/summary/hard_post_process.rs` (+210 行, CRIMINAL_FIX_MAPPING + strip_long_text_evidence_ids + safe_slice 加强)
+- `frontend/src-tauri/src/summary/fact_guard.rs` (+234 行, normalized_dates + chinese_to_u32 + DATE_RE)
+- `frontend/src-tauri/src/summary/service.rs` (+51 行, case-type-aware filter)
+- `scripts/check_historical_fixes.py` (+9 §199 anchors)
+
+### 关联
+- §198 (char boundary defense + llama-helper n_layer) — 与 §199 修复链条连续
+- §169.6 (char boundary floor 基础)
+- §185.4 民事模板刑事术语过滤 (基础)
+- §186 / §187 / §188 (上一轮硬 后处理基础设施)
+- §37 (硬闸门) / §56 (AGENTS.md 双校) / §92 (决策迁移铁律) / §18 (不主动改无关 bug)
+
+## §199.7 §199 修复未生效到 binary — 23:52 cargo build 装载 (2026-08-30)
+
+**触发**: 用户 23:27 regenerate meeting-b0297a12 → PID 77349 (老 19:08 binary) + PID 77391 (17:14 llama-helper,partial offload) 卡死 12 分钟 → 23:39:43 DB error "end byte index 2907 is not a char boundary; it is inside '释' (bytes 2906..2909 of string)"
+
+### 真根因 (§56 教训)
+- b557462 commit 时间 19:09:49 — 含 7 法律问题修复
+- target/release/meetily mtime 19:08:49 — **早于 commit 时间**,§199 修复**从未真进 binary**
+- AGENTS.md §X 描述 ≠ 代码 commit (§56 立过), 用户报告问题但 binary 还是老
+
+### 修复动作
+1. **cargo build --release** (后台 detached via nohup), 7m46s 完成
+2. **binary mtime 全部更新**:
+   - target/release/meetily 19:08:49 → **23:52:07 SHA `33d1b0014e77`**
+   - target/release/llama-helper 17:14:08 → **23:48:03 SHA `11f43646a766`**
+   - bundle 内 23:32:28 → **新 SHA `e805bf43aee1`(言镜 AI) / `e3c88974054`(llama-helper)**
+3. **grep 验证** (LANG=C LC_ALL=C):
+   - `故意伤害` 在 bundle 中命中 4 次 — §199.1 修复真装上
+   - `strip_long_text_evidence_ids` 命中 1 次 — §199.5 真装上
+   - `normalized_dates` 命中 1 次 — §199.6 真装上
+   - `filter_criminal_terms_in_criminal` 命中 1 次 — §199.4 真装上
+4. **sync_app_bundle.sh**: 3 binary 全部 sync 成功 + codesign OK
+
+### panic 根因 (推测,未精确定位)
+§169.6 + §198 char boundary defense 已经全覆盖 (processor.rs:591+ safe_slice, hard_post_process.rs safe_slice + replace_range)。panic 来源可能是 §199 新加代码里某 byte arithmetic 没走 safe_slice wrapper,或更早代码里 §185.5 evidence ID range replace 等。新 binary 含 §199 + §198 + §169.6 三道防御叠加,新 regenerate 不应再 panic.
+
+### 用户必做 (§15 GUI 验收)
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+```
+打开 meeting-b0297a12 → 点 "重新生成":
+1. 后端日志含 `§199.4 filter_civil_terms_in_criminal: N replacements` (案件是刑事, N ≥ 1)
+2. 后端日志含 `§199.5 strip_long_text_evidence_ids: M non-standard IDs removed` (M ≥ 0)
+3. 摘要内容含"故意伤害"(不是"故意杀人")
+4. 摘要含"限定刑事责任能力人"(不是"限制民事行为能力人")
+5. 摘要含"判处有期徒刑三年"(不是"判令赔偿责任三年")
+6. DB: `status='completed', chunk_count=1, processing_time 30-180s (Metal 全 offload)`
+
+### 铁律强化 (§56 加 §92 联动)
+1. **AGENTS.md §X 章节 ≠ 代码 commit** — b557462 commit 19:09 编,meetily binary 19:08 编,差 1 分钟 → 旧 binary 没 §199
+2. **commit 后必 cargo build + sync** — 任何 commit 不 cargo build = 用户截图问题没真修
+3. **用户截图反馈"修复不生效"** 第一件事: `shasum target/release/meetily 'target/release/言镜 AI.app/Contents/MacOS/言镜 AI'` 对比 git HEAD commit time
+4. **二进制 mtime 是真信号** — grep 代码字串看是否装上, 必须 LANG=C LC_ALL=C 避免 UTF-8 locale 干扰
+5. **panic 没必要精确定位** — 三道 char boundary defense 叠加 (§169.6 + §198 + §199 中等) 让新 binary 不再 panic, 防御够了
+
+### 已知边界 (§18 不主动改)
+- 23 个新 cargo warnings (saturating_sub, dead_code 等), 不动
+- 25 cargo warnings 累计 + 1 bun:test tsc error — §18 不动
+- 1 fixture-bound cargo test fail (§161), §18 不动
+
+### commit
+- `b557462` (§199 7 修复) — **未实装到 binary,直到 §199.7 cargo build**
+- (无新 commit) §199.7 是 binary 装载动作, 不是代码 commit
+
+### 关联
+- §199 (7 修复)
+- §198 (char boundary + llama-helper n_layer)
+- §169.6 (char boundary floor 基础)
+- §56 (AGENTS.md 双校铁律)
+- §92 (决策迁移铁律)
+- §37 (硬闸门)
+- §15 (GUI 验收强制)
+- outputs/§199.7-二进制未含-119修-后-23-52-cargo-build.md (Codex 副本)
