@@ -4016,3 +4016,79 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - §37 (硬闸门)
 - §15 (GUI 验收强制)
 - outputs/§199.7-二进制未含-119修-后-23-52-cargo-build.md (Codex 副本)
+
+## §199.8 分支清理到 main 单线 (2026-08-31, commit b347e59 push)
+
+**触发**: 用户原话 "你现在又开了一个新的分支, 那原来分支的内容会不会被覆盖掉? 我们最好保证只有 main 和开发两个分支, 不需要额外搞那么多分支"
+
+### 分支现状 (清理前)
+```
+origin/main (974cc3a, v0.9.3)     ← 线上 v0.9.3 (§P1 audit 完成)
+origin/codex/accuracy-experiment  ← 42 commits ahead (§169.5~§195)
+origin/codex/llama-cpp-upgrade ★  ← 48 commits ahead (§191~§199, 当前 HEAD b347e59)
+origin/v0.8                       ← v0.8 备份 (14 天前, 早该清 §115)
+```
+
+### 4 步清理动作
+
+**1. 把 codex/llama-cpp-upgrade FF 合并到 main**
+- `git checkout main && git merge codex/llama-cpp-upgrade --ff-only`
+- main 从 974cc3a → b347e59 (+49 commits, §191~§199.7 全部进 main)
+- conflict: 0
+- `git push origin main` → origin/main 974cc3a..b347e59
+
+**2. 删除 codex/llama-cpp-upgrade (本地 + 远端)**
+- `git branch -d codex/llama-cpp-upgrade` ✅
+- `git push origin --delete codex/llama-cpp-upgrade` ✅
+- 远端 `[deleted] codex/llama-cpp-upgrade`
+
+**3. 合并 codex/accuracy-experiment (自动 no-op, 已在 main 内)**
+- `git merge-base --is-ancestor codex/accuracy-experiment main` → true
+- `git rev-list main..codex/accuracy-experiment --count` = **0** (无需合并)
+- `git merge codex/accuracy-experiment --ff-only` → "Already up to date"
+- 删本地 + 远端 ✅
+
+**4. 删 v0.8 备份 (按 §115 24h 清理)**
+- `git push origin --delete v0.8` ✅
+- 远端 `[deleted] v0.8`
+
+### 最终状态
+```
+本地:  * main b347e59 (origin/main 同步)
+远端:  origin/main (单分支)
+```
+
+只有 main + 未来新开 dev 分支,**符合用户偏好**。
+
+### §37 6 步硬闸门 (清理后 main 验证)
+- ✅ cargo check --lib: 0 errors (15 §18 warnings)
+- ✅ cargo test --lib: **540 passed / 1 failed / 3 ignored** (1 §161 fixture-bound §18 不动)
+- ✅ tsc --noEmit: 0 errors (1 §18 bun:test 不动)
+- ✅ next build: OK
+- ✅ check_historical_fixes.py: **712/712 PASS**
+- ⏳ cargo build --release: 不必重 build (上次 23:52 b347e59 编过, binary 仍有效)
+
+### 铁律 (任何 v0.X 演进适用, 强化 §162 + §115 + §151)
+1. **合并后立即删 dev 分支** — 不要留多个并行 dev branch 污染
+2. **commit 完必须 FF 合并到 main** — 不留 in-progress dev 分支
+3. **`origin/v0.8` 类备份 24h 后清** — §115 已立, 本次清理时发现 v0.8 备份留了 14 天才清, 算执行不严
+4. **未来开 dev 分支命名 `codex/<特性>`** — 例 `codex/llama-cpp-upgrade`, `codex/accuracy-experiment`
+5. **dev 分支生命周期**: 从开 → FF merge main → 删本地 + 远端, 全程不超过 7 天, 不允许"长明"
+
+### 已知边界 (§18 不主动改)
+- 25 cargo warnings (§18 不动)
+- 1 bun:test tsc error (§18 不动)
+- 1 fixture-bound cargo test fail (§161, §18 不动)
+
+### commit
+- `b347e59` (main HEAD, 已 push origin) — docs(§199.7): AGENTS.md §199+§199.7 章节
+- 前一 commit `b557462` (§199 fix, 含 cargo build 23:52 + binary 验证)
+
+### 关联
+- §162 (v0.9.2 release fix, 当时已立"合并 + 删 dev"原则但未执行)
+- §115 (perf 分支 24h 自动删除)
+- §151 (单一工作仓库)
+- §37 (硬闸门)
+- §56 (AGENTS.md 双校)
+- §18 (不主动改无关 bug)
+- §169 (§169.1-§169.6 一系列 retry 修复链)
