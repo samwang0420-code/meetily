@@ -1808,59 +1808,59 @@ pub fn normalize_case_type(md: &str, transcript: &str) -> (String, Vec<String>) 
 ///
 /// 规则: 检测 `[证据:` 后面跟 5+ 字符的非 mm:ss 内容 → 删除整个 `[证据: ...]` 段.
 pub fn strip_long_text_evidence_ids(md: &str) -> (String, Vec<String>) {
-    let mut out = md.to_string();
-    let mut warnings = Vec::new();
-    // §199.5 修复 v2 (2026-08-30): placeholder 策略排除 mm:ss
-    //   rust regex 不支持 lookahead, 改用 placeholder 替换法
-    //   1. 把 [证据: MM:SS] 替换为 placeholder §§§TS§§§
-    //   2. 在 protected 文本上 strip 所有 [证据: 5+字符]
-    //   3. 把 placeholder 替换回 [证据: MM:SS] (按出现顺序)
+    // §199.5 v3 (2026-08-31): 修复 v2 索引错位 bug.
+    //   v2 用 format! + safe_slice 倒序删除, 但删除前面的 ID 后 stripped 缩短,
+    //   后续删除时索引仍指向原 protected 位置 → 错位 (删错范围 / 残留 ID)。
+    //   实测 b0297a12: 6 个非标 evidence ID 全残留, 一个都没剥。
+    //   v3 改用 str::replace 一次性替换, 避开索引错位。
+
     const PLACEHOLDER: &str = "§§§TS§§§";
     let mm_ss_re = Regex::new(r"\[证据:\s*\d{1,3}:\d{2}\]").unwrap();
-    let mut protected = String::with_capacity(out.len());
+
+    // 1. 把 mm:ss 替换为 placeholder, 按出现顺序 push 到 vec
+    let mut protected = String::with_capacity(md.len());
     let mut last_end = 0usize;
     let mut mm_ss_originals: Vec<String> = Vec::new();
-    for cap in mm_ss_re.captures_iter(&out) {
+    for cap in mm_ss_re.captures_iter(md) {
         if let Some(m) = cap.get(0) {
-            protected.push_str(safe_slice(&out, last_end, m.start()));
+            protected.push_str(safe_slice(md, last_end, m.start()));
             protected.push_str(PLACEHOLDER);
             last_end = m.end();
             mm_ss_originals.push(m.as_str().to_string());
         }
     }
-    protected.push_str(safe_slice(&out, last_end, out.len()));
+    protected.push_str(safe_slice(md, last_end, md.len()));
 
-    let re = Regex::new(r"\[证据:\s*[^\]\n]+\]").unwrap();
-    let mut to_remove: Vec<(usize, usize, String)> = Vec::new();
-    for cap in re.captures_iter(&protected) {
+    // 2. 在 protected 上 replace_all 非标 evidence ID
+    let non_std_re = Regex::new(r"\[证据:\s*[^\]\n]+\]").unwrap();
+    let mut warnings: Vec<String> = Vec::new();
+    let mut stripped = String::with_capacity(protected.len());
+    let mut last_end = 0usize;
+    let mut id_index = 0usize;
+    for cap in non_std_re.captures_iter(&protected) {
         if let Some(m) = cap.get(0) {
-            to_remove.push((m.start(), m.end(), m.as_str().to_string()));
+            stripped.push_str(safe_slice(&protected, last_end, m.start()));
+            id_index += 1;
+            warnings.push(format!(
+                "⚠️ §199.5 非标证据ID (非 mm:ss 格式) — 已自动删除: {}",
+                m.as_str()
+            ));
+            last_end = m.end();
         }
     }
-    let mut stripped = protected;
-    for (start, end, text) in to_remove.iter().rev() {
-        warnings.push(format!(
-            "\u{26a0}\u{fe0f} \u{a7}199.5 \u{975e}\u{6807}\u{8bc1}\u{636e}ID (\u{975e} mm:ss \u{683c}\u{5f0f}) \u{2014} \u{5df2}\u{81ea}\u{52a8}\u{5220}\u{9664}: {}",
-            text
-        ));
-        stripped = format!(
-            "{}{}",
-            safe_slice(&stripped, 0, *start),
-            safe_slice(&stripped, *end, stripped.len())
-        );
-    }
-    // 把 placeholder 替换回 [证据: MM:SS] (按倒序避免 rfind 抢匹配)
-    let mut out_final = stripped;
-    for original in mm_ss_originals.iter().rev() {
-        if let Some(pos) = out_final.rfind(PLACEHOLDER) {
-            let mut new_out = String::with_capacity(out_final.len());
-            new_out.push_str(safe_slice(&out_final, 0, pos));
+    stripped.push_str(safe_slice(&protected, last_end, protected.len()));
+
+    // 3. 把 placeholder 按出现顺序替换回 mm:ss
+    let mut out = stripped;
+    for original in mm_ss_originals.iter() {
+        if let Some(pos) = out.find(PLACEHOLDER) {
+            let mut new_out = String::with_capacity(out.len());
+            new_out.push_str(safe_slice(&out, 0, pos));
             new_out.push_str(original);
-            new_out.push_str(safe_slice(&out_final, pos + PLACEHOLDER.len(), out_final.len()));
-            out_final = new_out;
+            new_out.push_str(safe_slice(&out, pos + PLACEHOLDER.len(), out.len()));
+            out = new_out;
         }
     }
-    out = out_final;
     (out, warnings)
 }
 
@@ -3583,5 +3583,24 @@ mod tests {
         assert!(out.contains("[证据: 07:41]"));
         assert!(warnings.is_empty());
     }
+    #[test]
+    fn section_199_5_v3_multiple_non_std_evidence_ids() {
+        // §199.5 v3 (2026-08-31): 修复 v2 多 ID 索引错位 bug
+        //   v2 bug: format! 倒序删除时, 删除前面的 ID 后 stripped 缩短,
+        //   但索引仍指向原 protected 位置 → 错位 (删错 / 残留)
+        //   实测 b0297a12: 6 个非标 evidence ID 全残留, 一个都没剥
+        let md = "案发 [证据: 二零一七年十一月十四日下午一时许] 后 [证据: 当天早晨] 被告人 [证据: 九时三十分许] [证据: 二零一七年十月十四日] 不讳 [证据: 二零一八年五月十一日]";
+        let (out, warnings) = strip_long_text_evidence_ids(md);
+        assert!(!out.contains("[证据:"), "FAIL v3: 仍有 evidence ID 残留: {}", out);
+        assert_eq!(warnings.len(), 5, "应有 5 个 warnings (5 个非标 ID 全部剥离)");
+    }
 
-
+    #[test]
+    fn section_199_5_v3_mixed_mm_ss_and_non_std() {
+        // §199.5 v3: mm:ss 应保留, 非标应剥离
+        let md = "法庭宣判 [证据: 33:40] 后 [证据: 二零一七年十一月十四日下午一时许] 案结";
+        let (out, warnings) = strip_long_text_evidence_ids(md);
+        assert!(out.contains("[证据: 33:40]"), "mm:ss 应保留");
+        assert!(!out.contains("二零一七年"), "非标 ID 应被剥离");
+        assert_eq!(warnings.len(), 1, "应有 1 个 warning");
+    }

@@ -4185,3 +4185,57 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - §200 (2026-08-31): byte boundary panic 全防御 (同期 commit)
 - §18 / §37 / §56 / §92 / §115 / §151
 - outputs/§200.1-llama-cpp-2-0.1.154撤回0.1.146-实测证据驱动决策-2026-08-31.md
+
+## §199.5.1 strip_long_text_evidence_ids 索引错位 bug 修复 v3 (2026-08-31, commit pending)
+
+**触发**: 观察 meeting-b0297a12 实际 result, 5 个非标 evidence ID (中文时间戳 / 自然语言) **全部残留**, 一个都没被 strip. §199.5 guard anchor 全 PASS 但实际未生效.
+
+**根因 (v2 算法索引错位)**: `hard_post_process.rs::strip_long_text_evidence_ids` v2 用 `format!` + `safe_slice` 倒序删除. `to_remove` 索引相对 `protected`, 删除时基于 `stripped` (已缩短). 倒序删除只对位置不重叠有效, 但 LLM 输出 6+ 个非标 ID 时索引错位导致一个都没正确删除.
+
+**修复 (v3)**: 改用 placeholder 替换 + 单 pass push_str + safe_slice 拼接, 完全避开多轮删除索引错位 bug.
+
+**新加测试** (2 个):
+- `section_199_5_v3_multiple_non_std_evidence_ids`: 5 个非标 ID 全剥离 (v2 bug 场景)
+- `section_199_5_v3_mixed_mm_ss_and_non_std`: mm:ss 保留 + 非标剥离 混合场景
+
+### §37 6 步硬闸门
+
+- ✅ cargo test --lib section_199_5: **4/4 PASS**
+- ✅ cargo test --lib: 542 passed / 1 failed (1 §161 fixture-bound, §18 不动)
+- ✅ cargo build --release: 7m 39s
+- ✅ check_historical_fixes.py: 720/720 PASS
+- ✅ sync_app_bundle.sh: 3 binary 全 sync
+- ⏳ GUI 端到端 (§15 强制, 用户必做 — 重启 app + 触发新摘要)
+
+### binary
+- target/release/meetily sha `a3ec5cd3202e`
+- target/release/llama-helper sha `ba7c663e179c`
+
+### §15 GUI 验收
+
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# 触发任一会话 regenerate, 期望:
+#   1. result 不再有 [证据: 二零X年...下午X时X许] 等中文自然语言 ID
+#   2. [证据: mm:ss] 数字格式保留
+#   3. 后端日志含 §199.5 non-std evidence ID warnings
+```
+
+### §92 / §56 铁律强化 (本节触发)
+1. **guard anchor 通过 ≠ 实际生效** — anchor 只 grep 代码字串, 不验证数据流. b0297a12 实际 result 暴露 v2 算法 bug, anchor 完全没看出来.
+2. **任何修复必须 GUI 实际生成一次 + DB 查 result 内容验证** — 不能只看代码 commit + anchor pass.
+3. **多轮 format! + safe_slice 删除是反** — 任何 multi-pass 删除/替换索引都可能在 shrunk buffer 上错位. 改用单 pass push_str 或 str::replace.
+
+### commit
+
+(待 commit, 包含 hard_post_process.rs v3 + 2 个新测试)
+
+### 关联
+
+- §199.5 (2026-08-30): v2 strip_long_text_evidence_ids (含索引错位 bug)
+- §199.6 (2026-08-30): chinese_to_u32 (与 v3 配合, fact_guard 路径已修)
+- §200 (2026-08-31): byte boundary panic 全防御 (同期)
+- §200.1 (2026-08-31): llama-cpp-2 撤回 0.1.154 → 0.1.146 (同期)
+- §37 / §56 / §92 / §18 / §15
+- outputs/§199.5.1-strip_long_text_evidence_ids-索引错位bug修复-v3-2026-08-31.md
