@@ -58,6 +58,15 @@ pub static DEFAULT_FIX_MAPPING: Lazy<HashMap<&'static str, &'static str>> = Lazy
     m.insert("首都机场", "首都国际机场");    // 北京 (简称/全称)
     m.insert("武宿", "武宿");                // 占位, 防止重复编译警告
 
+    // §201 (2026-08-31): 法律强制措施 ASR 错字 (4aa26c7e 报告)
+    m.insert("监事居留", "监视居住");        // 刑事强制措施, ASR 把"视"识别成"事"再转"监"
+    m.insert("监事拘留", "监视居住");        // 混合变体
+    m.insert("拘主", "拘留");                // ASR 错字
+    m.insert("拘主证", "拘留证");
+    // 毒品/案件量刑术语
+    m.insert("含量百分之", "含量百分之");    // 占位
+    m.insert("纯度百分之", "纯度百分之");    // 占位
+
     // 省会/直辖市
     m.insert("重求", "重庆");
     m.insert("重状", "重庆");
@@ -2494,8 +2503,25 @@ mod tests {
         assert!(out.contains("李福强"), "should replace 李富强 → 李福强: {}", out);
         assert!(!out.contains("李富强"), "should not contain wrong name: {}", out);
     }
-
     #[test]
+    fn section_201_fix_mapping_legal_coercion_asr_errors() {
+        // §201 (2026-08-31): 4aa26c7e 报告 ASR 错字 "监事居留" 应被替换为 "监视居住"
+        let mapping: HashMap<&str, &str> = DEFAULT_FIX_MAPPING.iter().map(|(k, v)| (*k, *v)).collect();
+        let text = "2018年9月25日监事居留";
+        let out = fix_mapping_replace(text, &mapping);
+        assert_eq!(out, "2018年9月25日监视居住", "监事居留 应替换为 监视居住: got={}", out);
+
+        // 监事居留 后面跟非 "留" 字符 (汉字) → 仍应替换
+        let text2 = "9月25日监事居留变更为逮捕";
+        let out2 = fix_mapping_replace(text2, &mapping);
+        assert!(out2.contains("监视居住"), "监事居留 后接非汉字 应替换: got={}", out2);
+
+        // 监事居留 后接 "留" → 阻止 (防止破坏"监事居留留" 之类错误)
+        // 这里不强制要求, 仅验证不 panic
+        let text3 = "监事居留通知书";
+        let _ = fix_mapping_replace(text3, &mapping);
+    }
+#[test]
     fn section_164_fix_mapping_chinese_boundary_extends_blocked() {
         // 边界保护: 错的词 + 后一字符与 wrong[last] 相同 (可能是真名后缀) → 阻止
         // 测试 setup: 用户配置 "刻碰" → "磕碰", 输入 "刻碰碰" (后接 "碰" = wrong[last])

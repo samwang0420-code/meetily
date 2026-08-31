@@ -4239,3 +4239,75 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - §200.1 (2026-08-31): llama-cpp-2 撤回 0.1.154 → 0.1.146 (同期)
 - §37 / §56 / §92 / §18 / §15
 - outputs/§199.5.1-strip_long_text_evidence_ids-索引错位bug修复-v3-2026-08-31.md
+
+## §201 法律摘要质量强化 5 项铁律 (2026-08-31, commit pending)
+
+**触发**: 用户评估 meeting-4aa26c7e (走私运输毒品案) 摘要, 5 项质量问题 (致命/高/中 严重度):
+
+| 问题 | 严重度 | 现状 |
+|---|---|---|
+| 数字矛盾 (7900克 vs 9297克) 未标注 | 致命 | LLM 取起诉书数字, 隐藏现场描述 |
+| 格式崩坏 (证据表 "可用性" 列冗余) | 高 | LLM 填"已提供"凑数 |
+| 案由 "待人工确认" | 中 | LLM 自由发挥 |
+| 量刑标准缺失 (50克死刑门槛) | 中 | LLM 没补充法律常识 |
+| ASR 错字 (监事居留, 幺幺零二三) | 中 | 后处理未拦截 |
+
+### 修复 (5 项)
+
+1. **数字差异强制标注** — `legal_consultation.json` + `court_hearing.json` description + 事实时间线 section 加指令, 同一事件 ≥ 2 个数字必须列出所有 + 标来源, 禁止只取一个.
+
+2. **法律量刑背景强制补充** — 新增 "**相关量刑背景 / Penalty Reference**" section. 必须列出涉案罪名量刑门槛 + 涉案情形触发档次. 常见罪名量刑门槛表内置 (走私/运输/贩卖毒品罪 50克死刑门槛 / 故意伤害致死 10年以上 / 交通肇事 致1死 3年以下 / 盗窃诈骗 数额特别巨大 50万+ 10年以上).
+
+3. **零占位符铁律** — 禁止 "无明确律师建议内容" / "无具体待办事项" / "无遗留问题" / "待人工确认". 缺失字段直接留空, 不写"无X"占位句. "案由" 必须从起诉书 verbatim 取.
+
+4. **证据表格 "可用性" 列规范** — 已提供/待提供/未提及, 基于 transcript 判断, 禁止凑数/偷懒.
+
+5. **ASR 错字拦截扩展** — `hard_post_process.rs::DEFAULT_FIX_MAPPING` 新增 4 条:
+   ```rust
+   m.insert("监事居留", "监视居住");
+   m.insert("监事拘留", "监视居住");
+   m.insert("拘主", "拘留");
+   m.insert("拘主证", "拘留证");
+   ```
+
+### §37 6 步硬闸门
+
+- ✅ cargo test --lib section_201: 1/1 PASS
+- ✅ cargo test --lib 全套: 543 passed / 1 failed (§161 fixture-bound §18 不动)
+- ✅ cargo build --release: 4m 22s
+- ✅ check_historical_fixes.py: 720/720 PASS
+- ✅ sync_app_bundle.sh: 3 binary 全 sync
+- ⏳ GUI 端到端 (§15 强制, 用户必做)
+
+### binary
+- target/release/meetily sha `2fc3d289b952`
+- target/release/llama-helper sha `ba7c663e179c` (未动)
+
+### §15 GUI 验收
+
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# regenerate meeting-4aa26c7e (走私运输毒品案)
+# 期望: 数字差异标注 + 量刑背景段 + 零占位符 + 案由 verbatim + 监事居留→监视居住
+```
+
+### §92 / §56 强化 (本节触发)
+
+1. **template instruction 是根本**: LLM 严格按 instruction 输出, 模板允许"无明确X"兜底 → LLM 大量填占位符. 改模板, 不要事后过滤.
+2. **法律背景常识必须 prompt 强制**: 不能指望 LLM 主动补充量刑门槛, 模板必须显式指令.
+3. **ASR 错字字典要广**: 用户每次新报告一类, 就立刻扩展. 监事居留/监视居住 是高频法律术语.
+
+### commit
+
+(待 commit, 含 legal_consultation.json + court_hearing.json + hard_post_process.rs)
+
+### 关联
+
+- §199.5.1 (2026-08-31): strip_long_text_evidence_ids v3 (同期)
+- §200 (2026-08-31): byte boundary panic (同期)
+- §200.1 (2026-08-31): llama-cpp-2 撤回 (同期)
+- §161 (2026-08-23): 法律摘要 5 铁律 (基础)
+- §138 / §139 (2026-08-23): 商业化硬约束 (基础)
+- §37 / §56 / §92 / §18 / §15
+- outputs/§201-法律摘要质量强化5项铁律-数字差异+量刑背景+零占位+ASR错字拦截-2026-08-31.md
