@@ -399,7 +399,10 @@ pub fn validate_summary(transcript: &str, summary: &str) -> FactGuardReport {
         let mut ambiguous_hit = false;
         for m in AMBIGUOUS_LARGE_RE.find_iter(summary) {
             // 跳过后面紧跟重量单位的 (如 "9千克" 是重量不是金额)
-            if WEIGHT_AFTER_LARGE_RE.is_match(&summary[m.start()..]) {
+            // §200: defensive floor to char boundary (panic safety net)
+            let mut s_idx = m.start().min(summary.len());
+            while s_idx > 0 && !summary.is_char_boundary(s_idx) { s_idx -= 1; }
+            if WEIGHT_AFTER_LARGE_RE.is_match(&summary[s_idx..]) {
                 continue;
             }
             ambiguous_hit = true;
@@ -732,8 +735,12 @@ pub fn detect_role_confusion(transcript: &str, summary: &str) -> Vec<String> {
         r"证人[^。\n]{0,20}?(姐姐|父亲|母亲|弟弟|妹妹|妻子|丈夫)"
     ).unwrap());
     for dm in DEFENSE_HEADER_RE.find_iter(summary) {
-        let window_end = std::cmp::min(dm.end() + 200, summary.len());
-        let after = &summary[dm.end()..window_end];
+        // §200: defensive floor to char boundary (panic safety net)
+        let mut s_idx = dm.end().min(summary.len());
+        while s_idx > 0 && !summary.is_char_boundary(s_idx) { s_idx -= 1; }
+        let mut window_end = std::cmp::min(dm.end() + 200, summary.len());
+        while window_end > s_idx && !summary.is_char_boundary(window_end) { window_end -= 1; }
+        let after = &summary[s_idx..window_end];
         if let Some(wm) = WITNESS_KIN_RE.find(after) {
             out.push(format!(
                 "辩护人段误标证人: '辩护人' 段标题下 200 字内出现证人亲属描述 '{}' (§148 §2)",

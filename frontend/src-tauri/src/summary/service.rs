@@ -85,10 +85,19 @@ pub const LOCAL_SUMMARY_TOKEN_CAP: usize = 6000;
 
 fn strip_leading_title(markdown: &str) -> String {
     if let Some(hash_pos) = markdown.find('#') {
-        let body_start = markdown[hash_pos..]
+        // §200: defensive floor to char boundary (panic safety net)
+        let mut safe_hash_pos = hash_pos;
+        while safe_hash_pos > 0 && !markdown.is_char_boundary(safe_hash_pos) { safe_hash_pos -= 1; }
+        let body_start = markdown[safe_hash_pos..]
             .find('\n')
-            .map_or(markdown.len(), |line_end| hash_pos + line_end);
-        markdown[body_start..].trim_start().to_string()
+            .map_or(markdown.len(), |line_end| {
+                let mut e = safe_hash_pos + line_end;
+                while e > safe_hash_pos && !markdown.is_char_boundary(e) { e -= 1; }
+                e
+            });
+        let mut safe_body = body_start;
+        while safe_body > 0 && !markdown.is_char_boundary(safe_body) { safe_body -= 1; }
+        markdown[safe_body..].trim_start().to_string()
     } else {
         String::new()
     }

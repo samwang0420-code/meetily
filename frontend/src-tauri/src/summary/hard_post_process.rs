@@ -190,9 +190,13 @@ fn extract_chinese_ngrams(text: &str, min: usize, max: usize) -> Vec<(usize, usi
             }
             // 全汉字才接受
             if chars[i..i + len].iter().all(|(_, c)| is_cjk(*c)) {
-                let byte_start = chars[i].0;
+                // §200: char_indices 返回值已经 char boundary, 但加 floor 防御
+                let mut byte_start = chars[i].0;
+                while byte_start > 0 && !text.is_char_boundary(byte_start) { byte_start -= 1; }
                 let byte_end = if i + len < chars.len() {
-                    chars[i + len].0
+                    let mut e = chars[i + len].0;
+                    while e > byte_start && !text.is_char_boundary(e) { e -= 1; }
+                    e
                 } else {
                     text.len()
                 };
@@ -762,7 +766,10 @@ pub fn truncate_raw_transcript_leak(md: &str) -> (String, RawTranscriptLeakRepor
     let mut truncated = false;
     for line in md.lines() {
         if let Some(mat) = re.find(line) {
-            let truncated_line = &line[..mat.start()];
+            // §200: defensive floor to char boundary (panic safety net)
+            let mut s_idx = mat.start().min(line.len());
+            while s_idx > 0 && !line.is_char_boundary(s_idx) { s_idx -= 1; }
+            let truncated_line = &line[..s_idx];
             let cleaned = if truncated_line.len() > 200 {
                 {
                     let mut cut = 200;
@@ -877,9 +884,14 @@ pub fn dedup_bullet_list_items(md: &str) -> (String, BulletDedupReport) {
 fn normalize_bullet_key(s: &str) -> String {
     let mut s = s.trim().to_string();
     // 去 ==⚠️...⚠️== 高亮标记
+    // §200: defensive floor to char boundary (panic safety net)
     while let Some(start) = s.find("==⚠️") {
         if let Some(end) = s.find("⚠️==") {
-            s = format!("{}{}", &s[..start], &s[end + "⚠️==".len()..]);
+            let mut s_idx = start.min(s.len());
+            while s_idx > 0 && !s.is_char_boundary(s_idx) { s_idx -= 1; }
+            let mut e_idx = (end + "⚠️==".len()).min(s.len());
+            while e_idx > s_idx && !s.is_char_boundary(e_idx) { e_idx -= 1; }
+            s = format!("{}{}", &s[..s_idx], &s[e_idx..]);
         } else {
             break;
         }
@@ -3571,3 +3583,5 @@ mod tests {
         assert!(out.contains("[证据: 07:41]"));
         assert!(warnings.is_empty());
     }
+
+

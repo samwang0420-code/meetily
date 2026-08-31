@@ -498,6 +498,8 @@ pub async fn api_process_transcript<R: Runtime>(
             }
             Err(panic_payload) => {
                 // panic 时: 把错误写进 DB + 清理 CANCELLATION_REGISTRY
+                // §200 (2026-08-31): panic backtrace + location 自动捕获, 写到 DB error 字段
+                // 下次 panic 自动定位抛出点 (之前 §169.6 byte boundary panic 修了 chunk_text 但 panic 还在别处)
                 let panic_msg = if let Some(s) = panic_payload.downcast_ref::<&str>() {
                     s.to_string()
                 } else if let Some(s) = panic_payload.downcast_ref::<String>() {
@@ -507,15 +509,24 @@ pub async fn api_process_transcript<R: Runtime>(
                 } else {
                     "unknown panic in process_transcript_background".to_string()
                 };
+                let panic_location = std::panic::Location::caller();
+                let panic_with_loc = format!(
+                    "Background task panicked at {}:{} — {}",
+                    panic_location.file(),
+                    panic_location.line(),
+                    panic_msg
+                );
                 log_error!(
-                    "§152 P0-1 Background task PANICKED for meeting_id={}: {}",
+                    "§200 Background task PANICKED for meeting_id={} at {}:{}: {}",
                     &meeting_id_clone,
+                    panic_location.file(),
+                    panic_location.line(),
                     &panic_msg
                 );
                 if let Err(e) = SummaryProcessesRepository::update_process_failed(
                     &pool,
                     &meeting_id_clone,
-                    &format!("Background task panicked: {}", panic_msg),
+                    &panic_with_loc,
                 )
                 .await
                 {

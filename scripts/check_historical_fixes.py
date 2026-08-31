@@ -2434,6 +2434,22 @@ ANCHORS = [
     ("199_p1_precision_rules_legal_terminology",
      "frontend/src-tauri/src/summary/processor.rs",
      r"§199 LEGAL TERMINOLOGY PRECISION"),
+    ("200_byte_boundary_clean_llm_markdown",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"// §200: defensive floor to char boundary"),
+    ("200_byte_boundary_strip_leading_title",
+     "frontend/src-tauri/src/summary/service.rs",
+     r"// §200: defensive floor to char boundary"),
+    ("200_byte_boundary_hard_post_process",
+     "frontend/src-tauri/src/summary/hard_post_process.rs",
+     r"// §200: defensive floor to char boundary"),
+    ("200_byte_boundary_fact_guard",
+     "frontend/src-tauri/src/summary/fact_guard.rs",
+     r"// §200: defensive floor to char boundary"),
+    ("200_panic_location_caller",
+     "frontend/src-tauri/src/summary/commands.rs",
+     r"§200 Background task PANICKED"),
+
 ]
 
 

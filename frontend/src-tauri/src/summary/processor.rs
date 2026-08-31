@@ -847,7 +847,12 @@ pub fn clean_llm_markdown_output(markdown: &str) -> String {
     for prefix in PREFIXES {
         if trimmed.starts_with(prefix) && trimmed.ends_with(SUFFIX) {
             // Extract content between the fences
-            let content = &trimmed[prefix.len()..trimmed.len() - SUFFIX.len()];
+            // §200: defensive floor to char boundary (panic safety net)
+            let mut s_idx = prefix.len();
+            while s_idx > 0 && !trimmed.is_char_boundary(s_idx) { s_idx -= 1; }
+            let mut e_idx = trimmed.len().saturating_sub(SUFFIX.len());
+            while e_idx > s_idx && !trimmed.is_char_boundary(e_idx) { e_idx -= 1; }
+            let content = &trimmed[s_idx..e_idx];
             return content.trim().to_string();
         }
     }
