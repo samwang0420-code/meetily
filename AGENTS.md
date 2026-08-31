@@ -4092,3 +4092,96 @@ origin/v0.8                       ← v0.8 备份 (14 天前, 早该清 §115)
 - §56 (AGENTS.md 双校)
 - §18 (不主动改无关 bug)
 - §169 (§169.1-§169.6 一系列 retry 修复链)
+
+## §200.1 llama-cpp-2 0.1.154 撤回 0.1.146 — 实测证据驱动决策 (2026-08-31, commit pending)
+
+**触发**: 本 session 接手时 (`main` HEAD = `7758960` §200 byte boundary panic 修复已完成), 发现 working tree 有未提交的反向改动:
+- `llama-helper/Cargo.toml`: `=0.1.146` (main 上) → `=0.1.154` (未提交)
+- `Cargo.lock`: 0.1.146 → 0.1.154 (未提交)
+
+疑似前一 session 把 §197 (commit 39b2f6d, 2026-08-30) 的回退 commit 给反向操作了, 但没 commit + 没测。
+
+**决策**: 立即撤回 0.1.154 反向操作, 回到 §197 实测过的 0.1.146 baseline。
+
+### §197 实测证据 (撤回驱动)
+
+| 版本 | 50 tokens decode | tok/s | Metal 路径 |
+|---|---|---|---|
+| 0.1.146 (§197 baseline) | 6.7s | **7.44** | ✅ Metal 全 offload, per-token decode 走 Metal |
+| 0.1.154 (§196 升级尝试) | 4.6s/20t | 4.3 | ❌ 99.6% CPU fallback (`ggml_gemv_q4_K_8x4_q8_K`) |
+
+**0.1.146 反而比 0.1.154 快 1.7x**！
+
+### 根因 (为什么 0.1.154 反而慢)
+
+llama-cpp-sys-2 0.1.154 内嵌 llama.cpp Metal Q4_K 路径要求:
+- `mul_mv_q4_K`: `ne11 >= 4` (BS 4-8)
+- `mul_mm_q4_K`: `ne11 > 8` (BS > 8)
+
+per-token decode 时 `ne11 = 1` (单 token 生成), 两个 Metal 路径都不满足 → fallback 到 CPU `ggml_gemv_q4_K_8x4_q8_K` → 99.6% CPU 占满。
+
+### 修复 (撤回 working tree 反向操作)
+
+```diff
+# llama-helper/Cargo.toml
+- llama-cpp-2 = "=0.1.154"
++ # §200.1 (2026-08-31): 撤销 working tree 上的 0.1.154 反向改动, 回到 0.1.146.
++ #   §197 (commit 39b2f6d, 2026-08-30) 已实测:
++ #     0.1.146 → 7.44 tok/s (Metal per-token decode 全 offload)
++ #     0.1.154 → 4.3 tok/s (CPU fallback 99.6%)
++ #   0.1.146 反而比 0.1.154 快 1.7x. crates.io 最高就是 0.1.154, 升级无效.
++ #   等 llama-cpp-rs 同步 llama.cpp b10684+ PR 后的 0.1.155+.
++ llama-cpp-2 = "=0.1.146"
+```
+
+```bash
+cargo update -p llama-cpp-2 --precise 0.1.146
+cargo update -p llama-cpp-sys-2 --precise 0.1.146
+```
+
+### §37 6 步硬闸门 (本节)
+
+- ✅ `cargo check --features metal`: 4m 56s (含 llama-cpp-sys-2 首次编译)
+- ✅ `cargo build --release --features metal`: 9m 48s, binary 生成
+- ✅ `target/release/llama-helper`: 4.9M, sha `05e2029cbedd` (0.1.146)
+- ✅ `target/release/meetily`: 60M, sha `dbf4098100d8`
+- ✅ `sync_app_bundle.sh`: 3 binary 全 sync (言镜 AI + llama-helper + ffmpeg)
+- ⏳ GUI 端到端 (§15 强制, 用户必做 — 用户当前不在电脑旁)
+
+### §18 / §37 / §56 / §92 / §197 铁律强化
+
+**§56 强化 (本节触发)**:
+1. **任何 `Cargo.toml` / `Cargo.lock` 改动必须 commit + cargo build --release 验证**, 不能只留在 working tree
+2. **任何"反向操作"必须先 grep 实测证据** (§197 outputs 有 0.1.146/0.1.154 实测对比表)
+3. **未 commit 改动在 session 切换时**是危险信号, 必须先 `git status -s` 查清, 再判断是否撤回
+
+**§197 铁律强化**:
+1. **llama-cpp-rs 升级必须实测 per-token decode tok/s** — 不要只看 Metal init 日志
+2. **Metal Q4_K per-token decode path 需 `ne11 >= 4` 或 `ne11 > 8`** — 单 token decode (ne11=1) fallback CPU
+3. **0.1.146 当前是 Apple Silicon Q4_K per-token decode 最优 baseline** — 等 llama-cpp-rs 同步 b10684+ PR 再升级
+4. **编译时间回升后必须实测** — 0.1.154 编译快但性能反而差 (cache 命中假象)
+5. **crates.io 最高版本不等于最优版本** — 0.1.154 反而引入 Metal Q4_K 退化
+
+### §15 GUI 验收 (用户必做)
+
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+# 重生成 meeting-b0297a12 摘要
+# 期望:
+#   1. llama-helper 走 Metal Q4_K per-token decode 路径 (~7 tok/s, §197 实测)
+#   2. 不再 panic byte boundary (§200 byte boundary 全防御已生效)
+#   3. 如果还 panic, error 字段会含 file:line (§200 panic location 写 DB)
+```
+
+### commit
+
+(待 commit, 包含 Cargo.lock + llama-helper/Cargo.toml + outputs/§200.1 + AGENTS.md §200.1 同步)
+
+### 关联
+
+- §197 (2026-08-30): llama-cpp-2 0.1.154 回退 0.1.146 — 关键实测证据来源
+- §196 (2026-08-29): llama-cpp-2 升级 0.1.146 → 0.1.154 (失败尝试)
+- §200 (2026-08-31): byte boundary panic 全防御 (同期 commit)
+- §18 / §37 / §56 / §92 / §115 / §151
+- outputs/§200.1-llama-cpp-2-0.1.154撤回0.1.146-实测证据驱动决策-2026-08-31.md

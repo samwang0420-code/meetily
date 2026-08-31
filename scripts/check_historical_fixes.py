@@ -2449,6 +2449,15 @@ ANCHORS = [
     ("200_panic_location_caller",
      "frontend/src-tauri/src/summary/commands.rs",
      r"§200 Background task PANICKED"),
+    ("200_1_llama_cpp_2_pinned_0_1_146",
+     "llama-helper/Cargo.toml",
+     r'llama-cpp-2 = "=0\.1\.146"'),
+    ("200_1_cargo_lock_llama_cpp_2_0_1_146",
+     "Cargo.lock",
+     r'name = "llama-cpp-2"\s+version = "0\.1\.146"'),
+    ("200_1_agents_md_section_present",
+     "AGENTS.md",
+     r"## §200\.1 llama-cpp-2 0\.1\.154 撤回 0\.1\.146"),
 
 ]
 
