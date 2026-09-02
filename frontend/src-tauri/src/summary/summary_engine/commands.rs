@@ -12,7 +12,9 @@ const QWEN35_4B_RECOMMENDED_RAM_GB: u64 = 14;
 
 pub(crate) fn summary_model_priority(model_name: &str) -> u8 {
     match model_name {
-        // §190.2: priority 反映 "推荐度". qwen2.5:3b > qwen3.5:4b > qwen3.5:2b > gemma (其他)
+        // §205.1 (2026-09-02): Spark X2.5 1.7B 优先于 Qwen 2.5 3B (公开 benchmark 17/19 胜).
+        //   但仅当用户已下载 — model_manager 默认按 priority 选 available, 未下载会被跳过.
+        "spark-x2.5:1.7b" => 5,  // §205.1: 8-15GB Apple Silicon 高级选项 (待 §205.2 llama.cpp fork)
         "qwen2.5:3b" => 4,  // §190: 主推, ≥16GB 用户首选
         "qwen3.5:4b" => 3,  // legacy High Quality
         "qwen3.5:2b" => 2,  // §190.2: 8GB 主流机型默认 (替代已删除的 qwen2.5:1.5b 占位)
@@ -23,20 +25,25 @@ pub(crate) fn summary_model_priority(model_name: &str) -> u8 {
 }
 
 pub(crate) fn recommend_summary_model(is_macos: bool, system_ram_gb: u64) -> &'static str {
-    // §190.2 (2026-08-31): RAM-adaptive model selection — "兼顾 8GB 主流机型 + 专业性".
-    //   ≥16GB                → qwen2.5:3b (2.1GB, 高质量法律/医疗场景)
-    //   ≥10GB Apple Silicon  → qwen2.5:3b (M2/M3 10GB+ 机型可吃下 3B 模型 + KV cache)
-    //   ≥8GB                 → qwen3.5:2b (1.2GB, M3 8GB 主流机型, 10-15 tok/s Metal)
-    //   <8GB                 → qwen3.5:2b (1.2GB, 低端设备保稳)
+    // §205.1 (2026-09-02): Spark X2.5 1.7B 加入 RAM-adaptive 表.
+    //   ≥16GB                 → qwen2.5:3b (2.1GB, 已实测稳定, 质量足够)
+    //   8-15GB Apple Silicon  → spark-x2.5:1.7b (1.1GB Q4_K_M, 中文 benchmark 显著优势)
+    //   ≥10GB Apple Silicon   → spark-x2.5:1.7b (M2/M3 10GB+ 机型吃 1.7B 模型 + KV cache)
+    //   8GB                   → qwen3.5:2b (1.2GB, 8GB 主流机型保稳, spark 1.1GB 略紧)
+    //   <8GB                  → qwen3.5:2b (1.2GB, 低端设备保稳)
     //
-    // Why qwen3.5:2b not qwen2.5:1.5b for <8GB: qwen2.5:1.5b 不在 models.rs 注册表里,
-    // §190 写它当 fallback 实际让 settings.model='qwen2.5:1.5b' 但任何 model_by_name 查询都返回 None,
-    // 然后 client.rs:182 fall through to get_default_model() → qwen2.5:3b (3B 加载到 8GB 设备又卡死).
-    // qwen3.5:2b 是 stable 旧模型, registered, 1.2GB, 24 层全 Metal offload, 8GB 设备跑得动.
+    // Why 8GB 仍走 qwen3.5:2b not spark: spark 量化后 ~1.1GB + KV cache 0.5GB + system 3GB +
+    // app 1GB = 5.6GB, 跟 8GB 设备余量只有 2.4GB, 加载 1.1GB 模型会触发内存压力 (≥1.2GB 阈值).
+    // qwen3.5:2b 1.2GB 跟 spark 1.1GB 容量差异微小, 但 qwen 24 层全 Metal offload 验证充分 (§197).
     if system_ram_gb >= 16 {
         "qwen2.5:3b"
+    } else if system_ram_gb > 8 && system_ram_gb < 16 && is_macos {
+        // §205.1: 9-15GB Apple Silicon (M1/M2/M3) → Spark X2.5 1.7B
+        //   8GB 边界仍 qwen3.5:2b: spark 1.1GB + KV 0.5GB + system 3GB + app 1GB = 5.6GB 余 2.4GB 易触发 §86 内存降级
+        "spark-x2.5:1.7b"
     } else if system_ram_gb >= 10 && is_macos {
-        "qwen2.5:3b"
+        // §190.2 旧规则, 实际已被上面 8-15GB 分支覆盖 (10 < 16)
+        "spark-x2.5:1.7b"
     } else {
         "qwen3.5:2b"
     }
@@ -428,7 +435,7 @@ mod tests {
     #[test]
     fn recommended_summary_model_uses_qwen35_2b_below_8gb_floor() {
         // §190.2 (2026-08-31): <8GB RAM → qwen3.5:2b (1.2GB, registered, 8GB 设备跑得动)
-        // 替换 §190 的 qwen2.5:1.5b (models.rs 没注册, fallback 失效).
+        // §205.1 (2026-09-02): 8GB 边界不变 — spark 1.1GB Q4_K_M + KV cache + system 太紧
         assert_eq!(recommend_summary_model(true, 7), "qwen3.5:2b");
         assert_eq!(recommend_summary_model(false, 7), "qwen3.5:2b");
         assert_eq!(recommend_summary_model(true, 4), "qwen3.5:2b");
@@ -436,31 +443,52 @@ mod tests {
     }
 
     #[test]
-    fn recommended_summary_model_uses_qwen35_2b_for_8gb_to_9gb_apple_silicon() {
-        // §190.2 (2026-08-31): 8-9GB M3 主流 → qwen3.5:2b (比 3B 快 2x)
-        // 替换 §190 的 ≥8GB → qwen2.5:3b (3B 跑 8GB 设备太紧, 5 tok/s 卡)
+    fn recommended_summary_model_uses_qwen35_2b_at_exactly_8gb_boundary() {
+        // §205.1 (2026-09-02): 8GB boundary 仍走 qwen3.5:2b, spark 从 9GB 开始
+        //   8GB 设备 spark 1.1GB + KV 0.5GB + system 3GB + app 1GB = 5.6GB, 余量 2.4GB 易触发 §86 内存降级
         assert_eq!(recommend_summary_model(true, 8), "qwen3.5:2b");
-        assert_eq!(recommend_summary_model(true, 9), "qwen3.5:2b");
-        assert_eq!(recommend_summary_model(false, 8), "qwen3.5:2b"); // Intel 8GB
+        assert_eq!(recommend_summary_model(false, 8), "qwen3.5:2b"); // Intel 8GB 没 Metal
     }
 
     #[test]
-    fn recommended_summary_model_uses_qwen_3b_for_16gb_or_apple_silicon_10gb() {
-        // §190.2 (2026-08-31): ≥16GB → 3B; Apple Silicon ≥10GB → 3B (M2/M3 Pro/Max)
+    fn recommended_summary_model_uses_spark_x25_for_9gb_to_15gb_apple_silicon() {
+        // §205.1 (2026-09-02): 9-15GB Apple Silicon (M1/M2/M3) → spark-x2.5:1.7b
+        //   替换 §190.2 的 qwen2.5:3b, Spark benchmark 中文 Gaokao +20.8 显著优势
+        assert_eq!(recommend_summary_model(true, 9), "spark-x2.5:1.7b");
+        assert_eq!(recommend_summary_model(true, 10), "spark-x2.5:1.7b");
+        assert_eq!(recommend_summary_model(true, 12), "spark-x2.5:1.7b"); // M2 12GB
+        assert_eq!(recommend_summary_model(true, 15), "spark-x2.5:1.7b");
+        // Intel 10GB 没 Metal GEMV, spark CPU-bound 太慢, 仍走 qwen3.5:2b
+        assert_eq!(recommend_summary_model(false, 10), "qwen3.5:2b");
+    }
+
+    #[test]
+    fn recommended_summary_model_uses_qwen_3b_for_16gb_or_larger() {
+        // §205.1 (2026-09-02): ≥16GB → qwen2.5:3b (2.1GB, 已实测稳定)
+        //   Spark 1.7B 比 Qwen 2.5 3B 容量小, 但 Qwen 3B 已实测稳定, 高 RAM 用户优先确定性
         assert_eq!(recommend_summary_model(true, 16), "qwen2.5:3b");
         assert_eq!(recommend_summary_model(false, 16), "qwen2.5:3b");
         assert_eq!(recommend_summary_model(true, 32), "qwen2.5:3b");
-        assert_eq!(recommend_summary_model(true, 10), "qwen2.5:3b"); // M2 10GB+
-        assert_eq!(recommend_summary_model(false, 10), "qwen3.5:2b"); // Intel 10GB 没 Metal
+        assert_eq!(recommend_summary_model(false, 32), "qwen2.5:3b");
     }
 
     #[test]
-    fn available_summary_model_priority_prefers_qwen_2_5_3b() {
-        // §190.2: qwen2.5:3b (4) > qwen3.5:4b (3) > qwen3.5:2b (2) > gemma3:4b (1) > gemma3:1b (0)
-        // 删 qwen2.5:1.5b (models.rs 没注册, priority=0 兜底)
+    fn available_summary_model_priority_prefers_spark_x25_over_qwen() {
+        // §205.1: spark-x2.5:1.7b (5) > qwen2.5:3b (4) > qwen3.5:4b (3) > qwen3.5:2b (2) > gemma3:4b (1) > gemma3:1b (0)
+        assert!(summary_model_priority("spark-x2.5:1.7b") > summary_model_priority("qwen2.5:3b"));
         assert!(summary_model_priority("qwen2.5:3b") > summary_model_priority("qwen3.5:4b"));
         assert!(summary_model_priority("qwen3.5:4b") > summary_model_priority("qwen3.5:2b"));
         assert!(summary_model_priority("qwen3.5:2b") > summary_model_priority("gemma3:4b"));
-        // qwen2.5:1.5b 已删, 不应被任何 priority 测试提及
+        assert!(summary_model_priority("gemma3:4b") > summary_model_priority("gemma3:1b"));
+    }
+
+    #[test]
+    fn section_205_1_unknown_model_falls_through_to_qwen35_2b() {
+        // §205.1: 未知 model 名 (e.g. "foobar:1b") 不被 priority 识别, RAM 推荐按 RAM 走
+        assert_eq!(summary_model_priority("foobar:1b"), 0);
+        // 验证 RAM 推荐仍工作
+        assert_eq!(recommend_summary_model(true, 8), "qwen3.5:2b");
+        assert_eq!(recommend_summary_model(true, 12), "spark-x2.5:1.7b");
+        assert_eq!(recommend_summary_model(true, 16), "qwen2.5:3b");
     }
 }

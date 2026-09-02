@@ -2299,9 +2299,11 @@ ANCHORS = [
     # ===== §190.2: RAM 自适应模型推荐 (2026-08-31) =====
     # 替换 §190 错误策略: ≥8GB → qwen2.5:3b (8GB 设备卡) + qwen2.5:1.5b 不注册.
     # 新策略: ≥16GB 或 Apple Silicon ≥10GB → 3B, 其余 → qwen3.5:2b.
-    ("190_2_rama_adaptive_qwen35_2b_8gb",
+    # §205.1 (2026-09-02): 9-15GB Apple Silicon 现在走 spark-x2.5:1.7b, ≥16GB 仍 qwen2.5:3b
+    # §190.2 旧 anchor 升级为 §205.1 new logic (8GB 边界仍 qwen3.5:2b, 9-15GB Apple Silicon → spark)
+    ("205_1_rama_adaptive_spark_x25_for_9gb_apple_silicon",
      "frontend/src-tauri/src/summary/summary_engine/commands.rs",
-     r"≥10GB Apple Silicon.*?qwen2\.5:3b"),
+     r"9-15GB Apple Silicon.*?spark-x2\.5:1\.7b"),
     ("190_2_qwen35_2b_for_8gb_fallback",
      "frontend/src-tauri/src/summary/summary_engine/commands.rs",
      r"qwen3\.5:2b"),
@@ -2535,7 +2537,34 @@ ANCHORS = [
      "outputs/§205-Spark-X2.5-1.7B-vs-Qwen3.5-2B评估-2026-09-02.md",
      r"Option A \(推荐\)"),
 
-        ("204_test_section_204_global_conflict",
+        ("205_decision_option_a_maintain_qwen35_2b",
+     "outputs/§205-Spark-X2.5-1.7B-vs-Qwen3.5-2B评估-2026-09-02.md",
+     r"Option A \(推荐\)"),
+
+    # ===== §205.1: Spark X2.5-1.7B 集成 (2026-09-02, codex/spark-x2.5-integration) =====
+    ("205_1_models_rs_spark_modeldef",
+     "frontend/src-tauri/src/summary/summary_engine/models.rs",
+     r'name: "spark-x2\.5:1\.7b"'),
+    ("205_1_models_rs_spark_nonthinking_template_const",
+     "frontend/src-tauri/src/summary/summary_engine/models.rs",
+     r"pub const SPARK_X25_NONTHINKING_TEMPLATE"),
+    ("205_1_models_rs_spark_sampling_preset",
+     "frontend/src-tauri/src/summary/summary_engine/models.rs",
+     r"pub fn spark_nonthinking\(stop_tokens"),
+    ("205_1_models_rs_format_prompt_spark_branch",
+     "frontend/src-tauri/src/summary/summary_engine/models.rs",
+     r'"spark_nonthinking" => SPARK_X25_NONTHINKING_TEMPLATE,'),
+    ("205_1_commands_rs_priority_spark_5",
+     "frontend/src-tauri/src/summary/summary_engine/commands.rs",
+     r'"spark-x2\.5:1\.7b" => 5,'),
+    ("205_1_commands_rs_recommend_spark_9_to_15gb",
+     "frontend/src-tauri/src/summary/summary_engine/commands.rs",
+     r"ram_gb > 8 && system_ram_gb < 16 && is_macos"),
+    ("205_1_built_in_manager_js_recommended_spark",
+     "frontend/src/components/BuiltInModelManager.tsx",
+     r"ramGb > 8 && ramGb < 16 && appleSilicon.*spark-x2\.5:1\.7b"),
+
+    ("204_test_section_204_global_conflict",
      "frontend/src-tauri/src/summary/hard_post_process.rs",
      r"section_204_global_conflict_in_markdown_table"),
 

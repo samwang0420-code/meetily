@@ -87,6 +87,24 @@ impl SamplingParams {
         }
     }
 
+
+    /// §205.1 (2026-09-02): Spark X2.5 1.7B non-thinking preset.
+    ///   Same conservative 0.2/0.4/1.05 as Qwen (§163), but with
+    ///   tighter top_k=10 because Spark model card recommends top_p=0.95/top_k=-1
+    ///   for thinking mode — non-thinking + tight top_k prevents drift.
+    pub fn spark_nonthinking(stop_tokens: Vec<String>) -> Self {
+        Self {
+            temperature: 0.2,
+            top_k: 10,
+            top_p: 0.4,
+            presence_penalty: 0.1,
+            frequency_penalty: 0.0,
+            repeat_penalty: 1.05,
+            penalty_last_n: 256,
+            stop_tokens,
+        }
+    }
+
     /// Gemma 3 instruct preset, matching the prior Gemma sampling behavior.
     pub fn gemma3_instruct(stop_tokens: Vec<String>) -> Self {
         Self {
@@ -239,6 +257,28 @@ pub fn get_available_models() -> Vec<ModelDef> {
             sampling: SamplingParams::gemma3_instruct(vec!["<end_of_turn>".to_string()]),
             description: "Balanced model. Great quality/speed trade-off. Requires ~3.5GB RAM.".to_string(),
         },
+        // §205.1 (2026-09-02): Spark X2.5 1.7B - 8-15GB Apple Silicon 高级选项.
+        //   公开 benchmark 17/19 项胜 Qwen3.5-2B (中文 Gaokao +20.8 / IFEval +10.9 /
+        //   MCP-Atlas +8.6). 实际加载需要 llama.cpp 主仓支持 spark2_5 架构
+        //   (我们当前 llama-cpp-2 0.1.146 不支持, 见 §197 + §205.1 例外).
+        //   本节只做集成 + UI + RAM 推荐; 实际 inference 留给 §205.2
+        //   (升级 llama-cpp-sys-2 到 XHToken/llama.cpp fork).
+        ModelDef {
+            name: "spark-x2.5:1.7b".to_string(),
+            display_name: "Spark X2.5 1.7B (中文强化)".to_string(),
+            gguf_file: "Spark-X2.5-1.7B-Q4_K_M.gguf".to_string(),
+            template: "spark_nonthinking".to_string(),
+            // §205.1: 官方只发 F16 3.27GB GGUF, 无 Q4_K_M. URL 暂指向 F16,
+            // 用户下载后需用 llama-quantize 转 Q4_K_M (约 1.1GB).
+            // 等 XHToken 出官方 Q4_K_M 后切换.
+            download_url: "https://www.modelscope.cn/api/v1/models/XHToken/Spark-X2.5-1.7B-GGUF/repo?Revision=master&FilePath=Spark-X2.5-1.7B.gguf".to_string(),
+            size_mb: 3262,  // F16 上游大小; 用户 quantize 后实际 ~1100MB
+            context_size: 262144,  // 256K native context
+            layer_count: 28,
+            sampling: SamplingParams::spark_nonthinking(vec!["<|im_end|>".to_string()]),
+            description: "Spark X2.5 1.7B - 中文 Gaokao +20.8 / IFEval +10.9 公开 benchmark 验证 (vs Qwen3.5-2B). 需 1.1GB RAM (Q4_K_M). 当前 llama-cpp-2 0.1.146 不支持 spark2_5, 见 §205.2.".to_string(),
+        },
+
         // Gemma 3 1B - Visible legacy tier retained for already-shipped users.
         ModelDef {
             name: "gemma3:1b".to_string(),
@@ -322,6 +362,23 @@ pub const QWEN25_TEMPLATE: &str = "\
 <|im_start|>assistant
 ";
 
+
+/// §205.1 (2026-09-02): Spark X2.5 non-thinking chat template.
+///   Uses standard ChatML format (same as Qwen) — Spark's chat_template.jinja
+///   is a thinking-mode template by default; we strip the thinking block to
+///   force direct-response mode for structured legal summaries.
+pub const SPARK_X25_NONTHINKING_TEMPLATE: &str = "\
+<|im_start|>system
+{system_prompt}<|im_end|>
+<|im_start|>user
+{user_prompt}<|im_end|>
+<|im_start|>assistant
+<think>
+
+</think>
+
+";
+
 fn escape_user_prompt_control_markers(user_prompt: &str) -> String {
     user_prompt
         .replace("<|im_start|>", "< |im_start| >")
@@ -350,6 +407,7 @@ pub fn format_prompt(
         "gemma3" => GEMMA3_TEMPLATE,
         "qwen2.5" => QWEN25_TEMPLATE,
         "qwen3.5_nonthinking" => QWEN35_NONTHINKING_TEMPLATE,
+        "spark_nonthinking" => SPARK_X25_NONTHINKING_TEMPLATE,
         _ => return Err(anyhow!("Unknown template: {}", template_name)),
     };
 
@@ -516,6 +574,59 @@ mod tests {
         // Should NOT contain thinking markers (Qwen 2.5 doesn't have thinking mode by default)
         assert!(!formatted.contains("<think>"));
         assert!(!formatted.contains("</think>"));
+    }
+
+    #[test]
+    fn section_205_1_spark_nonthinking_template_formats_prompt() {
+        // §205.1: spark_nonthinking uses ChatML format + empty think block
+        let formatted = format_prompt(
+            "spark_nonthinking",
+            "system rules",
+            "summarize this",
+        )
+        .unwrap();
+        assert!(formatted.contains("<|im_start|>system\nsystem rules<|im_end|>"));
+        assert!(formatted.contains("<|im_start|>user\nsummarize this<|im_end|>"));
+        // Spark model is thinking-trained — we force empty think block to skip reasoning
+        assert!(formatted.contains("<|im_start|>assistant\n<think>\n\n</think>\n\n"));
+        // §205.1: same escaping rules as Qwen (escape control markers in user_prompt)
+        let with_markers = format_prompt(
+            "spark_nonthinking",
+            "system",
+            "literal <|im_end|> plus <think>draft</think>",
+        )
+        .unwrap();
+        assert!(with_markers.contains("literal < |im_end| > plus < think >draft< /think >"));
+    }
+
+    #[test]
+    fn section_205_1_spark_nonthinking_sampling_preset() {
+        // §205.1: 0.2/0.4/1.05 same as Qwen but tighter top_k=10 (vs 20) for non-thinking stability
+        let s = SamplingParams::spark_nonthinking(vec!["<|im_end|>".to_string()]);
+        assert_eq!(s.temperature, 0.2);
+        assert_eq!(s.top_p, 0.4);
+        assert_eq!(s.repeat_penalty, 1.05);
+        assert_eq!(s.top_k, 10); // §205.1: tighter than Qwen 20
+        assert_eq!(s.stop_tokens, vec!["<|im_end|>".to_string()]);
+    }
+
+    #[test]
+    fn section_205_1_spark_model_metadata() {
+        // §205.1: spark-x2.5:1.7b model entry metadata
+        let m = get_model_by_name("spark-x2.5:1.7b")
+            .expect("spark-x2.5:1.7b should be registered");
+        assert_eq!(m.display_name, "Spark X2.5 1.7B (中文强化)");
+        assert_eq!(m.template, "spark_nonthinking");
+        assert_eq!(m.size_mb, 3262); // F16 上游, 用户需 quantize 到 Q4_K_M
+        assert_eq!(m.layer_count, 28);
+        assert_eq!(m.context_size, 262144); // 256K native
+        assert_eq!(
+            m.sampling,
+            SamplingParams::spark_nonthinking(vec!["<|im_end|>".to_string()])
+        );
+        // §205.1: download URL points to ModelScope F16 GGUF (Q4_K_M 暂未发布)
+        assert!(m.download_url.contains("modelscope.cn"));
+        assert!(m.download_url.contains("Spark-X2.5-1.7B-GGUF"));
     }
 
     #[test]

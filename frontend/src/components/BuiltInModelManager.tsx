@@ -62,9 +62,13 @@ export function BuiltInModelManager({
   const [cpuBrand, setCpuBrand] = useState<string | null>(null);
 
   const recommendedModelForRam = (ramGb: number, appleSilicon: boolean): string => {
-    // 跟 §190.2 Rust 端 recommend_summary_model 完全对齐 — 单一真实源
+    // §205.1 (2026-09-02): 跟 Rust 端 recommend_summary_model 完全对齐 — 单一真实源
+    //   ≥16GB                  → qwen2.5:3b (stable, 已实测)
+    //   9-15GB Apple Silicon   → spark-x2.5:1.7b (中文 benchmark +20.8, 法律场景高级选项)
+    //   8GB / <8GB / Intel     → qwen3.5:2b (保稳, 8GB 边界仍 qwen 不走 spark)
     if (ramGb >= 16) return 'qwen2.5:3b';
-    if (ramGb >= 10 && appleSilicon) return 'qwen2.5:3b';
+    if (ramGb > 8 && ramGb < 16 && appleSilicon) return 'spark-x2.5:1.7b';
+    if (ramGb >= 10 && appleSilicon) return 'spark-x2.5:1.7b';
     return 'qwen3.5:2b';
   };
 

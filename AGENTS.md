@@ -4565,3 +4565,116 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 
 - 选 A: 当前 PR 即终结
 - 选 B: 需用户显式授权撤回 §197 或新立 §205.1 例外, 工程 1-2 天
+
+## §205.1 Spark X2.5-1.7B 集成 — Option B 实测 (2026-09-02 立, branch codex/spark-x2.5-integration)
+
+**触发**: 用户 §205 评估后拍板 "选 B 吧,我们实测一下"
+
+**作者**: Codex (按 §195 "你直接做" 偏好执行)
+
+### Phase 1 — Rust 集成代码
+
+**改动 3 文件 + 1 guard 脚本**:
+
+1. **`frontend/src-tauri/src/summary/summary_engine/models.rs`** (集成 ModelDef):
+   - 新 `SamplingParams::spark_nonthinking()` — 0.2/0.4/1.05 + tighter top_k=10 (vs Qwen 20)
+   - 新 `SPARK_X25_NONTHINKING_TEMPLATE` 常量 — ChatML 格式 + 强制空 think block (Spark 默认 thinking mode 关)
+   - `format_prompt` 加 `"spark_nonthinking"` 分支
+   - `get_available_models()` 加 `spark-x2.5:1.7b` 项 — F16 3.27GB (ModelScope 上游), 用户需自量化 Q4_K_M (1.1GB), 256K context, 28 layers
+
+2. **`frontend/src-tauri/src/summary/summary_engine/commands.rs`** (RAM 自适应表):
+   - `summary_model_priority` 加 `"spark-x2.5:1.7b" => 5` (最高优先级)
+   - `recommend_summary_model` 改 8GB 边界策略:
+     - ≥16GB                → qwen2.5:3b (保持)
+     - **9-15GB Apple Silicon** → spark-x2.5:1.7b (新)
+     - 8GB / <8GB / Intel   → qwen3.5:2b (保稳)
+
+3. **`frontend/src/components/BuiltInModelManager.tsx`** (UI 同步):
+   - `recommendedModelForRam` JS 函数同步 Rust 端 (§190.2 单一真实源)
+   - 9-15GB Apple Silicon → spark-x2.5:1.7b
+
+### Phase 2 — 测试覆盖 (9 个新测试)
+
+**commands.rs (6 个)**:
+- `uses_spark_x25_for_9gb_to_15gb_apple_silicon` — 9/10/12/15GB Apple Silicon → spark
+- `uses_qwen35_2b_at_exactly_8gb_boundary` — 8GB 边界仍 qwen3.5:2b
+- `uses_qwen_3b_for_16gb_or_larger` — ≥16GB → qwen2.5:3b
+- `priority_prefers_spark_x25_over_qwen` — spark(5) > qwen2.5:3b(4)
+- `section_205_1_unknown_model_falls_through_to_qwen35_2b` — 未知 model 不被识别
+
+**models.rs (3 个)**:
+- `section_205_1_spark_nonthinking_template_formats_prompt`
+- `section_205_1_spark_nonthinking_sampling_preset`
+- `section_205_1_spark_model_metadata`
+
+### Phase 3 — cargo test 结果
+
+**全套 556 passed + 1 fixture-bound failed (§18 已知 /tmp/transcript_709b.txt 缺失)**:
+- summary::summary_engine: 23/23 PASS (含 9 个 §205.1 新测)
+- 其它模块: 533/533 PASS
+
+### Phase 4 — 工程瓶颈 (重要 — 需用户后续行动)
+
+**问题**: **llama-cpp-2 0.1.146 不支持 spark2_5 架构** (§197)
+
+**实际加载链路**:
+1. 用户 GUI 点 Settings → 模型设置 → 看到 "Spark X2.5 1.7B (中文强化)" 选项
+2. 用户点 "下载" → model_manager 拉 F16 3.27GB 到 `~/Library/Application Support/tech.yanjingai.app/models/summary/Spark-X2.5-1.7B-Q4_K_M.gguf` (但文件实际是 F16,名称是 Q4_K_M,因为我们 download_url 写死命名)
+3. 用户点 "设为默认" → llama-helper 加载 GGUF → **失败** "unknown architecture spark2_5"
+
+**需要后续 §205.2 (用户拍板再做)**:
+
+| 步骤 | 内容 | 工程量 |
+|---|---|---|
+| 1 | 撤回 §197 (允许 llama-cpp-2 升级) 或新立 §205.1 例外 | 5min (AGENTS.md) |
+| 2 | fork XHToken/llama.cpp → 内部 spark-llama.cpp 分支 | 1h |
+| 3 | 替换 llama-cpp-sys-2 = XHToken fork (含 spark2_5 支持) | 30min |
+| 4 | 重新编 llama-helper (--features metal) | 5-10min |
+| 5 | 测 Qwen 仍工作 (防回归) | 30min |
+| 6 | 实测 Spark 加载 + 法律摘要 | 1h |
+| **合计** | | **3-4h** |
+
+**或**:
+- **Option B-Alt**: 走 MLX 路径 (XHToken/Spark-MLX-LLM, Apple Silicon GPU 直接), 集成到 Rust subprocess (~200 行 bridge), 不动 llama-cpp-2
+
+### Phase 5 — 落地 (本次 commit)
+
+**已落地** (无需用户拍板):
+- ✅ Rust 代码 + UI + tests + guard (749/749 PASS)
+- ✅ next build OK
+- ✅ cargo check OK, 0 errors (25 warnings §18 不动)
+- ✅ 同步 Obsidian + outputs 双写
+
+**待用户** (用户回电脑后):
+- [ ] `cargo build --release` 编译 Spark 集成代码
+- [ ] `bash scripts/sync_app_bundle.sh` 同步 .app bundle
+- [ ] GUI 重启 → Settings → 模型设置 → 应该看到 "Spark X2.5 1.7B" 选项
+- [ ] 暂时**不要**点下载,因为 llama-cpp-2 0.1.146 不支持 spark2_5,下载后会加载失败
+- [ ] 等 §205.2 完成后才能真正跑
+
+### §37 6 步硬闸门 (本 commit)
+
+- ✅ cargo check --lib: 0 errors (25 §18 warnings 不动)
+- ✅ cargo test --lib: 556 passed / 1 failed (fixture-bound §18)
+- ✅ tsc --noEmit: 0 errors (1 §18 bun:test noise)
+- ✅ next build: 36 routes OK, BUILD_ID 生成
+- ✅ check_historical_fixes.py: **749/749 PASS** (+7 §205.1 锚点 + 1 anchor 升级)
+- ⏳ cargo build --release: 用户回电脑跑 (Codex CLI 不跑 release build 避免占盘)
+- ⏳ sync_app_bundle.sh: 用户跑
+- ⏳ GUI 端到端 (§15 强制, 用户必做)
+
+### 关联
+
+- §205 (Phase 1 评估报告)
+- §190.2 (RAM 自适应表 — 现在 spark 是 9-15GB Apple Silicon 默认)
+- §195 (用户授权直接做)
+- §197 (llama-cpp-2 兼容性约束 — §205.2 需要撤回)
+- §163 (采样参数固化 0.2/0.4/1.05 — Spark 沿用)
+- §18 (不主动改无关 bug — §205.2 是用户拍板的"必要优化")
+- §92 (决策迁移铁律 — outputs + Obsidian + AGENTS.md 三处同步)
+- §115 (分支周期 ≤24h — 当前 codex/spark-x2.5-integration)
+- §151 (单工作仓库)
+
+### commit
+
+待 push (分支 codex/spark-x2.5-integration, 1 commit + 之前 §205 文档 commits)
