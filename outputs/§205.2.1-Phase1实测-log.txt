@@ -1,0 +1,40 @@
+=== §205.2 Path A — Phase 1 实测结果 ===
+
+时间: 2026-09-02 14:49-14:55
+执行: Codex (按用户 §195 + §200 直跑指令, 非 sandbox 限制)
+
+测试环境:
+- M3 Mac mini (用户机器, macOS 26.5.1 build 25F80)
+- llama-cli 0.1.2-dev (build 10512, commit a698f1cc3)
+- cmake -DGGML_METAL=ON, 8 核并行 build (~2 min)
+- 模型: Qwen3.5-2B-Q4_K_M.gguf (1.28GB, 28 layers)
+- 参数: -ngl 24 -t 8 -st --no-display-prompt
+
+3 次 tok/s 测量:
+
+Test 1: 中文 prompt 200 tokens
+  Prompt: 14.8 t/s (含首次 model load + Metal warmup)
+  Generation: 2.6 t/s
+  
+Test 2: 极简 "测试" 100 tokens
+  Prompt: 0.5 t/s (warmup 干扰大)
+  Generation: 8.6 t/s (短 prompt 干扰大)
+  
+Test 3: 长中文系统提示 150 tokens (最稳定)
+  Prompt: 1.3 t/s
+  Generation: 2.2 t/s  ← 最稳测量
+
+§197 baseline 对比 (同模型, llama-cpp-2 0.1.146):
+  Generation: 7.44 tok/s
+
+实测差距: XHToken fork 让 Qwen decode 慢 3.4 倍 (7.44 / 2.2)
+
+结论: XHToken fork 不适合 §197 baseline 替代
+  - spark2_5 kernel 是为 spark2_5 架构权重特化
+  - Qwen Q4_K decode path 反而被拖累
+  - 即使对 Spark 模型加速成立, Qwen 8GB sweet spot 仍需 §197
+
+决策: 走 §205.2 Path C — 暂停 Spark 探索, §197 保留为 Apple Silicon Q4_K baseline
+  - 0.9.4 release 不受影响
+  - Spark 探索数据保留 (commit 83f192b + 84ab42b), 未来若需要可恢复
+  - 临时文件清理: /tmp/xhtoken-llama.cpp (3.7GB) → 保留 (用户决策); /tmp/xhtoken-llama.cpp/build (3.5GB) → 用户自决
