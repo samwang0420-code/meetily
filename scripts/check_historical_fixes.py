@@ -2514,6 +2514,20 @@ ANCHORS = [
     ("200_8_safe_start_search_start_floor",
      "frontend/src-tauri/src/summary/hard_post_process.rs",
      r"let mut safe_start = search_start\.min"),
+
+    ("204_fix_mapping_renhe_to_wenmingren",
+     "frontend/src-tauri/src/summary/hard_post_process.rs",
+     r'm\.insert\("任和", "温明仁"\)'),
+    ("204_fix_mapping_wangshang_to_shangshang",
+     "frontend/src-tauri/src/summary/hard_post_process.rs",
+     r'm\.insert\("网伤事故", "伤亡事故"\)'),
+    ("204_extract_party_strips_pipe",
+     "frontend/src-tauri/src/summary/hard_post_process.rs",
+     r"加 markdown 表格分隔符"),
+    ("204_test_section_204_global_conflict",
+     "frontend/src-tauri/src/summary/hard_post_process.rs",
+     r"section_204_global_conflict_in_markdown_table"),
+
 ]
 
 

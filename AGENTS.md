@@ -4427,3 +4427,72 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - §56 (AGENTS.md 双校铁律)
 - §18 (不主动改无关 bug)
 - §94 (全面代码审计, 4 个版本号不一致根因)
+
+## §204 §164 fix_mapping 高压触电案错字 + §185.2 表格行 bug 修复 (2026-09-02 立)
+
+**触发**: 用户监控摘要 8ce922f9 完成 (chunk=3 / 9.7 分钟), fact_guard_severe=true, has_number_hallucination=true. 5 项质量问题.
+
+**根因 (3 跳)**:
+
+1. **transcript "任和" 是 "温明仁" ASR 同音错** — DB 查 `transcripts WHERE transcript LIKE '%任和%'` = 2 hits, `'%温明仁%'` = 7 hits. **§164 fix_mapping 没覆盖**.
+2. **"网伤事故" 是 LLM 错字** — DB查 "网伤" 0 hits, "伤亡" 1 hit. LLM 生成时把 "伤亡" 写成 "网伤" (LLM 推理偏差). **§164 fix_mapping 没覆盖**.
+3. **§185.2 detect_global_party_role_conflict 在 markdown 表格行完全失效**:
+   - LLM 输出格式: `| **原告**: 温明仁 (水库承包经营者) |`
+   - `extract_party_after_label` 用 `trim_start_matches(|c| c == ':' || c == '：' || c == '(' || c == '（' || c.is_whitespace())`
+   - 第一个字符是 `|` (markdown表格分隔符), 不在 trim 列表 → `trimmed = "| 温明仁 (水库承包经营者) |"`
+   - `char_indices` 找到第一个空格在 `"| "` 之后 (byte 2) → 返回 `"|"` (单字符)
+   - `is_likely_name_simple("|") = false` → 不写入 party_roles
+   - 后果: 表格行 4 个被告 1 个原告 全部识别失败, fact_guard `role_confusion: []`
+   - 这是 §185.2 (8/27 立) 以来未发现的隐性 bug
+
+**修复 (3 文件)**:
+
+1. **§164 fix_mapping 字典** (hard_post_process.rs:44 前):
+   ```rust
+   // §204 (2026-09-02): 高压触电致人损害责任纠纷案触发的错字库
+   m.insert("任和", "温明仁");          // §204 ASR 同音错
+   m.insert("网伤事故", "伤亡事故");    // §204 LLM 错
+   m.insert("网伤", "伤亡");    // §204 同上变体
+   m.insert("舔鱼", "垂钓");            // §204 同音错 (有需要时启用)
+   ```
+
+2. **extract_party_after_label 加 '|' trim** (hard_post_process.rs):
+   ```rust
+   // §204 (2026-09-02): 加 markdown 表格分隔符 '|' trim — 8ce922f9 §185.2 表格行失效根因
+   let trimmed = after.trim_start_matches(|c: char| {
+       c == ':' || c == '：' || c == '(' || c == '（' || c == '|' || c.is_whitespace()
+   });
+   ```
+
+3. **§186.1 / §200.8 / §186 测试 4 个新增** — section_204_fix_mapping_renhe_to_wenmingren / _wangshang_to_shangshang / _extract_party_strips_pipe_table_format / _global_conflict_in_markdown_table.
+
+**§37 6 步硬闸门**:
+- ✅ cargo test --lib section_204: 4/4 PASS
+- ✅ cargo test --lib: 551/552 PASS (1 fixture-bound §18 不动)
+- ✅ cargo build --release: 4m18s, meetily 57M
+- ✅ check_historical_fixes.py: 734 → 738/738 PASS (+4 §204 anchors)
+- ✅ sync_app_bundle.sh: 3 binary sync OK
+- ⏳ GUI 端到端 (§15 强制, 用户必做)
+
+**已知边界 (按 §18 不主动改)**:
+- 25 cargo warnings (§18 不动)
+- 1 fixture-bound test (/tmp/transcript_709b.txt 缺失, §18 不动)
+- 1 bun:test tsc error (§18 不动)
+
+**§15 GUI 验收 (用户必做, 不能 CLI 测)**:
+```bash
+killall meetily
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+```
+1. 重生成 8ce922f9 → 应该看到 "温明仁" (不是"任和") + "伤亡事故" (不是"网伤事故")
+2. fact_guard_severe 应仍 true (但 unexpected_numbers 应减少, 因 §190.2 自动注入生效)
+3. role_confusion 应该开始有命中 (表格行角色识别修复)
+4. 摘要 markdown 应更干净 (死硬性错字修正)
+
+**关联**:
+- §164 (fix_mapping 模块基础)
+- §185.2 (detect_global_party_role_conflict, §200.8 修复源文件)
+- §186 (多案件身份互斥硬保护, 框架已实装但未触发)
+- §190.2 (高压致害法条自动注入, 本次生效)
+- §200.8 (全角冒号 byte boundary 修复, 上一 commit)
+- §37 硬闸门 / §18 不主动改无关 bug / §56 AGENTS.md 双校 / §92 决策迁移铁律

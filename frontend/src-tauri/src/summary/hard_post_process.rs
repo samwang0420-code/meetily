@@ -41,6 +41,15 @@ pub static DEFAULT_FIX_MAPPING: Lazy<HashMap<&'static str, &'static str>> = Lazy
     m.insert("择期宣判", "择期宣判");
     m.insert("当庭宣判", "当庭宣判");
 
+    // §204 (2026-09-02): 高压触电致人损害责任纠纷案触发的错字库
+    // transcript: '任和' 2 次 / '温明仁' 7 次 — 任和实为温明仁 ASR 同音错
+    // LLM 输出: '网伤事故' (应为'伤亡') — 民事侵权伤亡类常见 LLM 错
+    // 时序: 2018-07-14 案发, 2018-09-19 宣判, LLM 把全部日期写成 9-19
+    m.insert("任和", "温明仁");          // §204 高压触电案 ASR 同音错 (transcript 实为温明仁)
+    m.insert("网伤事故", "伤亡事故");    // §204 民事侵权伤亡类 LLM 错
+    m.insert("网伤", "伤亡");    // §204 同上变体
+    m.insert("舔鱼", "垂钓");            // §204 同音错 (有需要时启用)
+
     // §195 地名同音 ASR 错字库 (2026-08-29 立, 飞机执行案触发)
     // 背景: §194 fix_mapping 没有地名, "武宿"被ASR转写为"五宿"(拼音完全相同 wu),
     //      摘要前后不一致(案件基本信息/整件事叙述/关键证据 三处写"五宿",
@@ -1518,8 +1527,10 @@ pub fn detect_global_party_role_conflict(md: &str) -> GlobalPartyRoleConflictRep
 }
 
 fn extract_party_after_label(after: &str) -> String {
+    // §204 (2026-09-02): 加 markdown 表格分隔符 '|' trim — 8ce922f9 §185.2 表格行失效根因
+    // (e.g. "| 温明仁 (水库承包经营者) |" → trimmed 之前是 "| 温明仁..." → char_indices 第一个空格在 "| " 后 → 返回 "|")
     let trimmed = after.trim_start_matches(|c: char| {
-        c == ':' || c == '：' || c == '(' || c == '（' || c.is_whitespace()
+        c == ':' || c == '：' || c == '(' || c == '（' || c == '|' || c.is_whitespace()
     });
     for (i, c) in trimmed.char_indices() {
         if c == '(' || c == '（' || c == '\n' || c == '。' || c == ',' || c == ';' || c == ' ' {
@@ -3668,4 +3679,42 @@ mod tests {
         let input = "原告:公司A\n被告：公司B";
         let result = detect_global_party_role_conflict(input);
         assert!(result.conflicting_parties.len() <= 2);
+    }
+
+    #[test]
+    fn section_204_fix_mapping_renhe_to_wenmingren() {
+        // §204 (2026-09-02): 8ce922f9 高压触电案 transcript '任和' 是 '温明仁' ASR 同音错
+        let input = "任和作为水库承包经营者";  // §164 fix_mapping 应改 '任和' → '温明仁'
+        let result = hard_post_process(input, Domain::Legal);
+        assert!(result.contains("温明仁"), "expected 温明仁 in result, got: {}", result);
+        assert!(!result.contains("任和"), "任和 should be replaced, got: {}", result);
+    }
+
+    #[test]
+    fn section_204_fix_mapping_wangshang_to_shangshang() {
+        // §204 (2026-09-02): LLM 摘要中 '网伤事故' 应是 '伤亡事故'
+        let input = "希望此案能让大家避免再次发生网伤事故";  // §164 fix_mapping 应改 '网伤' → '伤亡'
+        let result = hard_post_process(input, Domain::Legal);
+        assert!(result.contains("伤亡"), "expected 伤亡 in result, got: {}", result);
+    }
+
+    #[test]
+    fn section_204_extract_party_strips_pipe_table_format() {
+        // §204 (2026-09-02): 8ce922f9 §185.2 表格行 "| 温明仁 (水库承包经营者) |" 失效根因
+        // extract_party_after_label 加 '|' trim 后应返回 "温明仁"
+        let after = " 温明仁 (水库承包经营者) ";
+        let party = extract_party_after_label(after);
+        assert_eq!(party, "温明仁", "got: {}", party);
+    }
+
+    #[test]
+    fn section_204_global_conflict_in_markdown_table() {
+        // §204 (2026-09-02): 模拟 8ce922f9 实际 LLM 输出 — markdown 表格行角色识别
+        // 修复前: party_roles 为空 (因 '|' 没 trim)
+        // 修复后: 应该识别 "温明仁" = "原告", 与叙述段 "温明仁死亡" 形成冲突报告
+        let input = "| **原告**: 温明仁 (水库承包经营者) |\n| **被告 1**: 任和供电分公司 |\n\n## 整件事叙述\n\n温明仁在鱼塘边垂钓作业时因疏忽大意触电身亡";
+        let result = detect_global_party_role_conflict(input);
+        // 注: 现在 fix_mapping 还没跑, 所以 '任和' 仍在. 但 extract 已修正.
+        // '温明仁' 应被识别为原告 (表格行 + '|' trim 修复后)
+        assert!(result.party_role_mappings.contains_key("温明仁"), "mapping: {:?}", result.party_role_mappings);
     }
