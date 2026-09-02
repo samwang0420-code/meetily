@@ -4678,3 +4678,67 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 ### commit
 
 待 push (分支 codex/spark-x2.5-integration, 1 commit + 之前 §205 文档 commits)
+
+## §205.2 Path A — XHToken llama.cpp fork Phase 1 验证 (2026-09-02 立, branch codex/spark-x2.5-integration)
+
+**触发**: §205.1 (commit 7c20c16) 集成 Spark 后 Phase 1 实测失败 (sandbox 拦 git clone + Ollama 无 spark-x2.5)。用户拍板选 A — 让用户回电脑自己跑 Phase 1。
+
+**作者**: Codex (按 §195 "你直接做" 偏好执行, sandbox 解锁 A 路径)
+
+### A 路径说明
+
+XHToken fork of llama.cpp 含 spark2_5 架构支持。验证方法: 用 fork 编 + 跑 Qwen3.5-2B, **对比 §197 baseline 7.44 tok/s**:
+- **> 7.44** → XHToken fork Q4_K 路径更优, 撤回 §197 llama-cpp-2 0.1.146 限制, 用 fork 编 Spark
+- **≤ 7.44** → §197 baseline 仍是 Apple Silicon Q4_K 最优, 走 B (MLX) 或 C (暂停 Spark)
+
+### 用户执行 (1 行)
+
+```bash
+bash outputs/§205.2-Path-A-Phase1验证脚本.sh
+```
+
+**预计耗时**: 首次 ~15 min (git clone + cmake build + 2 次 tok/s 测试), 后续 5 min
+
+### 脚本流程 (5 步)
+
+| Step | 动作 | 输出 |
+|---|---|---|
+| 1 | `git clone --depth 1 https://github.com/XHToken/llama.cpp.git` 到 `/tmp/xhtoken-llama.cpp` | 目录 + HEAD |
+| 2 | `cmake -S . -B build -DGGML_METAL=ON` + `cmake --build build --parallel 8` | `build/bin/llama-cli` |
+| 3 | `./build/bin/llama-cli --version` 验证 | Metal enabled 提示 |
+| 4 | 跑 Qwen3.5-2B 200 tokens (中文 prompt 模拟真实摘要) | eval time 行 |
+| 5 | 再跑 100 tokens 提取精确 tok/s, 跟 §197 baseline (7.44) 对比 | 数字 + 决策建议 |
+
+### §205.2 已知边界 (按 §18)
+
+- 25 cargo warnings 不动
+- 1 fixture-bound test 不动
+- 1 bun:test tsc error 不动
+- §205.1 commit 已 push 但用户不能 GUI 加载 Spark (llama-cpp-2 0.1.146 不支持 spark2_5)
+- 3.27GB Spark F16 GGUF 在 ModelScope, 用户需自量化或找 Q4_K_M 第三方版本
+
+### §37 6 步硬闸门 (本次 §205.2 准备)
+
+- ✅ outputs 落地 (脚本 + markdown)
+- ✅ Obsidian 双写一致 (`diff -q` 0 输出)
+- ✅ AGENTS.md §205.2 章节追加
+- ⏳ cargo check / test / build: §205.1 已 commit, 不变
+- ⏳ check_historical_fixes.py: 待加 §205.2 anchor
+- ⏳ sync_app_bundle.sh: 用户跑 (Phase 1 验证后)
+- ⏳ GUI 端到端 (§15 强制, 用户必做 — Phase 1 结果回来后再决策)
+
+### 关联
+
+- §205 (Phase 1 评估报告)
+- §205.1 (集成 commit 7c20c16 — Rust 代码 + 9 测试 + UI)
+- §197 (baseline 7.44 tok/s — 必须保留或撤回)
+- §190.2 (RAM 自适应表 — 现在 spark 是 9-15GB Apple Silicon 默认)
+- §195 (用户授权直接做)
+- §163 (采样参数固化 0.2/0.4/1.05 — Spark 沿用)
+- §18 / §37 / §92 / §115 / §151
+
+### outputs 双写
+
+- `outputs/§205.2-Path-A-Phase1验证.md` ↔ Obsidian `项目/3-离线会记/§205.2-Path-A-Phase1验证.md`
+- `outputs/§205.2-Path-A-Phase1验证脚本.sh` (用户直接 bash 跑)
+- AGENTS.md: 本节 §205.2
