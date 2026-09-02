@@ -4822,3 +4822,53 @@ XHToken fork 的 spark2_5 kernel 是给 spark2_5 架构权重特化的 (weight l
 | **B MLX** | 1-2 天 (~200 行 Rust subprocess bridge) | 中 (MLX 社区可能无 Spark MLX 权重) | 未知 |
 | **B-α 修正** (用 XHToken fork 专跑 Spark, Qwen 走 §197, llama-helper 加 model→fork 路由表) | 2-3 天 | 高 (复杂 runtime 路由) | 未知 |
 | **等待上游** (XHToken llama.cpp 主分支合入 llama-cpp-rs 0.1.146+) | 不可控 | 0 | 长期受益 |
+
+## §205.2.2 Path A 收尾 + 分支合并 main + 清理 (2026-09-02)
+
+**触发**: 用户拍板 "OK, 同时清理Spark的相关文件, 尤其clone内容" — 接 §205.2.1 Path C 决策执行。
+
+### 已完成清理
+
+| 项 | 大小 | 状态 |
+|---|---|---|
+| `/tmp/xhtoken-llama.cpp` (clone + build) | 1.3 GB | ✓ 已删 |
+| `/tmp/spark_speed.log` | 2288 B | ✓ 已删 |
+| `/tmp/spark_phase1_a_result.log` | 1518 B | ✓ 已拷到 `outputs/§205.2.1-Phase1实测-log.txt`, 临时删 |
+| `.spark_speed_v197_baseline.log` (仓库隐藏文件) | 2288 B | ✓ 已删 (gitignored 反正) |
+| `/tmp` spark/xhtoken 残留 | - | ✓ 全清 |
+
+### 分支合并
+
+```bash
+git checkout main
+git merge --ff-only codex/spark-x2.5-integration  # 5 commits fast-forward
+git push origin main                                # origin/main 同步到 e6b59fa
+git branch -d codex/spark-x2.5-integration         # 本地删
+git push origin --delete codex/spark-x2.5-integration # 远端删
+```
+
+**合并后 main HEAD**: `e6b59fa` (含 §205 + §205.1 + §205.2 + §205.2.1 + 本节 5 个 commit)
+
+**最终分支状态**: 只有 `main` + `origin/main` (§115 + §151 单工作仓库约束)
+
+### 最终 disk 状态
+
+清理后: 61% used / **11 GB avail** (释放 1.3 GB from /tmp/xhtoken-llama.cpp)
+
+### §37 6 步硬闸门
+
+- ✅ cargo check / test / build: 不变 (本节纯 docs + 清理, 无代码改动)
+- ✅ check_historical_fixes.py: 不变 (无新 anchor)
+- ✅ merge --ff-only: 无冲突
+- ✅ push origin main: OK
+- ✅ branch 删除本地 + 远端: OK
+- ⏳ GUI 端到端: 无变更, 0.9.4 release 流水线恢复正常推进
+
+### 关联
+
+- §205 / §205.1 / §205.2 / §205.2.1 / §205.2.2 (本节)
+- §115 (分支周期 ≤24h, 已 fast-forward + 删)
+- §151 (单工作仓库: 只剩 main)
+- §197 (baseline 7.44 tok/s, 已实测验证不被 XHToken fork 替代)
+- §195 + §200 (用户授权直接做)
+- §89 (cargo clean 教训, Python shutil.rmtree 清理大目录)
