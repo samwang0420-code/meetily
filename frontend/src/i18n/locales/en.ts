@@ -916,7 +916,7 @@ export const en: Record<string, unknown> = {
     trust_local: '100% Local',
     trust_open_source: 'MIT Open Source',
     trust_github: 'GitHub',
-    trust_version: 'v0.9.3',
+    trust_version: 'v0.9.4',
     privacy_one_liner: 'Network optional · Pro codes verified locally',
     why_local_title: 'Why local-first?',
     why_local_1_title: 'Your recordings',
@@ -928,7 +928,7 @@ export const en: Record<string, unknown> = {
     compare_caption: 'Free tier is enough · Pro unlocks precision + advanced templates',
     faq_caption: 'Still curious?',
 
-    beta_title: 'Beta purchase flow (v0.9.3)',
+    beta_title: 'Beta purchase flow (v0.9.4)',
     beta_step_1: 'Email lisangjie@icloudsend.com (USDT or WeChat Pay)',
     beta_step_2: 'We reply within 24 hours with an activation code (PROMO-XXXXXXXX-YYYY)',
     beta_step_3: 'In the app, click “Upgrade Pro” → paste the code → activated immediately',
@@ -951,7 +951,7 @@ export const en: Record<string, unknown> = {
     footer_privacy: 'Privacy',
     footer_terms: 'Terms',
     footer_download: 'Download 言镜 AI',
-    footer_copyright: '© 2026 言镜 AI · v0.9.3',
+    footer_copyright: '© 2026 言镜 AI · v0.9.4',
   },
   admin: {
     th: {
@@ -1014,7 +1014,7 @@ export const en: Record<string, unknown> = {
     code_unused: 'Unused · valid {days}d · expires {date}',
     orders_title: 'Activated orders',
     success_revenue: '',
-    version_label: 'v0.9.3',
+    version_label: 'v0.9.4',
     obsidian: {
       title: 'Obsidian integration',
       description: 'After every meeting, a Markdown file is written to your Obsidian vault. See all your meetings connected in Obsidian Graph View.',

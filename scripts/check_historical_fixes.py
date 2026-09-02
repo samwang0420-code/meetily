@@ -341,13 +341,13 @@ ANCHORS = [
      "frontend/src/components/ImportAudio/ImportAudioDialog.tsx",
      r"导入音频.*stamp|friendly date title"),
 
-    # ===== UI 版本号同步 (2026-08-07 §92 P0, 2026-08-23 §P1 bump 0.9.3) =====
-    ("ui_version_0_9_3_sidebar",
+    # ===== UI 版本号同步 (2026-08-07 §92 P0, 2026-08-23 §P1 bump 0.9.4) =====
+    ("ui_version_0_9_4_sidebar",
      "frontend/src/components/Sidebar/index.tsx",
-     r"v0\.9\.3"),
-    ("ui_version_0_9_3_dashboard",
+     r"v0\.9\.4"),
+    ("ui_version_0_9_4_dashboard",
      "frontend/src/app/_components/HomeDashboard.tsx",
-     r"v0\.9\.3"),
+     r"v0\.9\.4"),
 
     # ===== §163: llama-helper 推理参数固化 (2026-08-23) =====
     ("163_llama_helper_default_temp",

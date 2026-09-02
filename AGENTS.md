@@ -4373,3 +4373,57 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 3. **banner 必须有 data-testid** — `ram-recommendation-cta` 便于 e2e 测试
 4. **未知 RAM 时不显示 banner** — `deviceRamGb === null` 不渲染, 避免噪声
 5. **§38 风格延续**: 默认隐藏未下载模型 + 加 toggle (§90 已立)
+
+## §203 v0.9.3 → v0.9.4 版本号 bump (2026-09-02 立, commit 待 push)
+
+**触发**: 用户原话 "用 main 分支生成 0.9.4 的版本, 不要漏代码"。
+
+**变更范围 (20 处全量 grep 后, 按 §94.5 SOP 完整覆盖)**:
+
+| 文件 | 处数 | 备注 |
+|---|---|---|
+| frontend/package.json | 1 | `"version": "0.9.3"` |
+| frontend/src-tauri/Cargo.toml | 1 | `version = "0.9.3"` |
+| frontend/src-tauri/tauri.conf.json | 1 | `"version": "0.9.3"` |
+| frontend/src/app/_components/HomeDashboard.tsx | 1 | dashboard footer chip |
+| frontend/src/app/pricing/page.tsx | 1 | pricing 页 footer |
+| frontend/src/components/Sidebar/index.tsx | 5 | 747/884/890/895/896 footer + mailto |
+| frontend/src/components/About.tsx | 1 | mailto body |
+| frontend/src/i18n/locales/zh.ts | 4 | trust_version/beta_title/footer_copyright/version_label |
+| frontend/src/i18n/locales/en.ts | 4 | 同上 |
+| scripts/check_historical_fixes.py | 1 | header + 2 anchor (5.5 实际: anchor name + regex 同步) |
+| **总计** | **20** | |
+
+**guard 锚点同步 (§94.5 关键 SOP)**:
+- anchor name: `ui_version_0_9_3_*` → `ui_version_0_9_4_*` (2 处)
+- anchor regex: `r"v0\.9\.3"` → `r"v0\.9\.4"` (2 处)
+- header comment: `§P1 bump 0.9.3` → `§P1 bump 0.9.4`
+- 验证后 guard 734/734 PASS (无 anchor 数量变化, 只是同步版本号)
+
+**§37 6 步硬闸门**:
+- ✅ cargo check --lib: 0 errors (17 §18 warnings 不动)
+- ✅ tsc --noEmit: 1 §18 bun:test noisy (不动)
+- ✅ npx next build: 1 路由 11+ 静态, 含 §202 banner
+- ✅ cargo build --release: 4m28s, meetily 57M
+- ✅ check_historical_fixes.py: 734/734 PASS
+- ✅ sync_app_bundle.sh: 3 binary 全 sync + codesign OK
+
+**binary / bundle 验证**:
+- `target/release/meetily`: `grep v0.9.4` → **7 hits** (footer + mailto + Sidebar 等)
+- `frontend/.next/static/chunks/815-...js`: 含 v0.9.4 (1 hit)
+- `target/release/言镜 AI.app/Contents/MacOS/{言镜 AI, llama-helper, ffmpeg}` 3 binary 全 sync
+
+**§94.5 SOP 严格遵守** (避免 v0.9.0 → v0.9.1 时漏改 pricing/page.tsx footer 教训):
+1. ✅ 全量 grep `(0\.9\.3|v0\.9\.3)` 命中 20 处
+2. ✅ 全文替换为 v0.9.4
+3. ✅ 第二次 grep `(0\.9\.3|v0\.9\.3)` → **0 hits** (无残留)
+4. ✅ guard anchor 同步 (name + regex)
+5. ✅ 6 步硬闸门全过
+
+**关联**:
+- §94.5 (版本号 bump SOP)
+- §37 (硬闸门)
+- §92 (outputs 双写 Codex + Obsidian)
+- §56 (AGENTS.md 双校铁律)
+- §18 (不主动改无关 bug)
+- §94 (全面代码审计, 4 个版本号不一致根因)
