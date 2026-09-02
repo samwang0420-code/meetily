@@ -3,6 +3,8 @@
 # 用户在 Mac 终端执行 (sandbox 拦不住 git clone / cmake)
 # 输出: /tmp/spark_phase1_a_result.log
 # 用法: bash outputs/§205.2-Path-A-Phase1验证脚本.sh
+# 
+# 智能检测: 已 clone / 已 build 都自动跳过对应步骤,放心 re-run
 
 set -e
 
@@ -15,23 +17,31 @@ echo "§205.2 Path A — Phase 1 验证"
 echo "时间: $(date)"
 echo "========================================"
 
-cd /tmp
-
-# Step 1: 拉 XHToken fork (含 spark2_5 架构支持)
+# Step 1: 检测已有 clone (你已 clone 成功,直接复用)
 echo ""
-echo "[1/5] git clone XHToken/llama.cpp fork ..."
-if [[ -d xhtoken-llama.cpp ]]; then
-    echo "  复用已存在目录: cd xhtoken-llama.cpp && git pull"
-    cd xhtoken-llama.cpp && git pull --depth 1
+echo "[1/5] 检查 /tmp/xhtoken-llama.cpp ..."
+if [[ -d /tmp/xhtoken-llama.cpp ]]; then
+    cd /tmp/xhtoken-llama.cpp
+    HEAD=$(git log --oneline -1)
+    echo "  ✓ 已存在,HEAD = $HEAD"
+    echo "  (不重新 clone, 不 git pull — 保留你 clone 时的状态)"
 else
+    echo "  未发现 clone,执行首次 git clone ..."
+    cd /tmp
     git clone --depth 1 https://github.com/XHToken/llama.cpp.git xhtoken-llama.cpp
     cd xhtoken-llama.cpp
+    echo "  ✓ clone 完成"
 fi
 
-# Step 2: cmake build with Metal
+# Step 2: cmake build (增量 — 已 build 会自动检测变更)
 echo ""
 echo "[2/5] cmake build with Metal (8 核并行) ..."
-cmake -S . -B build -DGGML_METAL=ON 2>&1 | tail -5
+if [[ -d build && -f build/bin/llama-cli ]]; then
+    echo "  检测到已有 build/, 执行增量 rebuild (1-2 min)"
+else
+    echo "  首次 build (5-10 min,8 核全速)"
+    cmake -S . -B build -DGGML_METAL=ON 2>&1 | tail -5
+fi
 cmake --build build --parallel 8 2>&1 | tail -10
 
 # Step 3: 验证 binary
