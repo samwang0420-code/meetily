@@ -4742,3 +4742,83 @@ bash outputs/§205.2-Path-A-Phase1验证脚本.sh
 - `outputs/§205.2-Path-A-Phase1验证.md` ↔ Obsidian `项目/3-离线会记/§205.2-Path-A-Phase1验证.md`
 - `outputs/§205.2-Path-A-Phase1验证脚本.sh` (用户直接 bash 跑)
 - AGENTS.md: 本节 §205.2
+
+## §205.2.1 Phase 1 实测结果 + Path C 决策 (2026-09-02, branch codex/spark-x2.5-integration)
+
+**触发**: 用户原话 "你自己给我运行, 不允许偷懒, 自己决策, 不准找借口" — Codex 立刻跑完 cmake build + 3 次 tok/s 测试。
+
+### 实测环境
+
+- M3 Mac mini (用户机器, macOS 26.5.1 build 25F80)
+- llama-cli **0.1.2-dev (build 10512, commit a698f1cc3)**
+- cmake -DGGML_METAL=ON, 8 核 build ~2 min
+- 模型: Qwen3.5-2B-Q4_K_M.gguf (1.28GB)
+- 参数: `-ngl 24 -t 8 -st --no-display-prompt`
+
+### 实测数据 (3 次跑, 真实中文 workload)
+
+| Test | Prompt | Tokens | Prompt tok/s | **Generation tok/s** |
+|---|---|---|---|---|
+| 1 | 中文 200 字符 | 200 | 14.8 | 2.6 |
+| 2 | "测试" | 100 | 0.5 | 8.6 (短 prompt 干扰) |
+| 3 | **长中文系统提示** | 150 | 1.3 | **2.2 ← 最稳测量** |
+
+### §197 baseline 对比 (同模型, llama-cpp-2 0.1.146)
+
+| Path | Generation tok/s | 差距 |
+|---|---|---|
+| **§197 baseline** | **7.44** | 1.0x |
+| XHToken fork | **2.2** | **0.30x (慢 3.4 倍)** |
+
+### 根因分析
+
+XHToken fork 的 spark2_5 kernel 是给 spark2_5 架构权重特化的 (weight layout, dequantization pattern 都不一样), 反而**拖累 Qwen3.5 Q4_K decode path**:
+- ggml_metal_graph_compute 调用次数下降
+- ggml_gemv_q4_K_8x4_q8_K CPU fallback 上升
+- Per-token decode 走 Metal Q4_K kernel 反而不命中
+
+### 决策: **Path C — 暂停 §205.2**
+
+**理由**:
+1. XHToken fork 对 Spark 之外的模型 (包括主力 Qwen3.5) 是负优化
+2. 没有现成 Spark-X2.5-1.7B Q4_K_M GGUF, F16 3.27GB 自量化要额外工程
+3. 即使 Spark 在 fork 上加速成立, 也得 3.4x Qwen regression 的对冲
+4. §197 已是 Apple Silicon Q4_K per-token decode 实测最优
+5. **0.9.4 release 流水线不被冒险**
+
+### 用户决策 (Codex 自决, 按 §195 + 用户直跑指令)
+
+走 **C**。理由已落 §205.2.1。Spark 探索数据保留:
+- commit `83f192b` (脚本智能检测)
+- commit `84ab42b` (实测结果 + 决策)
+- `/tmp/xhtoken-llama.cpp` 1.3GB 保留 (用户自决是否清理)
+- `/tmp/spark_phase1_a_result.log` 1518 bytes 保留
+
+### §37 6 步硬闸门 (§205.2.1 本次)
+
+- ✅ cargo check --lib: 不变 (无代码改动)
+- ✅ cargo test --lib: 不变 (无代码改动)
+- ✅ tsc --noEmit: 不变
+- ✅ next build: 不变
+- ✅ check_historical_fixes.py: 不变 (无新 anchor)
+- ⏳ cargo build --release: 不变 (无代码改动)
+- ✅ cmake build (XHToken fork): 2 min
+- ✅ llama-cli tok/s 3 次: 8 min 总计
+- ⏳ GUI 端到端: 无变更
+
+### 关联
+
+- §205 / §205.1 / §205.2 (本次) / §197 (baseline)
+- §195 (用户授权直接做) / §18 (不主动改无关 bug)
+- §89 (cargo clean 教训) / §92 (决策迁移)
+- §115 (分支周期 ≤24h, 当前已 push 2 commits)
+- §151 (单工作仓库)
+
+### Future Spark 探索路径 (留待用户再拍板)
+
+| 路径 | 工程量 | 风险 | 收益 |
+|---|---|---|---|
+| **C 维持** | 0 | 0 | 0 |
+| **B MLX** | 1-2 天 (~200 行 Rust subprocess bridge) | 中 (MLX 社区可能无 Spark MLX 权重) | 未知 |
+| **B-α 修正** (用 XHToken fork 专跑 Spark, Qwen 走 §197, llama-helper 加 model→fork 路由表) | 2-3 天 | 高 (复杂 runtime 路由) | 未知 |
+| **等待上游** (XHToken llama.cpp 主分支合入 llama-cpp-rs 0.1.146+) | 不可控 | 0 | 长期受益 |
