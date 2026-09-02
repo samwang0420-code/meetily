@@ -4496,3 +4496,72 @@ open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
 - §190.2 (高压致害法条自动注入, 本次生效)
 - §200.8 (全角冒号 byte boundary 修复, 上一 commit)
 - §37 硬闸门 / §18 不主动改无关 bug / §56 AGENTS.md 双校 / §92 决策迁移铁律
+
+## §205 Spark-X2.5-1.7B vs Qwen3.5-2B 评估 (2026-09-02 立)
+
+**触发**: 用户原话 "你对比一下 Spark-X2.5-1.7B 和 Qwen3.5-2B，我们是否用 Spark-X2.5-1.7B 会好一点" (附 github.com/XHToken/Spark-X2.5 链接)
+
+**作者**: Codex (按 §195 "我不在电脑旁边, 如果有什么需要等我拍板做的, 你就直接做" 偏好执行)
+
+### Phase 1 — 公开 benchmark 对比 (Spark-X2.5-1.7B README)
+
+**17/19 项 Spark 胜出**, 关键差异:
+- **Agent**: τ²-bench +16.5 / τ³-bench +16.0 / MCP-Atlas +8.6 / BrowseComp +26.6
+- **中文 Math**: Gaokao 2026 (5 卷高考) 114.8 vs Qwen 94.0 → **+20.8**
+- **指令跟随**: IFEval 89.5 vs 78.6 → **+10.9** / IFBench 66.3 vs 41.3 → **+25.0**
+- **唯一输**: AA-LCR (-1.3 长上下文) / GPQA (-0.8 推理) — 差距 < 1.5
+
+**未公布**: 法律/医疗 benchmark — 我们核心场景无法从公开数据评估。
+
+### Phase 2 — 工具链评估
+
+**关键发现**:
+1. **GGUF 元数据** (ModelScope 直拉): `general.architecture = spark2_5` — 新架构, **不在 llama.cpp 主仓**
+2. **GGUF 文件**: XHToken/Spark-X2.5-1.7B-GGUF 单文件 3.27GB F16, **无 Q4_K_M 量化版**
+3. **llama-cpp-2 0.1.146** (§197 必须 =0.1.146) **不识别 spark2_5** — 直接加载报错
+4. **Ollama 注册**: ollama.com/SparkLLM/Spark-X2.5-1.7B 存在, **pull manifest 在 sandbox 网络受限卡死** (用户本地可能 OK)
+5. **采样冲突**: Spark 默认 temp=1.0/top_p=0.95/thinking ON vs 我们 §163 temp=0.2/top_p=0.4/non-thinking — 架构级冲突
+
+### Phase 3 — 落地决策 (按 §195)
+
+**Option A (推荐,本次落地)**: 保持 Qwen3.5-2b,文档化评估,不动代码
+**Option B (激进,待用户拍板)**: 集成 Spark,工程量 1-2 天,需撤回 §197 或新立 §205.1
+**Option C (放弃)**: 文档化 + 等生态成熟(估计 6-12 月)
+
+**Codex 选 Option A** — 工程风险 > benchmark 收益:
+1. 法律场景无公开数据,1.7B 是否真优于 2B 无法确定
+2. §197 兼容性约束,动铁律需用户显式授权
+3. Qwen3.5-2B 在 §141/§161/§195 法律场景已实测 30+ 摘要稳定
+4. 按 §18 不主动改无关 bug — Spark 集成属"非必要优化"
+5. 8GB 机型 RAM 收益微小 (1.1GB vs 1.2GB = 4%)
+
+### 实施 (Option A)
+
+- **outputs 双写**: `outputs/§205-Spark-X2.5-1.7B-vs-Qwen3.5-2B评估-2026-09-02.md` ↔ Obsidian `项目/3-离线会记/§205-...md`
+- **AGENTS.md**: 本节 §205 (本 commit)
+- **guard 锚点**: `205_spark_x25_evaluation_completed` (文档存在性)
+- **代码改动**: 0 (按 §18 / §195)
+
+### 未来 Review 触发点
+
+1. XHToken 提交 PR 到 llama.cpp 主仓 (spark2_5 被主仓识别)
+2. Spark 公布法律/医疗 benchmark
+3. MLX-Ollama 出一键集成方案
+4. 半年后 (2027-03) 主动 re-review
+
+### 关联
+
+- §190 (Qwen 2.5-3B 主推)
+- §190.2 (RAM 自适应表 — 当前 qwen3.5:2b 是 8GB 主流默认)
+- §163 (采样参数固化 0.2/0.4/1.05 — Spark 冲突)
+- §197 (llama-cpp-2 必须 =0.1.146 — Spark 违背)
+- §141 (VERBATIM FACT-CHECK 在 qwen3.5-2b 上实测稳定)
+- §18 (不主动改无关 bug)
+- §92 (决策迁移铁律)
+- §195 (用户授权直接做)
+- §151 (单工作仓库)
+
+### 后续 Action (按用户拍板)
+
+- 选 A: 当前 PR 即终结
+- 选 B: 需用户显式授权撤回 §197 或新立 §205.1 例外, 工程 1-2 天

@@ -2524,7 +2524,18 @@ ANCHORS = [
     ("204_extract_party_strips_pipe",
      "frontend/src-tauri/src/summary/hard_post_process.rs",
      r"加 markdown 表格分隔符"),
-    ("204_test_section_204_global_conflict",
+    # ===== §205: Spark-X2.5-1.7B vs Qwen3.5-2B 评估 (2026-09-02) =====
+    ("205_spark_x25_evaluation_outputs",
+     "outputs/§205-Spark-X2.5-1.7B-vs-Qwen3.5-2B评估-2026-09-02.md",
+     r"Spark-X2\.5-1\.7B"),
+    ("205_spark_x25_evaluation_agents_md",
+     "AGENTS.md",
+     r"## §205 Spark-X2\.5-1\.7B vs Qwen3\.5-2B 评估"),
+    ("205_decision_option_a_maintain_qwen35_2b",
+     "outputs/§205-Spark-X2.5-1.7B-vs-Qwen3.5-2B评估-2026-09-02.md",
+     r"Option A \(推荐\)"),
+
+        ("204_test_section_204_global_conflict",
      "frontend/src-tauri/src/summary/hard_post_process.rs",
      r"section_204_global_conflict_in_markdown_table"),
 
