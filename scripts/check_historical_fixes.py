@@ -2507,6 +2507,13 @@ ANCHORS = [
      "AGENTS.md",
      r"## §200\.1 llama-cpp-2 0\.1\.154 撤回 0\.1\.146"),
 
+    ("200_8_fullwidth_colon_byte_boundary_floor",
+     "frontend/src-tauri/src/summary/hard_post_process.rs",
+     r"// §200\.8 \(2026-09-02\): char boundary floor"),
+
+    ("200_8_safe_start_search_start_floor",
+     "frontend/src-tauri/src/summary/hard_post_process.rs",
+     r"let mut safe_start = search_start\.min"),
 ]
 
 

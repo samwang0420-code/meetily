@@ -1460,12 +1460,24 @@ pub fn detect_global_party_role_conflict(md: &str) -> GlobalPartyRoleConflictRep
         // §185.2 FIX: 处理 "被告 1/2/3/4" / "被告一/二/三/四" 模式
         for dm in defendant_idx_re.find_iter(&trimmed) {
             let role_full = &trimmed[dm.start()..dm.end()];
-            // 找 role_full 后第一个 : 或 ：
+            // §200.8 (2026-09-02): char boundary floor - find('：') 返回 char 起始 byte,
+            // ci + 1 落在 3-byte UTF-8 中间 panic (meeting-8ce922f9 08:50 failed 触发)
+            // search_start 来自 regex match end, 已 char boundary safe, 但保险 floor
             let search_start = dm.end();
-            let after_full = &trimmed[search_start..];
+            let mut safe_start = search_start.min(trimmed.len());
+            while safe_start < trimmed.len() && !trimmed.is_char_boundary(safe_start) {
+                safe_start += 1;
+            }
+            let after_full = &trimmed[safe_start..];
             let colon_idx = after_full.find(':').or_else(|| after_full.find('：'));
             if let Some(ci) = colon_idx {
-                let after = &after_full[ci+1..];
+                // ci 是 colon char 起始 byte, 半角 ':' = 1 byte OK,
+                // 全角 '：' = 3 bytes, ci + 1 落在 char 中间. 必须 floor 到 colon char 之后
+                let mut next_byte = (ci + 1).min(after_full.len());
+                while next_byte < after_full.len() && !after_full.is_char_boundary(next_byte) {
+                    next_byte += 1;
+                }
+                let after = &after_full[next_byte..];
                 let party = extract_party_after_label(after);
                 if !party.is_empty() {
                     party_roles.entry(party).or_default().insert(role_full.to_string());
@@ -3629,4 +3641,31 @@ mod tests {
         assert!(out.contains("[证据: 33:40]"), "mm:ss 应保留");
         assert!(!out.contains("二零一七年"), "非标 ID 应被剥离");
         assert_eq!(warnings.len(), 1, "应有 1 个 warning");
+    }
+
+    #[test]
+    fn section_200_8_fullwidth_colon_does_not_panic() {
+        // §200.8 (2026-09-02): meeting-8ce922f9 触发 byte boundary panic
+        // '：' = bytes 0xEF 0xBC 0x9A (3 bytes)
+        // find('：') 返回 char 起始 byte, ci + 1 落在 byte 1 of 3 → panic
+        let input = "被告：张三";
+        let result = detect_global_party_role_conflict(input);
+        // 不 panic 即通过 — 1 个 party 张三 关联 1 个 role 被告
+        assert!(result.conflicting_parties.len() <= 1);
+    }
+
+    #[test]
+    fn section_200_8_fullwidth_colon_with_multiple_lines() {
+        // §200.8 多行全角冒号测试 (当事人表典型格式)
+        let input = "原告：云南电网有限责任公司\n被告：张三\n被告：李四";
+        let result = detect_global_party_role_conflict(input);
+        assert!(result.conflicting_parties.len() <= 2);
+    }
+
+    #[test]
+    fn section_200_8_mixed_half_and_fullwidth_colons() {
+        // §200.8 半角 + 全角冒号混合 (常见 ASR 输出错位)
+        let input = "原告:公司A\n被告：公司B";
+        let result = detect_global_party_role_conflict(input);
+        assert!(result.conflicting_parties.len() <= 2);
     }
