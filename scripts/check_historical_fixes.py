@@ -2594,6 +2594,19 @@ ANCHORS = [
     ("217_models_kv_cache_q4_0_still_active",
      "llama-helper/src/main.rs",
      r"with_type_v\(KvCacheType::Q4_0\)"),
+    # §218 chunk error 写 DB (2026-09-09): 不再吞错, 真实根因落 summary_processes.error
+    ("218_first_chunk_error_var_decl",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"let mut first_chunk_error: Option<String> = None;"),
+    ("218_first_chunk_error_capture",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"first_chunk_error = Some\(format![\s\S]*?chunk \{\}/\{\} failed: \{\}"),
+    ("218_no_chunks_error_includes_detail",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"Multi-level summarization failed: \{\}"),
+    ("218_p218_chunk_error_written_tests_mod",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"mod p218_chunk_error_written_tests"),
 ]
 
 

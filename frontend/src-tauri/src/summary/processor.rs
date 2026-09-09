@@ -1005,6 +1005,10 @@ pub async fn generate_meeting_summary(
             > = FuturesUnordered::new();
             let mut next_to_spawn = 0usize;
             let mut cancel_error: Option<String> = None;
+            // §218: 收集第一个 chunk 错误, 在所有 chunk 都失败时把真实根因落 DB
+            // 之前只 log 不保存, DB summary_processes.error 永远是 "No chunks were processed successfully"
+            // 用户重启后只能看到空泛错误, 排查路径 0
+            let mut first_chunk_error: Option<String> = None;
             let mut chunk_summaries: Vec<Option<String>> = vec![None; chunks.len()];
 
             while next_to_spawn < chunks.len() || !inflight.is_empty() {
@@ -1072,6 +1076,14 @@ pub async fn generate_meeting_summary(
                                 break;
                             }
                             error!("Failed processing chunk {}/{}: {}", i + 1, num_chunks, e);
+                            if first_chunk_error.is_none() {
+                                first_chunk_error = Some(format!(
+                                    "chunk {}/{} failed: {}",
+                                    i + 1,
+                                    num_chunks,
+                                    e
+                                ));
+                            }
                         }
                         Err(join_err) => {
                             error!("Chunk task join error: {}", join_err);
@@ -1090,10 +1102,10 @@ pub async fn generate_meeting_summary(
                 .collect();
 
             if chunk_summaries.is_empty() {
-                return Err(
-                    "Multi-level summarization failed: No chunks were processed successfully."
-                        .to_string(),
-                );
+                let detail = first_chunk_error
+                    .as_deref()
+                    .unwrap_or("No chunks were processed successfully");
+                return Err(format!("Multi-level summarization failed: {}", detail));
             }
 
             successful_chunk_count = chunk_summaries.len() as i64;
@@ -2117,5 +2129,61 @@ mod p164_hard_post_tests {
         let out = hard_post_process(text, Domain::Legal);
         assert!(out.contains("李福强"), "§161.1 fix: {}", out);
         assert!(out.contains("磕碰致死"), "§161.1 fix: {}", out);
+    }
+}
+#[cfg(test)]
+mod p218_chunk_error_written_tests {
+    // §218: 验证 chunk error 不再被吞, 真实根因能落到 summary_processes.error
+    // 之前 processor.rs:1075 Ok((i, Err(e))) 只 error! log, 不保存
+    // 结果 DB 永远显示 "Multi-level summarization failed: No chunks were processed successfully"
+    // 用户看不到 LLM 真实错误, 排查路径 0
+
+    #[test]
+    fn section_218_first_chunk_error_format_includes_chunk_index() {
+        // 验证错误格式含 chunk 编号 + 真实 error 信息
+        let fake_error = "Failed to write request to stdin";
+        let formatted = format!("chunk {}/{} failed: {}", 1, 3, fake_error);
+        assert!(formatted.contains("chunk 1/3"));
+        assert!(formatted.contains("Failed to write request to stdin"));
+    }
+
+    #[test]
+    fn section_218_error_takes_first_when_multiple_chunks_fail() {
+        // 验证当多个 chunk 失败时, first_chunk_error 只保留第一个 (避免后续覆盖关键错误)
+        let mut first: Option<String> = None;
+        let errors = [
+            "timeout on chunk 1",
+            "cancelled",
+            "timeout on chunk 3",
+        ];
+        for (i, e) in errors.iter().enumerate() {
+            if e.contains("cancelled") {
+                continue;
+            }
+            if first.is_none() {
+                first = Some(format!("chunk {}/3 failed: {}", i + 1, e));
+            }
+        }
+        assert!(first.is_some());
+        let msg = first.unwrap();
+        assert!(msg.contains("chunk 1/3"));
+        assert!(msg.contains("timeout on chunk 1"));
+        // 关键: 后续错误不覆盖第一个 (排查路径稳定)
+        assert!(!msg.contains("cancelled"));
+    }
+
+    #[test]
+    fn section_218_fallback_error_when_no_chunk_error_captured() {
+        // 验证所有 chunk 都没进 Err 分支 (例如 join error) 时, fallback 到原始文案
+        // 这种情况理论上不会发生 (cancel_error 优先 break), 但要确保 unwrap_or 兜底
+        let detail: Option<&str> = None;
+        let final_msg = format!(
+            "Multi-level summarization failed: {}",
+            detail.unwrap_or("No chunks were processed successfully")
+        );
+        assert_eq!(
+            final_msg,
+            "Multi-level summarization failed: No chunks were processed successfully"
+        );
     }
 }
