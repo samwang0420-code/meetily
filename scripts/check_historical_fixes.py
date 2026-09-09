@@ -2567,7 +2567,18 @@ ANCHORS = [
     ("204_test_section_204_global_conflict",
      "frontend/src-tauri/src/summary/hard_post_process.rs",
      r"section_204_global_conflict_in_markdown_table"),
-
+    ("215_qwen25_3b_context_4k",
+     "frontend/src-tauri/src/summary/summary_engine/models.rs",
+     r"§215: 32K -> 4K for M3 8GB"),
+    ("215_qwen25_3b_test_assertion_4k",
+     "frontend/src-tauri/src/summary/summary_engine/models.rs",
+     r"assert_eq!\(qwen_3b\.context_size, 4096\);.*§215"),
+    ("215_llama_helper_kv_cache_import",
+     "llama-helper/src/main.rs",
+     r"use llama_cpp_2::context::params::\{KvCacheType, LlamaContextParams\}"),
+    ("215_llama_helper_kv_cache_q4_0",
+     "llama-helper/src/main.rs",
+     r"with_type_v\(KvCacheType::Q4_0\)"),
 ]
 
 

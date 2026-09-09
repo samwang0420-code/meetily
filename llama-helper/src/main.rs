@@ -8,7 +8,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use encoding_rs;
-use llama_cpp_2::context::params::LlamaContextParams;
+use llama_cpp_2::context::params::{KvCacheType, LlamaContextParams};
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
@@ -521,7 +521,10 @@ impl ModelState {
             ))
             .with_n_batch(self.context_size)
             .with_n_threads(threads)
-            .with_n_threads_batch(threads);
+            .with_n_threads_batch(threads)
+            // §215: KV cache Q4_0 for M3 8GB; saves ~0.6 GB vs F16 KV at 4K context (cnblogs/itech/p/19919532 + user pinned)
+            .with_type_k(KvCacheType::Q4_0)
+            .with_type_v(KvCacheType::Q4_0);
 
         let mut ctx = model
             .new_context(&self.backend, ctx_params)
