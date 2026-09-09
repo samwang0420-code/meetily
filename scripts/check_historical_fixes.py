@@ -2579,6 +2579,12 @@ ANCHORS = [
     ("215_llama_helper_kv_cache_q4_0",
      "llama-helper/src/main.rs",
      r"with_type_v\(KvCacheType::Q4_0\)"),
+    ("216_token_piece_buffer_64",
+     "llama-helper/src/main.rs",
+     r"token_to_piece_bytes\(token, 64, true, None\)"),
+    ("216_kv_cache_q4_0_tradeoff_comment",
+     "llama-helper/src/main.rs",
+     r"Q4_0 vs Q4_K tradeoff"),
 ]
 
 
