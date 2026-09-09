@@ -210,7 +210,7 @@ pub fn get_available_models() -> Vec<ModelDef> {
             template: "qwen2.5".to_string(),
             download_url: "https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf".to_string(),
             size_mb: 2100,  // ~2.1GB Q4_K_M for 3B params
-            context_size: 8192, // §217: §215 4K 不够 10K-char meeting (10290 chars ~7K tok + prompt + 800 output > 4K), 改 8K sweet spot (32K->8K = 0.32 GB KV F16 / 0.08 GB KV Q4_0, vs 32K F16 1.28 GB 省 ~1.0 GB)
+            context_size: 16384, // §222: §217 8K 不够 chunk 2 prompt 9074 tokens (system 7058 + chunk 1800 + template 200 = 9058 > 8192). §220 修 batch_size=16384 但 llama.cpp causal_attn 把 n_batch 静默 cap 到 n_ctx (cparams.n_batch = causal_attn ? min(n_ctx, params.n_batch) : params.n_batch), 必须 n_ctx >= prompt tokens. 16K 装得下 chunk (max ~9K) + 800 output = ~10K. KV Q4_0 额外 0.08 GB (0.16 GB total), 8GB 仍 ok
             layer_count: 36,
             sampling: SamplingParams::qwen25_summary(vec!["<|im_end|>".to_string()]),
             description: "Qwen 2.5 3B Instruct - replaces Qwen 3.5 2B. Better instruction following and Chinese accuracy for legal/medical summary.".to_string(),
@@ -454,7 +454,7 @@ mod tests {
             "https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf"
         );
         assert_eq!(qwen_3b.size_mb, 2100);
-        assert_eq!(qwen_3b.context_size, 8192); // §217: 8K context cap (M3 8GB sweet spot, §215 4K 不足 1.5h 会议 10K chars 实际需要 ~7K tokens + prompt + 800 output)
+        assert_eq!(qwen_3b.context_size, 16384); // §222: 8K 不够 chunk 2 prompt 9074 tokens, §217 测试更新到 16K (KV Q4_0 0.16 GB, M3 8GB ok)
         assert_eq!(qwen_3b.layer_count, 36);
         assert_eq!(qwen_3b.sampling, SamplingParams::qwen25_summary(vec!["<|im_end|>".to_string()]));
 

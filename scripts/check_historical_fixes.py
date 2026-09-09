@@ -2571,10 +2571,10 @@ ANCHORS = [
      r"section_204_global_conflict_in_markdown_table"),
     ("215_qwen25_3b_context_4k",
      "frontend/src-tauri/src/summary/summary_engine/models.rs",
-     r"§217: §215 4K 不够 10K-char meeting"),
+     r"§222: §217 8K 不够 chunk 2 prompt 9074 tokens"),
     ("215_qwen25_3b_test_assertion_8k",
      "frontend/src-tauri/src/summary/summary_engine/models.rs",
-     r"assert_eq!\(qwen_3b\.context_size, 8192\);.*§217"),
+     r"assert_eq!\(qwen_3b\.context_size, 16384\);.*§222"),
     ("215_llama_helper_kv_cache_import",
      "llama-helper/src/main.rs",
      r"use llama_cpp_2::context::params::\{KvCacheType, LlamaContextParams\}"),
@@ -2589,10 +2589,10 @@ ANCHORS = [
      r"Q4_0 vs Q4_K tradeoff"),
     ("217_qwen25_3b_context_8k",
      "frontend/src-tauri/src/summary/summary_engine/models.rs",
-     r"context_size: 8192.*§217"),
+     r"context_size: 16384.*§222"),
     ("217_qwen25_3b_test_assertion_8k",
      "frontend/src-tauri/src/summary/summary_engine/models.rs",
-     r"assert_eq!\(qwen_3b\.context_size, 8192\);.*§217"),
+     r"assert_eq!\(qwen_3b\.context_size, 16384\);.*§222"),
     ("217_models_kv_cache_q4_0_still_active",
      "llama-helper/src/main.rs",
      r"with_type_v\(KvCacheType::Q4_0\)"),
@@ -2641,6 +2641,15 @@ ANCHORS = [
     ("221_sync_copy_helper_os_chmod",
      "scripts/_sync_copy.py",
      r"os\.chmod\(dst, 0o755\)"),
+    # §222 (2026-09-09): Qwen 2.5 3B context 8K→16K (n_ctx 不够 chunk 2 prompt 9074 tokens)
+    # §220 修 batch_size=16384 但 llama.cpp causal_attn 静默 cap n_batch = min(n_ctx, params.n_batch)
+    # 必须 n_ctx >= prompt tokens 才能 decode 通过 GGML_ASSERT(n_tokens_all <= cparams.n_batch)
+    ("222_qwen25_3b_context_16k",
+     "frontend/src-tauri/src/summary/summary_engine/models.rs",
+     r"context_size: 16384.*§222"),
+    ("222_qwen25_3b_test_assertion_16k",
+     "frontend/src-tauri/src/summary/summary_engine/models.rs",
+     r"assert_eq!\(qwen_3b\.context_size, 16384\)"),
 ]
 
 
