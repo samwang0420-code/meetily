@@ -210,7 +210,7 @@ pub fn get_available_models() -> Vec<ModelDef> {
             template: "qwen2.5".to_string(),
             download_url: "https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf".to_string(),
             size_mb: 2100,  // ~2.1GB Q4_K_M for 3B params
-            context_size: 4096, // §215: 32K -> 4K for M3 8GB; user pinned 4K via cnblogs itech/p/19919532 + llama.cpp sweet spot
+            context_size: 8192, // §217: §215 4K 不够 10K-char meeting (10290 chars ~7K tok + prompt + 800 output > 4K), 改 8K sweet spot (32K->8K = 0.32 GB KV F16 / 0.08 GB KV Q4_0, vs 32K F16 1.28 GB 省 ~1.0 GB)
             layer_count: 36,
             sampling: SamplingParams::qwen25_summary(vec!["<|im_end|>".to_string()]),
             description: "Qwen 2.5 3B Instruct - replaces Qwen 3.5 2B. Better instruction following and Chinese accuracy for legal/medical summary.".to_string(),
@@ -454,7 +454,7 @@ mod tests {
             "https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf"
         );
         assert_eq!(qwen_3b.size_mb, 2100);
-        assert_eq!(qwen_3b.context_size, 4096); // §215: 4K context cap (user pinned, M3 8GB friendly)
+        assert_eq!(qwen_3b.context_size, 8192); // §217: 8K context cap (M3 8GB sweet spot, §215 4K 不足 1.5h 会议 10K chars 实际需要 ~7K tokens + prompt + 800 output)
         assert_eq!(qwen_3b.layer_count, 36);
         assert_eq!(qwen_3b.sampling, SamplingParams::qwen25_summary(vec!["<|im_end|>".to_string()]));
 
