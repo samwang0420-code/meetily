@@ -2614,13 +2614,21 @@ ANCHORS = [
      r"const CHUNK_SIZE: usize = 1800;"),
     ("219_n_batch_16k",
      "llama-helper/src/main.rs",
-     r"\.with_n_batch\(16384\)"),
+     r"\.with_n_batch\(N_BATCH\)"),
     ("219_p219_chunk_size_tests_mod",
      "frontend/src-tauri/src/summary/processor.rs",
      r"mod p219_chunk_size_tests"),
     ("219_chunk_size_1800_comment_in_doc",
      "frontend/src-tauri/src/summary/processor.rs",
      r"§219.*CHUNK_SIZE 2400[→\\u{2192}]1800"),
+    # §220 (2026-09-09): LlamaBatch::new capacity 必须 >= n_batch
+    # §219B with_n_batch(16384) 后, batch_size 仍用 context_size=8192 报 InsufficientSpace
+    ("220_batch_size_eq_n_batch",
+     "llama-helper/src/main.rs",
+     r"const N_BATCH: u32 = 16384;[\s\S]*?let batch_size = N_BATCH as usize;"),
+    ("220_with_n_batch_uses_n_batch_const",
+     "llama-helper/src/main.rs",
+     r"\.with_n_batch\(N_BATCH\)"),
 ]
 
 

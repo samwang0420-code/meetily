@@ -519,14 +519,12 @@ impl ModelState {
             .with_n_ctx(Some(
                 NonZeroU32::new(self.context_size).context("Invalid ctx size")?,
             ))
-            // §219B (2026-09-09): n_batch 8K→16K (跟 context 解耦)
-            // 根因: 7 个 system prompt const (~6776 tokens) + chunk 2400 + template 200
-            //   ≈ 9376 tokens > 8K batch capacity, chunk 2/3 prompt 添加时 InsufficientSpace
-            // 配套: processor.rs chunk_size 2400→1800, prompt 总数 ~6000, 余量 ~10K
-            //   给未来 §X 注入更多 rule 不触发 batch 溢出
-            // 内存影响: n_batch 不增 KV cache, 只在 llama_batch_init 时分配临时 buffer
-            //   (~32 MB at 16K), 跟 n_ctx 8K KV cache Q4_0 (~600 MB) 相比可忽略
-            .with_n_batch(16384)
+            // §220 (2026-09-09): N_BATCH = 16384, 跟 LlamaBatch::new 一致 (§219B 配套)
+            // n_batch = context.n_batch 是 context 单批 decode 上限
+            // LlamaBatch::new 第一个参数是 batch token 数组容量, 必须 >= n_batch
+            //   否则 batch.add() 在 n_tokens > capacity 时 InsufficientSpace
+            // §219B 之前设 n_batch=16384 但 LlamaBatch::new 用 context_size=8192, 容量错配
+            .with_n_batch(N_BATCH)
             .with_n_threads(threads)
             .with_n_threads_batch(threads)
             // §215: KV cache Q4_0 for M3 8GB; saves ~0.6 GB vs F16 KV at 4K context
@@ -549,10 +547,16 @@ impl ModelState {
 
         eprintln!("📝 Tokenized prompt: {} tokens", tokens_list.len());
 
-        // §219B (2026-09-09): batch_size = min(context_size, n_batch=16384)
-        // LlamaBatch 实际容量 = min(LlamaBatch::new 第一个参数, context.n_batch)
-        // 我们已经设 n_batch=16384, 所以这里用 context_size 即 8K 即可
-        let batch_size = self.context_size as usize;
+        // §220 (2026-09-09): batch_size 必须 >= n_batch
+        // §219B with_n_batch(16384) 让 context 单批可处理 16K tokens, 但 batch 本身
+        //   token 数组容量是 LlamaBatch::new 第一个参数 (§219B 用的是 context_size=8192)
+        //   batch.add() 检查 self.allocated < n_tokens + 1
+        //   所以即使 n_batch=16K, batch.add 到 8193 仍 InsufficientSpace.
+        //   chunk 2/3 prompt 8776 tokens > 8192 容量 → 失败.
+        // 修: batch_size 直接用 N_BATCH=16384 (跟 context.n_batch 一致)
+        //   同时保证 context_size <= batch_size, 否则 decode 阶段也会报错
+        const N_BATCH: u32 = 16384;
+        let batch_size = N_BATCH as usize;
         let mut batch = LlamaBatch::new(batch_size, 1);
 
         let last_index: i32 = (tokens_list.len() - 1) as i32;
