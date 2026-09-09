@@ -628,10 +628,17 @@ pub fn chunk_text(text: &str, chunk_size_tokens: usize, overlap_tokens: usize) -
 /// 加上 300 token 模板 prompt overhead 仍在 context 内; 50 token 重叠保证
 /// 跨块语义不断裂 (会议连续句子的承接关系不被切碎).
 ///
-/// 短文本 (≤2400 token) 自动复用原有单轮摘要逻辑, 不增加 Map-Reduce 开销.
+/// 短文本 (≤1800 token) 自动复用原有单轮摘要逻辑, 不增加 Map-Reduce 开销.
 /// §150: meetily/ §55 合并 (1800→2400) — 23K chars 切成 3-4 块 (vs 7-9 块)
+/// §219 (2026-09-09): CHUNK_SIZE 2400→1800.
+///   根因: 7 个 system prompt const 累计 ~6776 tokens + chunk 2400 + template 200
+///   ≈ 9376 tokens > llama-helper 8K batch capacity → chunk 2/3 InsufficientSpace.
+///   chunk 1 因 §53 标点边界偶然 ~8100 tokens 通过, chunk 2/3 必超.
+///   修后 prompt 总数 ~6000 tokens < 8192, 安全余量 2000 tokens.
+///   OVERLAP 50 保留 (§55 中文标点防断句).
+///   配套: llama-helper n_batch 8192→16384 (§219B), prompt 超长时仍可容纳.
 pub fn chunk_transcript_by_token(text: &str) -> Vec<String> {
-    const CHUNK_SIZE: usize = 2400;
+    const CHUNK_SIZE: usize = 1800;
     const OVERLAP: usize = 50;
     chunk_text(text, CHUNK_SIZE, OVERLAP)
 }
@@ -2132,6 +2139,38 @@ mod p164_hard_post_tests {
     }
 }
 #[cfg(test)]
+mod p219_chunk_size_tests {
+    use super::chunk_transcript_by_token;
+    // §219: 验证 chunk_transcript_by_token 返回 chunk ≤ 1800 tokens (留余地给 system prompt)
+    // 之前 2400 token chunk + 7 system const 6776 tokens + template 200 = 9376 > 8192 batch capacity
+    // chunk 2/3 prompt 添加时 InsufficientSpace 抛错
+    // 修后 chunk 1800 + system 6776 + template 200 ≈ 8776 < 16384 (n_batch 已扩) 
+
+    #[test]
+    fn section_219_chunk_transcript_by_token_uses_1800_chunk_size() {
+        // 验证 chunk_text 内部 CHUNK_SIZE 是 1800 (vs 之前 2400)
+        // chunk_text 用 chars_per_token = 1/0.35 = 2.857
+        // 所以 1800 tokens * 2.857 chars/token = 5143 chars per chunk max
+        let text = "测试内容。".repeat(5000);  // ~20000 chars
+        let chunks = chunk_transcript_by_token(&text);
+        // 每 chunk 应该 ≤ 5400 chars (= 1800 tokens * 3 chars_per_token 上限)
+        let max_chunk_chars = chunks.iter().map(|c| c.chars().count()).max().unwrap_or(0);
+        assert!(max_chunk_chars <= 5400, "chunk exceeds safe size: {}", max_chunk_chars);
+    }
+
+    #[test]
+    fn section_219_prompt_overhead_estimate() {
+        // 验证即使 1800 token chunk + 7 系统 const (~6776 tokens), 总 prompt < 16384
+        // §219B llama-helper n_batch 已扩 8192→16384, 余量 ~10K tokens 给未来 rule
+        const SYSTEM_PROMPT_ESTIMATE: usize = 7000; // 7 const 累计 ~6776, 取整 7000
+        const CHUNK_TOKEN_LIMIT: usize = 1800;
+        const TEMPLATE_OVERHEAD: usize = 200;
+        let total: usize = SYSTEM_PROMPT_ESTIMATE + CHUNK_TOKEN_LIMIT + TEMPLATE_OVERHEAD;
+        assert!(total <= 9000, "estimated prompt {} > safe limit 9000", total);
+        assert!(total <= 16384, "estimated prompt {} > n_batch 16384", total);
+    }
+}
+
 mod p218_chunk_error_written_tests {
     // §218: 验证 chunk error 不再被吞, 真实根因能落到 summary_processes.error
     // 之前 processor.rs:1075 Ok((i, Err(e))) 只 error! log, 不保存

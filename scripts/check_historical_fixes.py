@@ -1758,9 +1758,10 @@ ANCHORS = [
      r"test_149_fact_guard_report_contains_new_fields"),
     # §150: meetily/ v0.8.4-v0.8.5 漏 commit 合并 (2026-08-20)
     # §150.1: §55 chunk_size 1800→2400 + 6000
-    ("150_chunk_size_2400",
+    # §150 chunk_size 2400 已被 §219 改为 1800 (触发 InsufficientSpace 修复)
+    ("150_chunk_size_1800_after_219",
      "frontend/src-tauri/src/summary/processor.rs",
-     r"const CHUNK_SIZE: usize = 2400;"),
+     r"const CHUNK_SIZE: usize = 1800;"),
     ("150_chunk_size_6000",
      "frontend/src-tauri/src/summary/processor.rs",
      r"const CHUNK_SIZE: usize = 6000;"),
@@ -2607,6 +2608,19 @@ ANCHORS = [
     ("218_p218_chunk_error_written_tests_mod",
      "frontend/src-tauri/src/summary/processor.rs",
      r"mod p218_chunk_error_written_tests"),
+    # §219 chunk_size 2400→1800 + llama-helper n_batch 8K→16K (2026-09-09)
+    ("219_chunk_size_1800",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"const CHUNK_SIZE: usize = 1800;"),
+    ("219_n_batch_16k",
+     "llama-helper/src/main.rs",
+     r"\.with_n_batch\(16384\)"),
+    ("219_p219_chunk_size_tests_mod",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"mod p219_chunk_size_tests"),
+    ("219_chunk_size_1800_comment_in_doc",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"§219.*CHUNK_SIZE 2400[→\\u{2192}]1800"),
 ]
 
 
