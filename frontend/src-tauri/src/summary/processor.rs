@@ -639,7 +639,7 @@ pub fn chunk_text(text: &str, chunk_size_tokens: usize, overlap_tokens: usize) -
 ///   配套: llama-helper n_batch 8192→16384 (§219B), prompt 超长时仍可容纳.
 pub fn chunk_transcript_by_token(text: &str) -> Vec<String> {
     const CHUNK_SIZE: usize = 1800;
-    const OVERLAP: usize = 50;
+    const OVERLAP: usize = 150; // §226 (2026-09-10, per 豆包建议): was 50, 100-200 折中
     chunk_text(text, CHUNK_SIZE, OVERLAP)
 }
 
@@ -660,7 +660,7 @@ where
 {
     // §150: meetily/ §55 合并 (1800→6000) — 7 chunk × 800 < 6000 直接合并
     const CHUNK_SIZE: usize = 6000;
-    const OVERLAP: usize = 50;
+    const OVERLAP: usize = 150; // §226 (2026-09-10, per 豆包建议): was 50, 100-200 折中
 
     let combined = chunk_summaries.join("\n---\n");
     let total_tokens = rough_token_count(&combined);

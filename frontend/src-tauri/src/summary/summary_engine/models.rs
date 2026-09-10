@@ -74,14 +74,16 @@ impl SamplingParams {
     /// §163.1 + §190: Qwen 2.5 summary preset — same numbers as qwen35_summary (0.2/0.4/1.05).
     /// Qwen 2.5 3B Instruct is less prone to repetition than Qwen 3.5, so we keep
     /// the milder presence_penalty (0.1) but use the same conservative temperature/top_p.
+    /// §226 (2026-09-10, per 豆包建议): temp=0 (贪心) + rep=1.10 (适度惩罚).
+    ///   top_p=0.4 + top_k=20 + penalty_last_n=256 保留 (temp=0 时不影响).
     pub fn qwen25_summary(stop_tokens: Vec<String>) -> Self {
         Self {
-            temperature: 0.2,
+            temperature: 0.0,
             top_k: 20,
             top_p: 0.4,
-            presence_penalty: 0.1,
+            presence_penalty: 0.0,
             frequency_penalty: 0.0,
-            repeat_penalty: 1.05,
+            repeat_penalty: 1.10,
             penalty_last_n: 256,
             stop_tokens,
         }
@@ -425,7 +427,7 @@ pub fn format_prompt(
 // ============================================================================
 
 /// Default max tokens for generation (increased for better summary quality)
-pub const DEFAULT_MAX_TOKENS: i32 = 1200; // §225 (2026-09-10): was 4096. §191 per-model resolution
+pub const DEFAULT_MAX_TOKENS: i32 = 1000; // §226 (2026-09-10, per 豆包建议): was 1200 (§225), 折中 // §225 (2026-09-10): was 4096. §191 per-model resolution
                                             //   computes 1200 for qwen2.5:3b (3b default), but client.rs:225
                                             //   bypassed the resolved value by reading this constant directly,
                                             //   forcing 4096 output tokens per chunk = 9.2 min/chunk on M3.
@@ -475,6 +477,26 @@ mod tests {
         assert_eq!(qwen_4b.context_size, 32768);
         assert_eq!(qwen_4b.layer_count, 32);
         assert_eq!(qwen_4b.sampling, SamplingParams::qwen35_summary(vec!["<|im_end|>".to_string()]));
+    }
+
+
+    /// §226 (2026-09-10, per µ∝µ∍—”): qwen25 preset temp=0 + rep=1.10
+    #[test]
+    fn section_226_qwen25_summary_sampling_params() {
+        let s = SamplingParams::qwen25_summary(vec!["<|im_end|>".to_string()]);
+        assert_eq!(s.temperature, 0.0, "§226: temp must be 0 (greedy)");
+        assert_eq!(s.repeat_penalty, 1.10, "§226: rep must be 1.10");
+        assert_eq!(s.top_p, 0.4, "§226: top_p preserved");
+        assert_eq!(s.top_k, 20, "§226: top_k preserved");
+    }
+
+    /// §226: DEFAULT_MAX_TOKENS = 1000 (§52 2b=800 / §191 3b=1200)
+    #[test]
+    fn section_226_default_max_tokens_is_1000() {
+        assert_eq!(
+            DEFAULT_MAX_TOKENS, 1000,
+            "§226: DEFAULT_MAX_TOKENS must be 1000"
+        );
     }
 
     #[test]

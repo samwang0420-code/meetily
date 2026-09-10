@@ -79,16 +79,17 @@ impl SamplingConfig {
         repeat_penalty: Option<f32>,
         penalty_last_n: Option<i32>,
     ) -> Self {
-        // §163: 推理参数固化 (2026-08-23 立, 文档模块 3)
-        // Map / Reduce 一律使用 temperature=0.1, top_p=0.3, repetition_penalty=1.05
-        // 默认值走 env var 覆盖 (LLAMA_DEFAULT_TEMPERATURE / _TOP_P / _REPEAT_PENALTY),
-        // 单元测试或临时验证可 export 改回 1.0。
+        // §226 (2026-09-10, per 豆包建议): 贪心 (temp=0) + 适度惩罚 (rep=1.10).
+        //   temp=0 = argmax, 输出最稳定最确定, 法律/医疗摘要"复述事实"场景最适合.
+        //   rep=1.10 比 §163 1.05 略高, 防 chunk 边界处"重复句尾"幻觉.
+        //   top_p=0.3 保持 (temp=0 时不影响输出, 但保留 env override 路径).
+        // 默认值走 env var 覆盖, 单元测试可 export 临时还原.
         let default_temperature: f32 = std::env::var("LLAMA_DEFAULT_TEMPERATURE")
-            .ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.1);
+            .ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.0);
         let default_top_p: f32 = std::env::var("LLAMA_DEFAULT_TOP_P")
             .ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(0.3);
         let default_repeat_penalty: f32 = std::env::var("LLAMA_DEFAULT_REPEAT_PENALTY")
-            .ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(1.05);
+            .ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(1.10);
 
         let temperature = temperature.unwrap_or(default_temperature);
         let temperature = if temperature.is_finite() {
@@ -506,14 +507,18 @@ impl ModelState {
         let start_time = Instant::now();
         let model = self.model.as_ref().context("Model not loaded")?;
 
-        // Calculate thread count (conservative default: max(1, (Cores / 2) + 2))
-        // This ensures the UI thread is never starved
+        // Calculate thread count.
+        // §226 (2026-09-10, per 豆包建议): M3 base = 4 P-cores + 4 E-cores.
+        //   LLM prefill/decode 是 matmul-heavy + cache-sensitive, E-cores 会卡且跟 P-cores
+        //   抢 L1/L2 cache. 用 cores.min(4) 把 threads 限制在 P-core 数. 旧公式
+        //   ((cores/2)+2)=6 在 8-core Apple Silicon 上跑 6 threads, 部分落在 E-core.
+        //   UI thread 由 main thread 跑 (Tauri tao event loop), 不占这里.
         let threads: i32 = std::thread::available_parallelism()
             .map(|n| {
                 let cores = n.get() as i32;
-                ((cores / 2) + 2).max(1)
+                cores.min(4).max(1)
             })
-            .unwrap_or(2);
+            .unwrap_or(4);
 
         let ctx_params = LlamaContextParams::default()
             .with_n_ctx(Some(

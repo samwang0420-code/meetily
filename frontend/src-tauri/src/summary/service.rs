@@ -714,14 +714,14 @@ impl SummaryService {
         // §184.3: regenerate 路径 + 本地 LLM (Ollama/BuiltInAI) → 强制注入 temperature=0.3
         //         首次生成保留 None (用 model card 默认).
         //         CustomOpenAI 仍用 custom_openai_temperature (用户已设).
-        //         0.3 是 §163 默认 0.1 与 §169.1 原 0.7 之间的折中:
+        //         §226 (2026-09-10) 折中 → 0.0 贪心 (per 豆包建议):
         //         §169.1 0.7 让 regenerate 输出过随机, 导致用户 8/26 反馈"质量一次不如一次"
         //         (表格行重复 / raw transcript 漏出 / 缺段). 0.3 既保留一定随机性
         //         让 regenerate 输出不同于上次, 又能保证输出结构稳定.
         let effective_temperature: Option<f32> = if regeneration_flag
             && matches!(provider, LLMProvider::Ollama | LLMProvider::BuiltInAI)
         {
-            Some(0.3_f32)
+            Some(0.0_f32) // §226 (2026-09-10, per 豆包建议): 0.3→0.0 贪心
         } else {
             custom_openai_temperature
         };

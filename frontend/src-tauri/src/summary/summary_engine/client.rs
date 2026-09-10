@@ -403,10 +403,13 @@ mod tests {
     ///   clicking regenerate while UI was stuck on PENDING, saw old result_backup, thought
     ///   "duplicate generation". Now DEFAULT_MAX_TOKENS=1200 matches §191 3b baseline.
     #[test]
-    fn section_225_default_max_tokens_is_1200_not_4096() {
+    fn section_225_default_max_tokens_was_4096_now_1000() {
+        // §225 (§226 后续): DEFAULT_MAX_TOKENS 从 4096 (§225 修前) → 1200 (§225 修后) → 1000 (§226 调为折中)
+        // §226 以后实验室中价值比: 800/1000/1200/4096 都是可能取值.
+        // 当前 1000 = §52 2b=800 与 §191 3b=1200 之间折中
         assert_eq!(
-            models::DEFAULT_MAX_TOKENS, 1200,
-            "§225: DEFAULT_MAX_TOKENS must be 1200 (was 4096), matching §191 3b baseline"
+            models::DEFAULT_MAX_TOKENS, 1000,
+            "§226: DEFAULT_MAX_TOKENS now 1000 (was 1200 in §225, was 4096 originally)"
         );
     }
 
