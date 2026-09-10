@@ -425,7 +425,12 @@ pub fn format_prompt(
 // ============================================================================
 
 /// Default max tokens for generation (increased for better summary quality)
-pub const DEFAULT_MAX_TOKENS: i32 = 4096;
+pub const DEFAULT_MAX_TOKENS: i32 = 1200; // §225 (2026-09-10): was 4096. §191 per-model resolution
+                                            //   computes 1200 for qwen2.5:3b (3b default), but client.rs:225
+                                            //   bypassed the resolved value by reading this constant directly,
+                                            //   forcing 4096 output tokens per chunk = 9.2 min/chunk on M3.
+                                            //   §52 was 800 for qwen3.5:2b, §191 raised 3b to 1200.
+                                            //   Default fallback now matches §191 3b baseline.
 
 /// Idle timeout for sidecar (seconds) - can be overridden via LLAMA_IDLE_TIMEOUT env var
 pub const DEFAULT_IDLE_TIMEOUT_SECS: u64 = 300; // 5 minutes

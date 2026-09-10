@@ -2671,6 +2671,19 @@ ANCHORS = [
     ("222_qwen25_3b_test_assertion_16k",
      "frontend/src-tauri/src/summary/summary_engine/models.rs",
      r"assert_eq!\(qwen_3b\.context_size, 16384\)"),
+    # === §225: max_tokens 链路传透 + DEFAULT 1200 (2026-09-10 立) ===
+    ("225_default_max_tokens_1200",
+     "frontend/src-tauri/src/summary/summary_engine/models.rs",
+     r"pub const DEFAULT_MAX_TOKENS: i32 = 1200;"),
+    ("225_section_test_exists",
+     "frontend/src-tauri/src/summary/summary_engine/client.rs",
+     r"section_225_default_max_tokens_is_1200_not_4096"),
+    ("225_caller_provided_max_tokens_wired",
+     "frontend/src-tauri/src/summary/summary_engine/client.rs",
+     r"max_tokens: max_tokens\.map\(\|t\| t as i32\)\.or\(Some\(models::DEFAULT_MAX_TOKENS\)\)"),
+    ("225_llama_client_forwards_max_tokens",
+     "frontend/src-tauri/src/summary/llm_client.rs",
+     r"§225: forward max_tokens so §191 per-model resolution"),
 ]
 
 

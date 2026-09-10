@@ -200,6 +200,7 @@ pub async fn generate_summary_with_stream(
         let app_data_dir = app_data_dir
             .ok_or_else(|| "app_data_dir is required for BuiltInAI provider".to_string())?;
 
+        // §225: forward max_tokens so §191 per-model resolution actually reaches sidecar
         return crate::summary::summary_engine::client::generate_with_builtin_stream(
             app_data_dir,
             model_name,
@@ -207,6 +208,7 @@ pub async fn generate_summary_with_stream(
             user_prompt,
             cancellation_token,
             stream_sink,
+            max_tokens,
         )
         .await
         .map_err(|e| e.to_string());

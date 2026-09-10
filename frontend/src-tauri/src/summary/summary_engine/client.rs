@@ -140,6 +140,7 @@ pub async fn generate_with_builtin(
     system_prompt: &str,
     user_prompt: &str,
     cancellation_token: Option<&CancellationToken>,
+    max_tokens: Option<u32>, // §225: forwarded from §191 resolve_max_tokens_for_model
 ) -> Result<String> {
     generate_with_builtin_stream(
         app_data_dir,
@@ -148,6 +149,7 @@ pub async fn generate_with_builtin(
         user_prompt,
         cancellation_token,
         None,
+        max_tokens,
     )
     .await
 }
@@ -159,6 +161,9 @@ pub async fn generate_with_builtin_stream(
     user_prompt: &str,
     cancellation_token: Option<&CancellationToken>,
     stream_sink: Option<crate::summary::llm_client::StreamSink>,
+    max_tokens: Option<u32>, // §225: passed through from §191 resolve_max_tokens_for_model
+                             //   (qwen2.5:3b → 1200, qwen3.5:2b → 800, qwen3.5:4b → 1500)
+                             //   None falls back to models::DEFAULT_MAX_TOKENS (now 1200)
 ) -> Result<String> {
     // Check cancellation at start
     if let Some(token) = cancellation_token {
@@ -222,7 +227,10 @@ pub async fn generate_with_builtin_stream(
     let sampling = model_def.sampling.sanitize_for_llama_helper();
     let request = Request::Generate {
         prompt: formatted_prompt,
-        max_tokens: Some(models::DEFAULT_MAX_TOKENS),
+        // §225: max_tokens 是 caller-provided (来自 §191 per-model resolution),
+        //         不是常量. 之前写死 4096 让单 chunk 跑 9.2 分钟, 用户反复点重新生成.
+        //         现在 caller-provided 优先, fallback 走常量 (现在是 1200).
+        max_tokens: max_tokens.map(|t| t as i32).or(Some(models::DEFAULT_MAX_TOKENS)),
         context_size: Some(model_def.context_size),
         model_path: Some(model_path.to_string_lossy().to_string()),
         // §198: pass ModelDef::layer_count so llama-helper computes n_gpu_layers correctly
@@ -387,6 +395,58 @@ mod tests {
     }
 
     #[test]
+
+    /// §225 (2026-09-10): DEFAULT_MAX_TOKENS must be 1200, NOT 4096.
+    /// Why: §191 per-model resolution computes 1200 for qwen2.5:3b, but client.rs:225
+    ///   was reading DEFAULT_MAX_TOKENS directly with value 4096, ignoring caller-provided
+    ///   max_tokens. 4096 tokens per chunk = 9.2 min/chunk on M3 (7.44 tok/s) — user kept
+    ///   clicking regenerate while UI was stuck on PENDING, saw old result_backup, thought
+    ///   "duplicate generation". Now DEFAULT_MAX_TOKENS=1200 matches §191 3b baseline.
+    #[test]
+    fn section_225_default_max_tokens_is_1200_not_4096() {
+        assert_eq!(
+            models::DEFAULT_MAX_TOKENS, 1200,
+            "§225: DEFAULT_MAX_TOKENS must be 1200 (was 4096), matching §191 3b baseline"
+        );
+    }
+
+    /// §225: Request::Generate must serialize the caller-provided max_tokens, not a constant.
+    /// Before §225, client.rs hardcoded Some(models::DEFAULT_MAX_TOKENS) = Some(4096),
+    ///   losing the §191 resolved value (1200 for 3b model).
+    /// After §225, Request::Generate uses max_tokens.unwrap_or(DEFAULT_MAX_TOKENS),
+    ///   so caller-provided (1200) wins over constant.
+    #[test]
+    fn section_225_request_generate_serializes_caller_provided_max_tokens() {
+        let request = Request::Generate {
+            prompt: "test".to_string(),
+            max_tokens: Some(1200), // §191 3b model resolution
+            context_size: Some(16384),
+            model_path: Some("/path".to_string()),
+            n_layer: Some(36),
+            temperature: Some(0.1),
+            top_k: Some(64),
+            top_p: Some(0.3),
+            presence_penalty: Some(0.0),
+            frequency_penalty: Some(0.0),
+            repeat_penalty: Some(1.05),
+            penalty_last_n: Some(0),
+            stop_tokens: Some(vec!["<end_of_turn>".to_string()]),
+        };
+
+        let json = serde_json::to_string(&request).unwrap();
+        // Caller-provided 1200 must reach sidecar, not 4096
+        assert!(
+            json.contains("\"max_tokens\":1200"),
+            "§225: caller-provided max_tokens=1200 must reach sidecar JSON, got: {}",
+            json
+        );
+        assert!(
+            !json.contains("\"max_tokens\":4096"),
+            "§225: must NOT contain 4096 (old hardcoded value): {}",
+            json
+        );
+    }
+
     fn test_response_deserialization() {
         let json = r#"{"type":"response","text":"generated text","error":null}"#;
         let response: Response = serde_json::from_str(json).unwrap();
