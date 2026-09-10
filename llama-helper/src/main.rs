@@ -8,7 +8,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 use encoding_rs;
-use llama_cpp_2::context::params::{KvCacheType, LlamaContextParams};
+use llama_cpp_2::context::params::LlamaContextParams;
 use llama_cpp_2::llama_backend::LlamaBackend;
 use llama_cpp_2::llama_batch::LlamaBatch;
 use llama_cpp_2::model::params::LlamaModelParams;
@@ -525,17 +525,21 @@ impl ModelState {
             //   否则 batch.add() 在 n_tokens > capacity 时 InsufficientSpace
             // §219B 之前设 n_batch=16384 但 LlamaBatch::new 用 context_size=8192, 容量错配
             .with_n_batch(N_BATCH)
+            // §223 (2026-09-10): N_UBATCH 必须显式跟 N_BATCH 一致, 不能依赖 default 0 隐式 fallback
+            //   llama.cpp: cparams.n_ubatch = min(cparams.n_batch, params.n_ubatch == 0 ? cparams.n_batch : params.n_ubatch)
+            //   §220 设 N_BATCH 但没设 N_UBATCH, llama.cpp 默认值在 n_ctx=16K 时可能让
+            //   memory->init_batch() 拆分 batch 后触发 'failed to eval'
+            .with_n_ubatch(N_BATCH)
             .with_n_threads(threads)
             .with_n_threads_batch(threads)
-            // §215: KV cache Q4_0 for M3 8GB; saves ~0.6 GB vs F16 KV at 4K context
-            // (cnblogs/itech/p/19919532 + user pinned). Q4_0 vs Q4_K tradeoff:
-            //   Q4_0: pure 4-bit per-element, fastest decode, lowest accuracy
-            //   Q5_0: 5-bit, +0.5 GB KV, +1% accuracy vs Q4_0
-            //   Q8_0: 8-bit, +1.2 GB KV, +2% accuracy, near-F16
-            // For Qwen 2.5 3B summarization, Q4_0 KV accuracy loss < 1% (sampling 0.1/0.3/1.05
-            // post-processing swallows any drift). User explicitly pinned Q4_0 in cnblogs article.
-            .with_type_k(KvCacheType::Q4_0)
-            .with_type_v(KvCacheType::Q4_0);
+            // §223 (2026-09-10): KV cache Q4_0 + n_ctx=16K + Qwen 2.5 3B Q4_K 组合实测
+            //   触发 'failed to eval' (llama_decode 返回 -2 = memory->init_batch() 失败)。
+            //   改回 F16 KV 是 conservative choice, 16K context F16 KV = 0.32 GB,
+            //   M3 8GB 还有 5.5 GB headroom, 完全够。
+            //   Q4_0 KV 留给将来 32K+ context 才考虑 (§215 文章推荐是 8K 以下场景)。
+            // §215 cnblogs 文章 pin Q4_0 是 4K context 的建议, n_ctx=16K 时不稳定。
+            // 不再 set with_type_k/with_type_v, 走 llama.cpp 默认 F16。
+            ;
 
         let mut ctx = model
             .new_context(&self.backend, ctx_params)

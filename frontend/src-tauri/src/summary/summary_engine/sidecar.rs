@@ -2,6 +2,7 @@
 // Handles spawning, health checking, keep-alive, and graceful shutdown
 
 use std::path::PathBuf;
+use std::fs::OpenOptions;
 use std::process::Stdio;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -53,6 +54,10 @@ pub struct SidecarManager {
     /// Idle timeout in seconds (configurable via env var)
     idle_timeout_secs: u64,
 
+    /// §223: app data dir for redirecting llama-helper stderr to log file
+    /// macOS .app bundle stderr 被 LaunchServices 丢弃, 必须落文件才能 debug
+    app_data_dir: PathBuf,
+
     /// §P1-A4: per-instance in-flight mutex. Held across the entire
     /// stdin-write → stdout-read cycle to prevent concurrent callers from
     /// interleaving requests and reading each other's responses.
@@ -80,7 +85,7 @@ impl Drop for RequestGuard {
 
 impl SidecarManager {
     /// Create a new sidecar manager
-    pub fn new(_app_data_dir: PathBuf) -> Result<Self> {
+    pub fn new(app_data_dir: PathBuf) -> Result<Self> {
         let helper_binary_path = Self::resolve_helper_binary()?;
 
         // Get idle timeout from env var or use default
@@ -94,6 +99,7 @@ impl SidecarManager {
             idle_timeout_secs
         );
         log::info!("Helper binary path: {}", helper_binary_path.display());
+        log::info!("App data dir: {}", app_data_dir.display());
 
         Ok(Self {
             child_process: Arc::new(Mutex::new(None)),
@@ -107,7 +113,29 @@ impl SidecarManager {
             helper_binary_path,
             current_model_path: Arc::new(RwLock::new(None)),
             idle_timeout_secs,
+            app_data_dir,
         })
+    }
+
+    /// §223 (2026-09-10): open <app_data_dir>/logs/llama-helper.log for stderr redirect
+    /// Append mode, parent dir auto-created. Best-effort: returns null on failure.
+    fn open_stderr_log_file(app_data_dir: &std::path::Path) -> std::process::Stdio {
+        let log_dir = app_data_dir.join("logs");
+        if let Err(e) = std::fs::create_dir_all(&log_dir) {
+            log::warn!("§223 Failed to create log dir {:?}: {}", log_dir, e);
+            return Stdio::null();
+        }
+        let log_path = log_dir.join("llama-helper.log");
+        match OpenOptions::new().create(true).append(true).open(&log_path) {
+            Ok(file) => {
+                log::info!("§223 llama-helper stderr → {}", log_path.display());
+                Stdio::from(file)
+            }
+            Err(e) => {
+                log::warn!("§223 Failed to open {:?}: {}", log_path, e);
+                Stdio::null()
+            }
+        }
     }
 
     /// Resolve the path to llama-helper binary
@@ -336,7 +364,9 @@ impl SidecarManager {
         command
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::inherit()) // Log stderr to main process
+            // §223 (2026-09-10): macOS .app bundle stderr 被 LaunchServices 丢弃
+            //   必须 redirect 到 <app_data_dir>/logs/llama-helper.log 才能 debug 'failed to eval' 这类 llama_decode 错误
+            .stderr(Stdio::from(Self::open_stderr_log_file(&self.app_data_dir)))
             .env("LLAMA_IDLE_TIMEOUT", self.idle_timeout_secs.to_string());
 
         #[cfg(target_os = "windows")]
@@ -724,6 +754,7 @@ impl SidecarManager {
             current_model_path: self.current_model_path.clone(),
             idle_timeout_secs: self.idle_timeout_secs,
             in_flight: self.in_flight.clone(),
+            app_data_dir: self.app_data_dir.clone(),
         };
 
         tokio::spawn(async move {
@@ -773,6 +804,7 @@ impl SidecarManager {
             current_model_path: self.current_model_path.clone(),
             idle_timeout_secs: self.idle_timeout_secs,
             in_flight: self.in_flight.clone(),
+            app_data_dir: self.app_data_dir.clone(),
         };
 
         tokio::spawn(async move {
