@@ -519,17 +519,17 @@ impl ModelState {
             .with_n_ctx(Some(
                 NonZeroU32::new(self.context_size).context("Invalid ctx size")?,
             ))
-            // §220 (2026-09-09): N_BATCH = 16384, 跟 LlamaBatch::new 一致 (§219B 配套)
-            // n_batch = context.n_batch 是 context 单批 decode 上限
-            // LlamaBatch::new 第一个参数是 batch token 数组容量, 必须 >= n_batch
-            //   否则 batch.add() 在 n_tokens > capacity 时 InsufficientSpace
-            // §219B 之前设 n_batch=16384 但 LlamaBatch::new 用 context_size=8192, 容量错配
+            // §224 (2026-09-10): N_BATCH = 16384 (logical max), N_UBATCH = 512 (physical max)
+            //   两者职责不同:
+            //     n_batch = context.n_batch 是 context 单批 decode 上限 (logical), LlamaBatch::new
+            //       第一个参数必须 >= n_batch 否则 batch.add() InsufficientSpace (§219B §220 教训)
+            //     n_ubatch = cparams.n_ubatch 是 single-graph physical batch size
+            //       决定 Metal compute buffer 大小: worst-case n_tokens = n_ubatch 时 Metal buffer = ~9.3 GB
+            //       M3 8GB 直接 ggml_metal_buffer_init failed
+            //   §223 错误地把 N_UBATCH 跟 N_BATCH 设一样, 触发了 Metal buffer OOM.
+            //   llama.cpp default n_ubatch = 512 (H100/A100 friendly), M3 unified memory 8GB 也够
             .with_n_batch(N_BATCH)
-            // §223 (2026-09-10): N_UBATCH 必须显式跟 N_BATCH 一致, 不能依赖 default 0 隐式 fallback
-            //   llama.cpp: cparams.n_ubatch = min(cparams.n_batch, params.n_ubatch == 0 ? cparams.n_batch : params.n_ubatch)
-            //   §220 设 N_BATCH 但没设 N_UBATCH, llama.cpp 默认值在 n_ctx=16K 时可能让
-            //   memory->init_batch() 拆分 batch 后触发 'failed to eval'
-            .with_n_ubatch(N_BATCH)
+            .with_n_ubatch(N_UBATCH)
             .with_n_threads(threads)
             .with_n_threads_batch(threads)
             // §223 (2026-09-10): KV cache Q4_0 + n_ctx=16K + Qwen 2.5 3B Q4_K 组合实测
@@ -559,7 +559,10 @@ impl ModelState {
         //   chunk 2/3 prompt 8776 tokens > 8192 容量 → 失败.
         // 修: batch_size 直接用 N_BATCH=16384 (跟 context.n_batch 一致)
         //   同时保证 context_size <= batch_size, 否则 decode 阶段也会报错
+        // §224 (2026-09-10): N_BATCH=16384 logical, N_UBATCH=512 physical
+        //   n_batch >= n_ubatch 必须成立 (GGML_ASSERT n_batch % n_ubatch == 0, llama-context.cpp:2691)
         const N_BATCH: u32 = 16384;
+        const N_UBATCH: u32 = 512;
         let batch_size = N_BATCH as usize;
         let mut batch = LlamaBatch::new(batch_size, 1);
 
