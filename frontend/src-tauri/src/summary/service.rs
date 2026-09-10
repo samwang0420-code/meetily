@@ -5,18 +5,22 @@ fn resolve_max_tokens_for_model(model_name: &str, user_override: Option<u32>) ->
             return Some(t);
         }
     }
+    // §227 (2026-09-10): 所有 per-branch 硬编码 800/1200/1500 都改 fallthrough 到
+    //   DEFAULT_MAX_TOKENS (=1000 from §226). §191 / §226 都是 single source of truth 修复.
+    //   之前 :3b 分支 hardcoded 1200 导致 §226 改 DEFAULT 没生效,log 仍显 max_tokens=1200.
+    let default = crate::summary::summary_engine::models::DEFAULT_MAX_TOKENS as u32;
     if model_name.contains("1.5b") || model_name.contains("1.5B") || model_name.ends_with(":1b") {
-        Some(800)
+        Some(default)
     } else if model_name.contains(":2b") || model_name.contains(":2B") {
-        Some(800)
+        Some(default)
     } else if model_name.contains(":3b") || model_name.contains(":3B") {
-        Some(1200)
+        Some(default) // §191 was 1200, §226 → 1000 via DEFAULT
     } else if model_name.contains(":4b") || model_name.contains(":4B")
         || model_name.contains("gemma3") || model_name.contains("Gemma3")
     {
-        Some(1500)
+        Some(default)
     } else {
-        Some(1200)
+        Some(default)
     }
 }
 
@@ -1198,12 +1202,13 @@ impl SummaryService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::summary::summary_engine::models::DEFAULT_MAX_TOKENS;
 
     // ===== §191 per-model max_tokens tests =====
 
     #[test]
     fn section_191_user_override_wins() {
-        // User-explicit Some(t) where t > 0 always wins
+        // User-explicit Some(t) where t > 0 always wins (保留 §191 行为)
         assert_eq!(resolve_max_tokens_for_model("qwen2.5:3b", Some(2000)), Some(2000));
         assert_eq!(resolve_max_tokens_for_model("qwen3.5:2b", Some(500)), Some(500));
         assert_eq!(resolve_max_tokens_for_model("gemma3:1b", Some(100)), Some(100));
@@ -1211,34 +1216,63 @@ mod tests {
 
     #[test]
     fn section_191_user_zero_falls_through_to_model_default() {
-        // Some(0) means "use default", not "0 tokens"
-        assert_eq!(resolve_max_tokens_for_model("qwen2.5:3b", Some(0)), Some(1200));
-        assert_eq!(resolve_max_tokens_for_model("qwen3.5:2b", Some(0)), Some(800));
+        // Some(0) means "use default". §227: default 是 DEFAULT_MAX_TOKENS (=1000 §226)
+        let default = DEFAULT_MAX_TOKENS as u32;
+        assert_eq!(resolve_max_tokens_for_model("qwen2.5:3b", Some(0)), Some(default));
+        assert_eq!(resolve_max_tokens_for_model("qwen3.5:2b", Some(0)), Some(default));
     }
 
     #[test]
     fn section_191_per_model_defaults() {
-        // qwen2.5:3b -> 1200 (3B Metal GPU can elaborate)
-        assert_eq!(resolve_max_tokens_for_model("qwen2.5:3b", None), Some(1200));
-        // qwen2.5:1.5b -> 800 (fast small model)
-        assert_eq!(resolve_max_tokens_for_model("qwen2.5:1.5b", None), Some(800));
-        // qwen3.5:2b -> 800 (legacy 2B CPU, §52 calibration)
-        assert_eq!(resolve_max_tokens_for_model("qwen3.5:2b", None), Some(800));
-        // qwen3.5:4b -> 1500 (4B can elaborate more)
-        assert_eq!(resolve_max_tokens_for_model("qwen3.5:4b", None), Some(1500));
-        // gemma3:1b -> 800
-        assert_eq!(resolve_max_tokens_for_model("gemma3:1b", None), Some(800));
-        // gemma3:4b -> 1500
-        assert_eq!(resolve_max_tokens_for_model("gemma3:4b", None), Some(1500));
-        // unknown -> 1200 (safe middle ground)
-        assert_eq!(resolve_max_tokens_for_model("claude-3-opus", None), Some(1200));
+        // §227: 全部 per-branch 都 fallthrough 到 DEFAULT_MAX_TOKENS (=1000 from §226)
+        // 之前硬编码 1200/800/1500 各分支, 跟 §226 改 DEFAULT 不同步, log max_tokens=1200
+        let default = DEFAULT_MAX_TOKENS as u32;
+        assert_eq!(resolve_max_tokens_for_model("qwen2.5:3b", None), Some(default));
+        assert_eq!(resolve_max_tokens_for_model("qwen2.5:1.5b", None), Some(default));
+        assert_eq!(resolve_max_tokens_for_model("qwen3.5:2b", None), Some(default));
+        assert_eq!(resolve_max_tokens_for_model("qwen3.5:4b", None), Some(default));
+        assert_eq!(resolve_max_tokens_for_model("gemma3:1b", None), Some(default));
+        assert_eq!(resolve_max_tokens_for_model("gemma3:4b", None), Some(default));
+        // unknown -> DEFAULT (single source of truth)
+        assert_eq!(resolve_max_tokens_for_model("claude-3-opus", None), Some(default));
     }
 
     #[test]
     fn section_191_case_insensitive_matches() {
-        // Should handle 1.5B (uppercase) too
-        assert_eq!(resolve_max_tokens_for_model("QWEN2.5:1.5B", None), Some(800));
-        assert_eq!(resolve_max_tokens_for_model("Qwen3.5:2B", None), Some(800));
+        // §227: 全部 fallthrough 到 DEFAULT
+        let default = DEFAULT_MAX_TOKENS as u32;
+        assert_eq!(resolve_max_tokens_for_model("QWEN2.5:1.5B", None), Some(default));
+        assert_eq!(resolve_max_tokens_for_model("Qwen3.5:2B", None), Some(default));
+    }
+
+    /// §227 (2026-09-10): resolve_max_tokens_for_model 函数体内不应再 hardcoded
+    /// 800/1200/1500 字面常量. 改 §226 DEFAULT 是 1 处改全部生效. 之前 §226 改 1000
+    /// 但这个函数仍是 hardcoded 1200, 用户跑 log max_tokens=1200 bug.
+    /// 检测: 函数体开头 `{` 到结尾 `}` 之间出现 `Some(N)` 其中 N 是 800/1200/1500
+    #[test]
+    fn section_227_no_hardcoded_max_tokens_remain() {
+        let src = include_str!("service.rs");
+        let fn_start = src.find("fn resolve_max_tokens_for_model")
+            .expect("resolve_max_tokens_for_model must exist");
+        // 跳过函数签名到 `{` 之前 (避免 Some(0) 出现在 Some(t) 也算)
+        let body_open = src[fn_start..].find('{').unwrap() + fn_start + 1;
+        let mut depth = 1usize;
+        let mut i = body_open;
+        while i < src.len() && depth > 0 {
+            let ch = src.as_bytes()[i] as char;
+            if ch == '{' { depth += 1; }
+            else if ch == '}' { depth -= 1; }
+            i += 1;
+        }
+        let fn_body = &src[body_open..(i - 1)];
+        // 排除 DEFAULT_MAX_TOKENS 这种 fallback 表达式
+        for marker in ["Some(800)", "Some(1200)", "Some(1500)"] {
+            assert!(
+                !fn_body.contains(marker),
+                "§227: hardcoded {} still in resolve_max_tokens_for_model body, must fallthrough to DEFAULT_MAX_TOKENS. body=...",
+                marker
+            );
+        }
     }
 
     #[test]

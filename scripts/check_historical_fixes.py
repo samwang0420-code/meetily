@@ -2712,6 +2712,19 @@ ANCHORS = [
     ("226_overlap_150",
      "frontend/src-tauri/src/summary/processor.rs",
      r"const OVERLAP: usize = 150;"),
+    # === §227 (2026-09-10 立): resolve_max_tokens_for_model 跟 DEFAULT 同步 — 1 处改全部生效 ===
+    ("227_resolve_max_tokens_uses_default",
+     "frontend/src-tauri/src/summary/service.rs",
+     r"let default = crate::summary::summary_engine::models::DEFAULT_MAX_TOKENS as u32;"),
+    ("227_no_hardcoded_1200_in_resolve",
+     "frontend/src-tauri/src/summary/service.rs",
+     r"§227 \(2026-09-10\): 所有 per-branch 硬编码 800/1200/1500 都改 fallthrough 到"),
+    ("227_section_test_exists",
+     "frontend/src-tauri/src/summary/service.rs",
+     r"section_227_no_hardcoded_max_tokens_remain"),
+    ("227_section_test_imports_default",
+     "frontend/src-tauri/src/summary/service.rs",
+     r"use crate::summary::summary_engine::models::DEFAULT_MAX_TOKENS;"),
 ]
 
 
