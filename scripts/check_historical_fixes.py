@@ -10,6 +10,7 @@ exit code blocks release binary.
 from __future__ import annotations
 import argparse
 import os
+import re
 import subprocess
 import sys
 
@@ -2761,6 +2762,68 @@ def main() -> int:
         print("STRICT MODE: refusing release binary.", file=sys.stderr)
         return 1
     return 0 if failed == 0 else 2
+
+
+
+
+
+
+
+# §229 (2026-09-11): 摘要质量塌陷 — 7 项修复铁律 (多案件检测 + 6 prompt 强约束)
+ANCHORS.extend([
+    # §229A: 多案件 transcript 检测 (法人/多角色)
+    ("229_a_extract_multi_case_parties",
+     "frontend/src-tauri/src/summary/fact_guard.rs",
+     r"fn extract_multi_case_parties\(transcript:\s*&str\) -> \(Vec<PartyRef>"),
+    ("229_a_detect_multi_case_transcript",
+     "frontend/src-tauri/src/summary/fact_guard.rs",
+     r"pub fn detect_multi_case_transcript\(transcript:\s*&str\) -> MultiCaseTranscriptReport"),
+    ("229_a_person_re_includes_daibiao",
+     "frontend/src-tauri/src/summary/fact_guard.rs",
+     r"市人大代表.*?人大代表.*?主任.*?书记.*?律师.*?代理人"),
+    ("229_a_entity_re_includes_rongzi_zulin",
+     "frontend/src-tauri/src/summary/fact_guard.rs",
+     r"融资租赁公司.*?公务机.*?航空.*?有限责任公司"),
+
+    # §229B: wrap 触发条件加固
+    ("229_b_wrap_uses_multi_case_report",
+     "frontend/src-tauri/src/summary/fact_guard.rs",
+     r"let multi_case_report = detect_multi_case_transcript\(transcript\);"),
+
+    # §229C-G: 5 个 prompt const 在 processor.rs
+    ("229_c_dispute_rule_in_processor",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"const P229_DISPUTE_RULE:\s*&str = r#"),
+    ("229_d_timeline_rule_in_processor",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"const P229_TIMELINE_ORDER:\s*&str = r#"),
+    ("229_e_table_rule_in_processor",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"const P229_TABLE_FORMAT:\s*&str = r#"),
+    ("229_f_evidence_rule_in_processor",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"const P229_EVIDENCE_RULE:\s*&str = r#"),
+    ("229_g_cause_rule_in_processor",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"const P229_CAUSE_RULE:\s*&str = r#"),
+
+    # §229 注入到 build_final_report_system_prompt
+    ("229_inject_dispute_in_prompt",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"2\.10\. \{P229_DISPUTE_RULE\}"),
+    ("229_inject_timeline_in_prompt",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"2\.11\. \{P229_TIMELINE_ORDER\}"),
+    ("229_inject_table_in_prompt",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"2\.12\. \{P229_TABLE_FORMAT\}"),
+    ("229_inject_evidence_in_prompt",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"2\.13\. \{P229_EVIDENCE_RULE\}"),
+    ("229_inject_cause_in_prompt",
+     "frontend/src-tauri/src/summary/processor.rs",
+     r"2\.14\. \{P229_CAUSE_RULE\}"),
+])
 
 
 if __name__ == "__main__":

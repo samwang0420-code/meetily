@@ -882,6 +882,202 @@ pub fn detect_attribution_confusion(transcript: &str, summary: &str) -> Vec<Stri
 /// 1. 提取 transcript canonical 人名集合 (3-4 字姓氏开头, transcript 实际出现)
 /// 2. 扫 summary 所有人名 token
 /// 3. 对每个非 canonical token: 用 CONFUSABLE_PAIRS 替换每个字符, 看哪个变体在 transcript
+/// §229A: 多案件 transcript 检测 — 扩法人/多角色识别
+///
+/// 触发场景 (2026-09-11 meeting-c1299582): 179 段 transcript 实际拼接了 2 个独立案件
+/// (洪某案 - 民间借贷 + 飞机案 - 融资租赁合同), 但两个案件主体都不带 "被告人" 前缀:
+///   - 洪某案: "市人大代表洪某" / "陈某一家" (人 + "一家"集合名)
+///   - 飞机案: "重庆通航融资租赁公司" / "山西神飞公务机有限公司" (法人)
+/// 老 §185.6 只识别 "被告人X" 模式, 漏了法人 + 多角色主体 → cross_case_pollution: []
+/// → §165 wrap 不触发 → 整个飞机案被 LLM 当 single-case 走流程 → 飞机案完全丢失
+///
+/// 新检测策略 (5 角色 + 法人 + 案件切换信号):
+/// 1. natural_person: 原告/被告/申请人/被执行人 + 人名 (2-4 字)
+/// 2. legal_entity: 公司/融资租赁公司/公务机有限公司/航空公司 + 前置地理名
+/// 3. entity_pronoun: "重庆公司"/"山西公司"/"申请公司" 等代称
+/// 4. case_switch_signal: 12 词法庭/法制节目切场标记
+/// 5. role_pair: 申请人/被执行人/出租人/承租人/原告/被告 多组合
+///
+/// 输出: MultiCaseTranscriptReport { first_party, second_party, signal_segments, has_multi_case }
+/// caller (wrap_summary_as_multi_case_array §229B) 拿 has_multi_case 决定 wrap
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
+pub struct MultiCaseTranscriptReport {
+    pub first_party: Option<PartyRef>,
+    pub second_party: Option<PartyRef>,
+    pub signal_segments: Vec<String>,
+    pub has_multi_case: bool,
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Default)]
+pub struct PartyRef {
+    pub name: String,
+    pub role: String, // "natural_person" | "legal_entity" | "legal_entity_pronoun"
+}
+
+/// §229A 法人/多角色识别 — 3 regex 模式 + 12 信号词
+fn extract_multi_case_parties(transcript: &str) -> (Vec<PartyRef>, Vec<String>) {
+    use std::collections::HashSet;
+
+    // §229A.1 案件切换信号词 (12 词, 法庭/法制节目/纪录片 transcript 常见)
+    static SWITCH_SIGNALS: &[&str] = &[
+        "下集", "下期", "下回", "敬请期待", "感谢您收看", "感谢收看",
+        "明天播出", "后天播出", "即将播出", "接下来为您播出",
+        "下面继续关注", "庭审现场正在播出",
+    ];
+
+    let mut signals = Vec::new();
+    for sig in SWITCH_SIGNALS {
+        if transcript.contains(sig) {
+            signals.push((*sig).to_string());
+        }
+    }
+
+    let mut parties: Vec<PartyRef> = Vec::new();
+    let mut seen_keys: HashSet<String> = HashSet::new();
+    let stop_words = ["席", "座位", "权利", "因", "男", "一", "九", "于", "被", "当", "未", "已", "年", "对", "和"];
+
+    // §229A.2 natural person — 5 角色前缀 (被告人/罪犯/被告/原告/申请人/被执行人)
+    static PERSON_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"(?:被告人|罪犯|被告|原告|申请人|被执行人|市人大代表|人大代表|代表|主任|书记|律师|代理人)([\u4e00-\u9fa5]{2,4}?)").unwrap()
+    });
+    for cap in PERSON_RE.captures_iter(transcript) {
+        if let Some(m) = cap.get(1) {
+            let raw = m.as_str();
+            if raw.is_empty()
+                || stop_words.contains(&raw)
+                || raw.ends_with("公司")
+                || raw.ends_with("厂")
+                || raw.ends_with("店")
+                || raw.ends_with("院")
+                || raw.ends_with("局")
+            {
+                continue;
+            }
+            if !seen_keys.contains(raw) {
+                seen_keys.insert(raw.to_string());
+                parties.push(PartyRef {
+                    name: raw.to_string(),
+                    role: "natural_person".to_string(),
+                });
+            }
+        }
+    }
+
+    // §229A.3 legal entity — 4 公司类型后缀 (融资租赁/公务机/航空/有限公司)
+    static ENTITY_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(
+            r"([\u4e00-\u9fa5]{2,8}(?:融资租赁公司|公务机(?:有限)?公司|航空(?:有限)?公司|有限责任公司))",
+        )
+        .unwrap()
+    });
+    for cap in ENTITY_RE.captures_iter(transcript) {
+        if let Some(m) = cap.get(1) {
+            let raw = m.as_str();
+            // 提取核心公司名 (去后缀) 用于去重, "重庆通航融资租赁公司" → "重庆通航"
+            let core = raw
+                .replace("融资租赁公司", "")
+                .replace("公务机有限公司", "")
+                .replace("公务机公司", "")
+                .replace("航空公司", "")
+                .replace("航空有限公司", "")
+                .replace("有限责任公司", "");
+            if core.is_empty() || stop_words.contains(&core.as_str()) {
+                continue;
+            }
+            if !seen_keys.contains(&core) {
+                seen_keys.insert(core.clone());
+                parties.push(PartyRef {
+                    name: core,
+                    role: "legal_entity".to_string(),
+                });
+            }
+        }
+    }
+
+    // §229A.4 公司代称 (重庆公司/山西公司) — 法人精确名匹配不到时, 用代称
+    static ENTITY_PRONOUN_RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"(重庆|山西|北京|上海|广州|深圳)(公司|融资租赁)").unwrap()
+    });
+    for cap in ENTITY_PRONOUN_RE.captures_iter(transcript) {
+        if let Some(m) = cap.get(0) {
+            let raw = m.as_str();
+            let key = format!("PRONOUN_{}", raw);
+            if !seen_keys.contains(&key) {
+                seen_keys.insert(key);
+                parties.push(PartyRef {
+                    name: raw.to_string(),
+                    role: "legal_entity_pronoun".to_string(),
+                });
+            }
+        }
+    }
+
+    (parties, signals)
+}
+
+/// §229A 主入口 — 检测 transcript 是否拼接多个独立案件
+///
+/// 触发条件 (任一):
+/// 1. 案件切换信号 ≥ 1 (法制节目/纪录片切场)
+/// 2. ≥ 2 个不同 natural_person 被告人 (老 §185.6 覆盖)
+/// 3. ≥ 1 个 natural_person + ≥ 1 个 legal_entity (B2B 合同纠纷典型 - 飞机案)
+/// 4. ≥ 2 个 legal_entity (公司 vs 公司)
+pub fn detect_multi_case_transcript(transcript: &str) -> MultiCaseTranscriptReport {
+    let (parties, signals) = extract_multi_case_parties(transcript);
+    let mut report = MultiCaseTranscriptReport {
+        signal_segments: signals.clone(),
+        ..Default::default()
+    };
+
+    if !signals.is_empty() {
+        // 法制节目/纪录片切场, 直接判多案件
+        report.has_multi_case = true;
+        report.first_party = parties.first().cloned();
+        report.second_party = parties.get(1).cloned();
+        return report;
+    }
+
+    let n_person = parties
+        .iter()
+        .filter(|p| p.role == "natural_person")
+        .count();
+    let n_entity = parties
+        .iter()
+        .filter(|p| p.role.starts_with("legal_entity"))
+        .count();
+
+    // 场景 A: ≥ 2 个 natural_person (老 §185.6 覆盖)
+    if n_person >= 2 {
+        report.has_multi_case = true;
+        report.first_party = parties.first().cloned();
+        report.second_party = parties.get(1).cloned();
+        return report;
+    }
+
+    // 场景 B: ≥ 1 自然人 + ≥ 1 法人 = B2B 合同纠纷典型 (飞机案)
+    if n_person >= 1 && n_entity >= 1 {
+        report.has_multi_case = true;
+        report.first_party = parties.iter().find(|p| p.role == "natural_person").cloned();
+        report.second_party = parties
+            .iter()
+            .find(|p| p.role.starts_with("legal_entity"))
+            .cloned();
+        return report;
+    }
+
+    // 场景 C: ≥ 2 个法人 (公司 vs 公司)
+    if n_entity >= 2 {
+        report.has_multi_case = true;
+        report.first_party = parties.first().cloned();
+        report.second_party = parties.get(1).cloned();
+        return report;
+    }
+
+    report
+}
+
+/// §161 A1: 跨案件污染检测
+
 /// §161 A1: 跨案件污染检测
 ///
 /// 触发场景 (2026-08-23 meeting-709b4aba): 一段录音实际拼接了 2 个不同案件
@@ -1976,35 +2172,46 @@ pub fn wrap_summary_as_multi_case_array(
     transcript: &str,
     summary: &str,
 ) -> Option<String> {
+    // §229B: 触发条件加固 — 老逻辑只信 detect_cross_case_pollution (老 §185.6)
+    // 但 §185.6 只识别人被告人, 不识法人 (e.g. 重庆通航/山西神飞),
+    // 导致 B2B 合同纠纷 + 多案件 漏报.
+    // 新触发条件: 老 cross_case_pollution 非空 **OR** §229A multi_case_transcript has_multi_case
     let issues = detect_cross_case_pollution(transcript, summary);
-    if issues.is_empty() {
+    let multi_case_report = detect_multi_case_transcript(transcript);
+
+    // 提取 first/second party (§229A 提供)
+    let first_party = multi_case_report
+        .first_party
+        .as_ref()
+        .map(|p| p.name.clone());
+    let second_party = multi_case_report
+        .second_party
+        .as_ref()
+        .map(|p| p.name.clone());
+
+    // 决定是否触发 wrap
+    let should_wrap = !issues.is_empty() || multi_case_report.has_multi_case;
+    if !should_wrap {
+        return None;
+    }
+    // 必须有至少 2 个不同案件主体 (否则 single-case 也满足某些信号词)
+    if first_party.is_none() || second_party.is_none() {
         return None;
     }
 
-    // 提取 first/second defendant (复用 detect 逻辑)
-    use std::collections::HashSet;
-    static DEFENDANT_RE: Lazy<Regex> = Lazy::new(|| Regex::new(
-        r"(?:被告人|罪犯|被告)([\u4e00-\u9fa5]{2,3}?)"
-    ).unwrap());
-    let mut defendants: Vec<String> = Vec::new();
-    let mut seen: HashSet<String> = HashSet::new();
-    let stop_words = ["席", "座位", "权利", "因", "男", "一", "九", "于", "被", "当", "未", "已", "年"];
-    for cap in DEFENDANT_RE.captures_iter(transcript) {
-        if let Some(m) = cap.get(1) {
-            let name = m.as_str().to_string();
-            if !name.is_empty() && !seen.contains(&name) && !stop_words.contains(&name.as_str()) {
-                seen.insert(name.clone());
-                defendants.push(name);
-            }
-        }
-    }
-    if defendants.len() < 2 {
-        return None;
-    }
-    let first_defendant = defendants[0].clone();
-    let second_defendant = defendants[defendants.len() - 1].clone();
+    let first_defendant = first_party.unwrap();
+    let second_defendant = second_party.unwrap();
 
     // 包装为 JSON 数组 — 保持原 markdown 作为 case[0], 加 case[1] 待补
+    // warning 优先用老 cross_case_pollution issues (含 high_risk word), 否则用 multi_case report
+    let warning_text = if !issues.is_empty() {
+        issues.join("; ")
+    } else {
+        format!(
+            "§229A 多案件检测: transcript 拼接独立案件, 第二个案件 (主语: {}) 未被摘要覆盖, 请核对 transcript",
+            second_defendant
+        )
+    };
     let json = format!(
         concat!(
             "[\n",
@@ -2025,7 +2232,7 @@ pub fn wrap_summary_as_multi_case_array(
         first = first_defendant,
         second = second_defendant,
         content_json = serde_json::to_string(summary).unwrap_or_else(|_| String::from("")),
-        warning_json = serde_json::to_string(&issues.join("; ")).unwrap_or_else(|_| String::from("")),
+        warning_json = serde_json::to_string(&warning_text).unwrap_or_else(|_| String::from("")),
     );
     Some(json)
 }
@@ -2066,6 +2273,85 @@ mod p165_multi_case_tests {
         assert!(out.is_none());
     }
 }
+#[cfg(test)]
+mod p229_multi_case_prompt_tests {
+    use super::*;
+
+    // ============================================================================
+    // §229A: 多案件 transcript 检测 (扩法人/角色)
+    // ============================================================================
+
+    #[test]
+    fn section_229a_detect_multi_case_natural_person_pair() {
+        // 老 §185.6 场景: 2 个 natural_person 被告人
+        let transcript = "被告人三小因故意伤害被起诉. 另案中被告人赵某因交通肇事被起诉";
+        let report = detect_multi_case_transcript(transcript);
+        assert!(report.has_multi_case, "should detect 2 defendants: {:?}", report);
+        assert_eq!(report.first_party.as_ref().unwrap().role, "natural_person");
+        assert_eq!(report.second_party.as_ref().unwrap().role, "natural_person");
+    }
+
+    #[test]
+    fn section_229a_detect_multi_case_natural_plus_legal_entity() {
+        // c1299582 真实场景: 1 个 natural_person (洪某) + 1 个 legal_entity (重庆通航/山西神飞)
+        let transcript = "市人大代表洪某向陈某一家借款三千余万元拒不执行。重庆通航融资租赁公司与山西神飞公务机公司因融资租赁合同纠纷执行案";
+        let report = detect_multi_case_transcript(transcript);
+        assert!(report.has_multi_case, "B2B 案应检测多案件: {:?}", report);
+        let first = report.first_party.as_ref().unwrap();
+        let second = report.second_party.as_ref().unwrap();
+        // first 必须是 natural_person, second 必须是 legal_entity 或 pronoun
+        assert!(
+            first.role == "natural_person" || first.role == "natural_person",
+            "first should be natural_person: {:?}", first
+        );
+        assert!(
+            second.role.starts_with("legal_entity"),
+            "second should be legal entity: {:?}", second
+        );
+    }
+
+    #[test]
+    fn section_229a_no_multi_case_single_defendant() {
+        let transcript = "被告人洪某向陈某一家借款三千余万元拒不执行";
+        let report = detect_multi_case_transcript(transcript);
+        assert!(!report.has_multi_case, "single defendant should not trigger: {:?}", report);
+    }
+
+    #[test]
+    fn section_229a_case_switch_signals_trigger() {
+        // 法制节目切场信号
+        let transcript = "本案被告人张三因盗窃罪被起诉。庭审现场正在播出: 下一个案件被告人李四因诈骗罪被起诉";
+        let report = detect_multi_case_transcript(transcript);
+        assert!(report.has_multi_case, "case switch signal should trigger: {:?}", report);
+        assert!(!report.signal_segments.is_empty(), "should record signals: {:?}", report.signal_segments);
+    }
+
+    // ============================================================================
+    // §229B: wrap_summary_as_multi_case_array 触发条件加固
+    // ============================================================================
+
+    #[test]
+    fn section_229b_wrap_triggers_on_legal_entity_even_without_political_pollution() {
+        // c1299582 场景: cross_case_pollution 空 (无 high_risk word), 但 multi_case_transcript 命中
+        let transcript = "市人大代表洪某向陈某一家借款三千余万元拒不执行。重庆通航融资租赁公司与山西神飞公务机公司因融资租赁合同纠纷";
+        let summary = "## 案件基本信息\n案由: 民间借贷纠纷\n被告人: 洪某";  // summary 完全没提飞机案
+        let out = wrap_summary_as_multi_case_array(transcript, summary);
+        assert!(out.is_some(), "should wrap even when summary drops 2nd case: {:?}", out);
+        let json = out.unwrap();
+        assert!(json.starts_with("[\n"), "should be JSON array");
+        //  should mention both parties (洪某 + 重庆通航/山西神飞/重庆公司)
+        assert!(json.contains("洪某"), "first party 洪某 present: {}", &json[..300]);
+    }
+
+    #[test]
+    fn section_229b_wrap_does_not_trigger_single_defendant() {
+        let transcript = "被告人洪某向陈某一家借款三千余万元拒不执行";
+        let summary = "本案民间借贷纠纷";
+        let out = wrap_summary_as_multi_case_array(transcript, summary);
+        assert!(out.is_none(), "should not wrap single-defendant case");
+    }
+}
+
 
     // ============================================================================
     // §199.6 (2026-08-30) 日期归一化 — 中文↔阿拉伯数字 同一日期不应误报 unexpected
