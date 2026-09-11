@@ -2571,10 +2571,10 @@ ANCHORS = [
      r"section_204_global_conflict_in_markdown_table"),
     ("215_qwen25_3b_context_4k",
      "frontend/src-tauri/src/summary/summary_engine/models.rs",
-     r"§222: §217 8K 不够 chunk 2 prompt 9074 tokens"),
+     r"§228.*cache 命中 final stage prompt"),
     ("215_qwen25_3b_test_assertion_8k",
      "frontend/src-tauri/src/summary/summary_engine/models.rs",
-     r"assert_eq!\(qwen_3b\.context_size, 16384\);.*§222"),
+     r"qwen_3b\.context_size,\s*24576"),
     ("215_llama_helper_kv_cache_import",
      "llama-helper/src/main.rs",
      r"use llama_cpp_2::context::params::LlamaContextParams"),
@@ -2589,10 +2589,10 @@ ANCHORS = [
      r"Q4_0 KV 留给将来"),
     ("217_qwen25_3b_context_8k",
      "frontend/src-tauri/src/summary/summary_engine/models.rs",
-     r"context_size: 16384.*§222"),
+     r"context_size:\s*24576.*§228"),
     ("217_qwen25_3b_test_assertion_8k",
      "frontend/src-tauri/src/summary/summary_engine/models.rs",
-     r"assert_eq!\(qwen_3b\.context_size, 16384\);.*§222"),
+     r"qwen_3b\.context_size,\s*24576"),
     # §223 (2026-09-10): KV cache Q4_0 + n_ctx=16K 触发 'failed to eval' (memory->init_batch 失败)
     #   修复: 加 with_n_ubatch(N_BATCH) 显式设物理 batch size + 改 KV 回 F16 default + stderr → log file
     ("223_n_ubatch_set",
@@ -2667,10 +2667,10 @@ ANCHORS = [
     # 必须 n_ctx >= prompt tokens 才能 decode 通过 GGML_ASSERT(n_tokens_all <= cparams.n_batch)
     ("222_qwen25_3b_context_16k",
      "frontend/src-tauri/src/summary/summary_engine/models.rs",
-     r"context_size: 16384.*§222"),
+     r"context_size:\s*24576.*§228"),
     ("222_qwen25_3b_test_assertion_16k",
      "frontend/src-tauri/src/summary/summary_engine/models.rs",
-     r"assert_eq!\(qwen_3b\.context_size, 16384\)"),
+     r"qwen_3b\.context_size,\s*24576"),
     # === §225: max_tokens 链路传透 + DEFAULT 1200 (2026-09-10 立) ===
     ("225_default_max_tokens_1200",
      "frontend/src-tauri/src/summary/summary_engine/models.rs",
@@ -2765,3 +2765,29 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# §228 (2026-09-11): Qwen 2.5 3B context_size 16K→24K — cache 命中 final stage prompt 18385 tokens
+SECTION_228_ANCHORS = [
+    {
+        "id": "228_qwen25_3b_context_24k",
+        "description": "Qwen 2.5 3B context_size 24576 (§228)",
+        "file": "frontend/src-tauri/src/summary/summary_engine/models.rs",
+        "pattern": r"context_size:\s*24576.*?//\s*§228",
+        "required": True,
+    },
+    {
+        "id": "228_qwen25_3b_test_assertion_24k",
+        "description": "Qwen 2.5 3B unit test context_size 24576 (§228)",
+        "file": "frontend/src-tauri/src/summary/summary_engine/models.rs",
+        "pattern": r"qwen_3b\.context_size,\s*24576",
+        "required": True,
+    },
+    {
+        "id": "228_qwen25_3b_bpe_chinese_14_comment",
+        "description": "§228 注释提到 Qwen 2.5 中文 BPE 1.4 token/char",
+        "file": "frontend/src-tauri/src/summary/summary_engine/models.rs",
+        "pattern": r"Qwen 2\.5 中文 BPE.*?1\.4 token",
+        "required": True,
+    },
+]

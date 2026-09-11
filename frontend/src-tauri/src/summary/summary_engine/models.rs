@@ -212,7 +212,14 @@ pub fn get_available_models() -> Vec<ModelDef> {
             template: "qwen2.5".to_string(),
             download_url: "https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf".to_string(),
             size_mb: 2100,  // ~2.1GB Q4_K_M for 3B params
-            context_size: 16384, // §222: §217 8K 不够 chunk 2 prompt 9074 tokens (system 7058 + chunk 1800 + template 200 = 9058 > 8192). §220 修 batch_size=16384 但 llama.cpp causal_attn 把 n_batch 静默 cap 到 n_ctx (cparams.n_batch = causal_attn ? min(n_ctx, params.n_batch) : params.n_batch), 必须 n_ctx >= prompt tokens. 16K 装得下 chunk (max ~9K) + 800 output = ~10K. KV Q4_0 额外 0.08 GB (0.16 GB total), 8GB 仍 ok
+            context_size: 24576, // §228 (2026-09-11): §222 16K 不够 cache 命中 final stage prompt 18385 tokens.
+            //   根因: §222 注释用 "0.35 token/char" 是英文估算, Qwen 2.5 中文 BPE 实际 1.4 token/char.
+            //   7 个 system const (10443 chars × 1.4) + cached english (1832 chars × 1.4) +
+            //   fact_check_reminder + max_tokens 1000 = ~18385 tokens > 16384.
+            //   c1299582 跑通因为走 Map-Reduce, 每 chunk ~2340 tokens + system 14620 = ~17000 也临界.
+            //   24K = 14620 (const) + 2564 (cache) + 200 (fact_check) + 1000 (max_tokens) + ~6500 buffer.
+            //   KV F16 24K ≈ 0.5 GB (16K 是 0.32 GB, 加 0.18 GB), M3 8GB 还有 ~3.5 GB headroom.
+            //   Qwen 2.5 3B native 32K (§215 注释), 24K 不到 native 但远超实际需求.
             layer_count: 36,
             sampling: SamplingParams::qwen25_summary(vec!["<|im_end|>".to_string()]),
             description: "Qwen 2.5 3B Instruct - replaces Qwen 3.5 2B. Better instruction following and Chinese accuracy for legal/medical summary.".to_string(),
@@ -461,7 +468,7 @@ mod tests {
             "https://huggingface.co/bartowski/Qwen2.5-3B-Instruct-GGUF/resolve/main/Qwen2.5-3B-Instruct-Q4_K_M.gguf"
         );
         assert_eq!(qwen_3b.size_mb, 2100);
-        assert_eq!(qwen_3b.context_size, 16384); // §222: 8K 不够 chunk 2 prompt 9074 tokens, §217 测试更新到 16K (KV Q4_0 0.16 GB, M3 8GB ok)
+        assert_eq!(qwen_3b.context_size, 24576); // §228: 16K 不够 cache 命中 final stage prompt 18385 tokens (Qwen 中文 BPE 1.4 token/char)
         assert_eq!(qwen_3b.layer_count, 36);
         assert_eq!(qwen_3b.sampling, SamplingParams::qwen25_summary(vec!["<|im_end|>".to_string()]));
 
