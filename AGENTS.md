@@ -4872,3 +4872,42 @@ git push origin --delete codex/spark-x2.5-integration # 远端删
 - §197 (baseline 7.44 tok/s, 已实测验证不被 XHToken fork 替代)
 - §195 + §200 (用户授权直接做)
 - §89 (cargo clean 教训, Python shutil.rmtree 清理大目录)
+
+## §228 Qwen 2.5 3B context 16K→24K — cache 命中 final stage prompt 18385 tokens (2026-09-11)
+
+**触发**: 用户 9/11 12:31 触发 meeting-b0297a12 regenerate 失败, "Failed to add token to batch".
+
+**根因**: §222 设 n_ctx 16384 不够 cache 命中 final stage prompt:
+- 7 system consts (10443 chars × 1.4 BPE) = 14620 tokens
+- cached english (1832 chars × 1.4) = 2564 tokens
+- fact_check + hotwords = ~200 tokens
+- max_tokens 1000 = 1000 tokens
+- TOTAL = ~18385 tokens > n_ctx 16384 ❌
+
+§222 注释用 "0.35 token/char" 是英文估算, **Qwen 2.5 中文 BPE 实际 1.4 token/char**.
+
+**修复**: `frontend/src-tauri/src/summary/summary_engine/models.rs:215` `context_size: 16384 → 24576` (§228 commit `aa53638`)
+
+**铁律**:
+1. **Qwen 2.5 中文 BPE token 比率 1.4 token/char**(不是 §222 估的 0.35)
+2. **cache 命中 ≠ Map-Reduce** — cache 命中 final stage prompt 包含全部 system const + cached summary
+3. **n_ctx ≥ system_consts_tokens + max_cached_summary_tokens + max_tokens + 30% buffer**
+4. **任何 prompt size 估算必须实测 BPE tokenize**, 不能用 char/token ratio 估算
+5. **§X anchor regex 必须随 context_size 同步** — 防 anchor 误报
+
+**guard**: check_historical_fixes.py 796/796 PASS (§215 §217 §222 anchor regex 改指向 §228 新值)
+
+**binary 验证**:
+- src `target/release/meetily` mtime 12:50, sha `aeadd8c2`
+- bundle `言镜 AI.app/Contents/MacOS/言镜 AI` sha `41e9fe05` (§99.6 sync)
+- reverse-assembled `mov w9, #0x6000` (24576) 出现 2 次 ✓
+- reverse-assembled `mov #0x3e8` (1000) >> `mov #0x4b0` (1200) ✓ §227 fallthrough 也生效
+
+**§15 GUI 验收 (用户必做)**:
+```bash
+killall meetily 2>/dev/null
+open '/Users/wangwei/Documents/离线会记/target/release/言镜 AI.app'
+```
+进 b0297a12 → 重新生成摘要 → 期望不再 "Failed to add token to batch", 30-60 min 完成.
+
+**关联**: [[§228-Qwen-2.5-3B-context-16K到24K-cache命中final-stage-prompt-18385-tokens-2026-09-11]] (Obsidian) / `outputs/§228-...md` (Codex) / §215 §216 §217 §222 §225 §226 §227 §37 §15 §56 §92
