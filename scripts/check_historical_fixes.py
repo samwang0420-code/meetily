@@ -2783,7 +2783,7 @@ ANCHORS.extend([
      r"市人大代表.*?人大代表.*?主任.*?书记.*?律师.*?代理人"),
     ("229_a_entity_re_includes_rongzi_zulin",
      "frontend/src-tauri/src/summary/fact_guard.rs",
-     r"融资租赁公司.*?公务机.*?航空.*?有限责任公司"),
+     r"融资租赁.*?公务机.*?航空.*?有限责任公司"),
 
     # §229B: wrap 触发条件加固
     ("229_b_wrap_uses_multi_case_report",

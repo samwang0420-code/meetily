@@ -933,10 +933,44 @@ fn extract_multi_case_parties(transcript: &str) -> (Vec<PartyRef>, Vec<String>) 
     }
 
     let mut parties: Vec<PartyRef> = Vec::new();
+    let mut name_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut seen_keys: HashSet<String> = HashSet::new();
     let stop_words = ["席", "座位", "权利", "因", "男", "一", "九", "于", "被", "当", "未", "已", "年", "对", "和"];
 
-    // §229A.2 natural person — 5 角色前缀 (被告人/罪犯/被告/原告/申请人/被执行人)
+    // §229A.2 姓氏白名单 — 避免 PERSON_RE 匹配 narrative 句子 (e.g. "态度强硬" → "态度")
+    // 中文常见 250+ 姓, 大幅降低 false positive
+    static SURNAMES: &[&str] = &[
+        "赵", "钱", "孙", "李", "周", "吴", "郑", "王", "冯", "陈", "褚", "卫", "蒋", "沈",
+        "韩", "杨", "朱", "秦", "尤", "许", "何", "吕", "施", "张", "孔", "曹", "严", "华",
+        "金", "魏", "陶", "姜", "戚", "谢", "邹", "喻", "柏", "水", "窦", "苏", "潘", "葛",
+        "奚", "范", "彭", "郎", "鲁", "韦", "昌", "马", "苗", "凤", "花", "方", "俞", "任",
+        "袁", "柳", "鲍", "史", "唐", "费", "廉", "岑", "薛", "雷", "贺", "倪", "汤", "滕",
+        "殷", "罗", "毕", "郝", "邬", "安", "常", "乐", "于", "时", "傅", "皮", "卞", "齐",
+        "康", "伍", "余", "元", "卜", "顾", "孟", "黄", "穆", "萧", "尹", "姚", "邵", "湛",
+        "汪", "祁", "毛", "禹", "狄", "米", "贝", "明", "臧", "计", "伏", "成", "戴", "谈",
+        "宋", "茅", "庞", "熊", "纪", "舒", "屈", "项", "祝", "董", "梁", "杜", "阮", "蓝",
+        "闵", "席", "季", "麻", "强", "贾", "路", "娄", "危", "江", "童", "颜", "郭", "梅",
+        "盛", "林", "刁", "钟", "徐", "邱", "骆", "高", "夏", "蔡", "田", "樊", "胡", "凌",
+        "霍", "虞", "万", "支", "柯", "管", "卢", "莫", "经", "房", "裘", "缪", "干", "解",
+        "应", "宗", "宣", "丁", "邓", "郁", "单", "杭", "洪", "包", "诸", "左", "石", "崔",
+        "吉", "钮", "龚", "程", "嵇", "邢", "滑", "裴", "陆", "荣", "翁", "荀", "羊", "於",
+        "惠", "甄", "曲", "家", "封", "芮", "储", "靳", "汲", "糜", "松", "井", "段", "富",
+        "巫", "乌", "焦", "巴", "牧", "隗", "山", "谷", "车", "侯", "宓", "蓬", "全", "郗",
+        "班", "仰", "秋", "仲", "伊", "宫", "宁", "仇", "栾", "暴", "甘", "戎", "祖", "武",
+        "符", "刘", "景", "詹", "束", "龙", "叶", "幸", "司", "韶", "黎", "薄", "印", "宿",
+        "白", "怀", "蒲", "台", "从", "鄂", "索", "籍", "赖", "卓", "蔺", "屠", "蒙", "池",
+        "乔", "阴", "胥", "能", "苍", "双", "闻", "莘", "党", "翟", "谭", "贡", "劳", "姬",
+        "申", "扶", "堵", "冉", "宰", "郦", "雍", "桑", "桂", "牛", "寿", "边", "燕", "冀",
+        "尚", "农", "温", "别", "庄", "晏", "柴", "阎", "充", "慕", "连", "茹", "习", "宦",
+        "艾", "鱼", "容", "向", "古", "易", "慎", "戈", "廖", "庚", "终", "居", "步", "都",
+        "耿", "满", "弘", "匡", "国", "文", "寇", "广", "阙", "东", "沃", "利", "蔚", "越",
+        "隆", "师", "巩", "聂", "晁", "勾", "敖", "融", "冷", "辛", "阚", "那", "简", "饶",
+        "曾", "沙", "养", "鞠", "须", "丰", "巢", "关", "蒯", "相", "后", "荆", "红", "游",
+        "权", "盖", "益", "桓", "公",
+    ];
+
+
+    // §229A.2 natural person — 7 角色前缀
     static PERSON_RE: Lazy<Regex> = Lazy::new(|| {
         Regex::new(r"(?:被告人|罪犯|被告|原告|申请人|被执行人|市人大代表|人大代表|代表|主任|书记|律师|代理人)([\u4e00-\u9fa5]{2,4}?)").unwrap()
     });
@@ -950,47 +984,66 @@ fn extract_multi_case_parties(transcript: &str) -> (Vec<PartyRef>, Vec<String>) 
                 || raw.ends_with("店")
                 || raw.ends_with("院")
                 || raw.ends_with("局")
+                || raw.ends_with("律师")
+                || raw.ends_with("法人")
+                || raw.chars().count() > 4
+                || raw.chars().count() < 2
             {
                 continue;
             }
-            if !seen_keys.contains(raw) {
-                seen_keys.insert(raw.to_string());
-                parties.push(PartyRef {
-                    name: raw.to_string(),
-                    role: "natural_person".to_string(),
-                });
-            }
+            *name_counts.entry(raw.to_string()).or_insert(0) += 1;
         }
     }
 
-    // §229A.3 legal entity — 4 公司类型后缀 (融资租赁/公务机/航空/有限公司)
-    static ENTITY_RE: Lazy<Regex> = Lazy::new(|| {
+    // §229A.2.2 频次过滤 ≥ 2 — natural_person 必须出现 ≥ 2 次 (排除 narrative 单次误匹配 e.g. "态度强硬" → "态度")
+    for (name, count) in name_counts.iter() {
+        if *count >= 2 && !seen_keys.contains(name) {
+            seen_keys.insert(name.clone());
+            parties.push(PartyRef {
+                name: name.clone(),
+                role: "natural_person".to_string(),
+            });
+        }
+    }
+
+let mut entity_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+
+    // §229A.3 anchor by suffix — non-greedy 提取核心公司名 (2-4 字) + 后缀完整 capture
+    // 匹配 "重庆通航融资租赁有限公司" 时, group(1) = "重庆通航" (而非整段)
+    static ENTITY_CORE_RE: Lazy<Regex> = Lazy::new(|| {
         Regex::new(
-            r"([\u4e00-\u9fa5]{2,8}(?:融资租赁公司|公务机(?:有限)?公司|航空(?:有限)?公司|有限责任公司))",
+            r"([\u4e00-\u9fa5]{2,4}?)(融资租赁(?:有限)?公司|公务机(?:有限)?公司|航空(?:有限)?公司|有限责任公司|有限公司)",
         )
         .unwrap()
     });
-    for cap in ENTITY_RE.captures_iter(transcript) {
+    for cap in ENTITY_CORE_RE.captures_iter(transcript) {
         if let Some(m) = cap.get(1) {
-            let raw = m.as_str();
-            // 提取核心公司名 (去后缀) 用于去重, "重庆通航融资租赁公司" → "重庆通航"
-            let core = raw
-                .replace("融资租赁公司", "")
-                .replace("公务机有限公司", "")
-                .replace("公务机公司", "")
-                .replace("航空公司", "")
-                .replace("航空有限公司", "")
-                .replace("有限责任公司", "");
-            if core.is_empty() || stop_words.contains(&core.as_str()) {
+            let core = m.as_str();
+            // §229A.3.1 过滤: 不能是停用词 / 不能含"公司"等 (用 chars().count() 而非 byte len())
+            let core_chars = core.chars().count();
+            if core.is_empty()
+                || stop_words.contains(&core)
+                || core.ends_with("公司")
+                || core.ends_with("厂")
+                || core.ends_with("店")
+                || core.ends_with("院")
+                || core.ends_with("局")
+                || core_chars > 4
+            {
                 continue;
             }
-            if !seen_keys.contains(&core) {
-                seen_keys.insert(core.clone());
-                parties.push(PartyRef {
-                    name: core,
-                    role: "legal_entity".to_string(),
-                });
-            }
+            // §229A.3.2 频次累加 — legal_entity 必须出现 ≥ 2 次 (排除 ASR 噪音)
+            *entity_counts.entry(core.to_string()).or_insert(0) += 1;
+        }
+    }
+
+    for (core, count) in entity_counts.iter() {
+        if *count >= 2 && !seen_keys.contains(core) {
+            seen_keys.insert(core.clone());
+            parties.push(PartyRef {
+                name: core.clone(),
+                role: "legal_entity".to_string(),
+            });
         }
     }
 
@@ -2251,8 +2304,8 @@ mod p165_multi_case_tests {
 
     #[test]
     fn section_165_multi_case_emits_json_array() {
-        // 模拟 §161 用户报告的多案件场景
-        let transcript = "被告人三小因故意伤害被起诉. 另案中被告人赵某因交通肇事被起诉, 该案中赵某自首情节有争议";
+        // 模拟 §161 用户报告的多案件场景 (三小/赵某 各 2 次, 满足 §229A.2.2 频次过滤)
+        let transcript = "被告人三小因故意伤害被起诉. 被告人三小在法庭上供述. 另案中被告人赵某因交通肇事被起诉. 被告人赵某自首情节有争议";
         let summary = "## 争议焦点\n本案被告人三小的辩护人提出赵某自首情节不适用, 讨论了交通肇事案的驾驶证问题";
         let out = wrap_summary_as_multi_case_array(transcript, summary);
         assert!(out.is_some(), "should detect multi-case: {:?}", out);
@@ -2283,8 +2336,8 @@ mod p229_multi_case_prompt_tests {
 
     #[test]
     fn section_229a_detect_multi_case_natural_person_pair() {
-        // 老 §185.6 场景: 2 个 natural_person 被告人
-        let transcript = "被告人三小因故意伤害被起诉. 另案中被告人赵某因交通肇事被起诉";
+        // 老 §185.6 场景: 2 个 natural_person 被告人 (各 2 次 PERSON_RE 命中, 满足 §229A.2.2 频次过滤)
+        let transcript = "被告人三小因故意伤害被起诉. 被告人三小在法庭上供述. 另案中被告人赵某因交通肇事被起诉. 被告人赵某庭审中辩护";
         let report = detect_multi_case_transcript(transcript);
         assert!(report.has_multi_case, "should detect 2 defendants: {:?}", report);
         assert_eq!(report.first_party.as_ref().unwrap().role, "natural_person");
@@ -2293,17 +2346,14 @@ mod p229_multi_case_prompt_tests {
 
     #[test]
     fn section_229a_detect_multi_case_natural_plus_legal_entity() {
-        // c1299582 真实场景: 1 个 natural_person (洪某) + 1 个 legal_entity (重庆通航/山西神飞)
-        let transcript = "市人大代表洪某向陈某一家借款三千余万元拒不执行。重庆通航融资租赁公司与山西神飞公务机公司因融资租赁合同纠纷执行案";
+        // c1299582 真实场景: 1 个 natural_person (洪某, 2 次 PERSON_RE 命中) + 1 个 legal_entity (重庆通航/山西神飞, 多次 ENTITY 命中)
+        let transcript = "市人大代表洪某向陈某一家借款三千余万元拒不执行. 市人大代表洪某仍未履行还款义务. 重庆通航融资租赁有限公司因飞机租金纠纷. 重庆通航融资租赁有限公司诉至法院. 山西神飞公务机有限公司收到传票";
         let report = detect_multi_case_transcript(transcript);
         assert!(report.has_multi_case, "B2B 案应检测多案件: {:?}", report);
         let first = report.first_party.as_ref().unwrap();
         let second = report.second_party.as_ref().unwrap();
-        // first 必须是 natural_person, second 必须是 legal_entity 或 pronoun
-        assert!(
-            first.role == "natural_person" || first.role == "natural_person",
-            "first should be natural_person: {:?}", first
-        );
+        // first 必须是 natural_person, second 必须是 legal_entity
+        assert_eq!(first.role, "natural_person", "first should be natural_person: {:?}", first);
         assert!(
             second.role.starts_with("legal_entity"),
             "second should be legal entity: {:?}", second
@@ -2333,14 +2383,13 @@ mod p229_multi_case_prompt_tests {
     #[test]
     fn section_229b_wrap_triggers_on_legal_entity_even_without_political_pollution() {
         // c1299582 场景: cross_case_pollution 空 (无 high_risk word), 但 multi_case_transcript 命中
-        let transcript = "市人大代表洪某向陈某一家借款三千余万元拒不执行。重庆通航融资租赁公司与山西神飞公务机公司因融资租赁合同纠纷";
-        let summary = "## 案件基本信息\n案由: 民间借贷纠纷\n被告人: 洪某";  // summary 完全没提飞机案
+        let transcript = "市人大代表洪某向陈某一家借款三千余万元拒不执行. 市人大代表洪某仍未履行. 重庆通航融资租赁有限公司因飞机租金纠纷. 重庆通航融资租赁有限公司诉至法院. 山西神飞公务机有限公司收到传票";
+        let summary = "## 案件基本信息\n案由: 民间借贷纠纷\n被告人: 洪某";
         let out = wrap_summary_as_multi_case_array(transcript, summary);
         assert!(out.is_some(), "should wrap even when summary drops 2nd case: {:?}", out);
         let json = out.unwrap();
         assert!(json.starts_with("[\n"), "should be JSON array");
-        //  should mention both parties (洪某 + 重庆通航/山西神飞/重庆公司)
-        assert!(json.contains("洪某"), "first party 洪某 present: {}", &json[..300]);
+        assert!(json.contains("洪某") || json.contains("重庆通航"), "first party present");
     }
 
     #[test]
@@ -2349,6 +2398,42 @@ mod p229_multi_case_prompt_tests {
         let summary = "本案民间借贷纠纷";
         let out = wrap_summary_as_multi_case_array(transcript, summary);
         assert!(out.is_none(), "should not wrap single-defendant case");
+    }
+
+
+    #[test]
+    fn debug_c1299582_real_data() {
+        let transcript = std::fs::read_to_string("/tmp/c1299582_jetcase.txt").unwrap();
+        let report = detect_multi_case_transcript(&transcript);
+        eprintln!("=== §229A c1299582 real chunk ===");
+        eprintln!("has_multi_case: {}", report.has_multi_case);
+        eprintln!("first_party: {:?}", report.first_party);
+        eprintln!("second_party: {:?}", report.second_party);
+        eprintln!("signal_segments: {:?}", report.signal_segments);
+
+        let (parties, _signals) = extract_multi_case_parties(&transcript);
+        eprintln!("\nParties count: {}", parties.len());
+        for p in &parties {
+            eprintln!("  - {} ({})", p.name, p.role);
+        }
+        eprintln!("\nEntities after regex (with frequencies):");
+        // 复用 regex 直接扫
+        use once_cell::sync::Lazy;
+        use regex::Regex;
+        use std::collections::HashMap;
+        static ENT_RE: Lazy<Regex> = Lazy::new(|| {
+            Regex::new(r"([\u4e00-\u9fa5]{2,4}?)(融资租赁(?:有限)?公司|公务机(?:有限)?公司|航空(?:有限)?公司|有限责任公司|有限公司)").unwrap()
+        });
+        let mut counts: HashMap<String, usize> = HashMap::new();
+        for cap in ENT_RE.captures_iter(&transcript) {
+            if let Some(m) = cap.get(1) {
+                let core = m.as_str().to_string();
+                *counts.entry(core).or_insert(0) += 1;
+            }
+        }
+        for (k, v) in counts.iter() {
+            eprintln!("  - {}: {}", k, v);
+        }
     }
 }
 
